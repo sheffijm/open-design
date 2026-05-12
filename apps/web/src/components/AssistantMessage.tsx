@@ -417,12 +417,14 @@ function AssistantFeedback({
     onFeedback(nextRating ? { rating: nextRating } : null);
   };
   const toggleReasonCode = (code: ChatMessageFeedbackReasonCode) => {
-    setDraftReasonCodes((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
+    const next = new Set(draftReasonCodes);
+    if (next.has(code)) {
+      next.delete(code);
+      if (code === "other") setCustomReason("");
+    } else {
+      next.add(code);
+    }
+    setDraftReasonCodes(next);
   };
   const submitReasons = () => {
     if (!reasonRating) return;
@@ -430,7 +432,10 @@ function AssistantFeedback({
     onFeedback({
       rating: reasonRating,
       reasonCodes: [...draftReasonCodes],
-      customReason: trimmedCustomReason || undefined,
+      customReason:
+        draftReasonCodes.has("other") && trimmedCustomReason
+          ? trimmedCustomReason
+          : undefined,
       reasonsSubmittedAt: Date.now(),
     });
     setReasonRating(null);
@@ -441,7 +446,7 @@ function AssistantFeedback({
   const reasonEmoji = reasonRating === "positive" ? "😊" : "😔";
   const showOtherInput = draftReasonCodes.has("other");
   const canSubmit =
-    draftReasonCodes.size > 0 || customReason.trim().length > 0;
+    draftReasonCodes.size > 0 || (showOtherInput && customReason.trim().length > 0);
   const controls = (
     <span
       className="assistant-feedback"

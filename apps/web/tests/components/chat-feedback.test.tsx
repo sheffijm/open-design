@@ -274,6 +274,33 @@ describe('chat assistant feedback', () => {
     expect(screen.queryByText('Tell us why')).toBeNull();
   });
 
+  it('clears custom reason when Other is deselected', () => {
+    const { onAssistantFeedback } = renderChatPane({
+      messages: [completedArtifactAssistant()],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Helpful' }));
+    fireEvent.click(screen.getByLabelText('Other'));
+    fireEvent.change(screen.getByPlaceholderText('Add a short note...'), {
+      target: { value: 'This note should not be submitted.' },
+    });
+    fireEvent.click(screen.getByLabelText('Other'));
+    expect(screen.queryByPlaceholderText('Add a short note...')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('Understood my request'));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    expect(onAssistantFeedback).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'assistant-1' }),
+      expect.objectContaining({
+        rating: 'positive',
+        reasonCodes: ['matched_request'],
+        customReason: undefined,
+        reasonsSubmittedAt: expect.any(Number),
+      }),
+    );
+  });
+
   it('uses a sad marker for negative feedback reasons', () => {
     renderChatPane({
       messages: [completedArtifactAssistant()],
