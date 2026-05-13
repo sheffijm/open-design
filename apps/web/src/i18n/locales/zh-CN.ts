@@ -1210,6 +1210,15 @@ export const zhCN: Dict = {
   'critiqueTheater.replaySpeedInstant': '瞬时',
   'critiqueTheater.replaySpeedLive': '实时',
   'critiqueTheater.replaySpeedFast': '快进',
+  'critiqueTheater.settingsNav': '设计评审团',
+  'critiqueTheater.settingsNavHint': '为运行提供五角色设计评审',
+  'critiqueTheater.settingsEnabledLabel': '在 agent 运行时显示设计评审团',
+  'critiqueTheater.settingsEnabledDescription':
+    '启用后，五角色评审会在 agent 生成过程中显示，并在交付前为输出评分。你可以随时中断。',
+  'critiqueTheater.settingsEnabledProjectHint':
+    '已保存到当前项目。此项目的新运行会在服务端通过设计评审团。',
+  'critiqueTheater.settingsEnabledNoProjectHint':
+    '打开项目后才能在服务端持久化；在此之前这里只会修改浏览器内偏好。',
 
   'pet.title': '宠物',
   'pet.tabBuiltIn': '内置',

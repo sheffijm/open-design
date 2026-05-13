@@ -10,6 +10,7 @@ import type { Dirent } from "node:fs";
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
+import type { SkillCritiquePolicy } from "./critique/rollout.js";
 import { SKILLS_CWD_ALIAS } from "./cwd-aliases.js";
 
 // Persisted skill ids on existing projects can outlive a folder rename.
@@ -38,6 +39,7 @@ interface SkillFrontmatter extends JsonRecord {
     craft?: JsonRecord;
     preview?: JsonRecord;
     design_system?: JsonRecord;
+    critique?: JsonRecord;
     category?: unknown;
   };
 }
@@ -75,6 +77,7 @@ export interface SkillInfo {
   animations: boolean | null;
   examplePrompt: string;
   aggregatesExamples: boolean;
+  critiquePolicy: SkillCritiquePolicy;
   body: string;
   dir: string;
 }
@@ -219,6 +222,7 @@ export async function listSkills(
           animations: normalizeBoolHint(data.od?.animations),
           examplePrompt: derivePrompt(data),
           aggregatesExamples,
+          critiquePolicy: normalizeCritiquePolicy(data.od?.critique?.policy),
           body: parentBody,
           dir,
         });
@@ -258,6 +262,7 @@ export async function listSkills(
             animations: normalizeBoolHint(data.od?.animations),
             examplePrompt: derivePrompt(data),
             aggregatesExamples: false,
+            critiquePolicy: normalizeCritiquePolicy(data.od?.critique?.policy),
             // Inherit the parent's full SKILL.md body so 'Use this prompt'
             // on a derived card seeds the agent with the same workflow
             // the parent describes. Without this, picking a derived card
@@ -480,6 +485,13 @@ function normalizeBoolHint(value: unknown): boolean | null {
     if (v === "true" || v === "yes" || v === "1") return true;
     if (v === "false" || v === "no" || v === "0") return false;
   }
+  return null;
+}
+
+function normalizeCritiquePolicy(value: unknown): SkillCritiquePolicy {
+  if (typeof value !== "string") return null;
+  const v = value.trim().toLowerCase();
+  if (v === "required" || v === "opt-in" || v === "opt-out") return v;
   return null;
 }
 

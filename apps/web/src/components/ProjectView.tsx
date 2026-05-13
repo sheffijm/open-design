@@ -94,6 +94,10 @@ import {
 import { AppChromeHeader } from './AppChromeHeader';
 import { AvatarMenu } from './AvatarMenu';
 import { ChatPane } from './ChatPane';
+import {
+  CritiqueTheaterMount,
+  useCritiqueTheaterEnabled,
+} from './Theater';
 import { decideAutoOpenAfterWrite } from './auto-open-file';
 import { FileWorkspace } from './FileWorkspace';
 import { Icon } from './Icon';
@@ -2367,8 +2371,14 @@ export function ProjectView({
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
   }, [designMdState.exists, handleContinueInCli]);
 
+  const critiqueTheaterEnabled = useCritiqueTheaterEnabled();
+
   return (
     <div className="app">
+      <CritiqueTheaterMount
+        projectId={project.id}
+        enabled={critiqueTheaterEnabled}
+      />
       <AppChromeHeader
         onBack={onBack}
         backLabel={t('project.backToProjects')}
