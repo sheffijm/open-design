@@ -968,6 +968,21 @@ describe('SettingsDialog media providers interactions', () => {
     expect(bflBaseUrl.disabled).toBe(true);
   });
 
+  it('renders ElevenLabs as an integrated media provider with enabled inputs', () => {
+    renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex' },
+      { initialSection: 'media' },
+    );
+
+    const apiKeyInput = screen.getByLabelText('ElevenLabs API key') as HTMLInputElement;
+    const baseUrlInput = screen.getByLabelText('ElevenLabs Base URL') as HTMLInputElement;
+    const row = apiKeyInput.closest('.media-provider-row') as HTMLElement;
+
+    expect(within(row).getByText('Integrated')).toBeTruthy();
+    expect(apiKeyInput.disabled).toBe(false);
+    expect(baseUrlInput.disabled).toBe(false);
+  });
+
   it('clears an existing provider config and removes it from the persisted payload', async () => {
     const { onPersist } = renderSettingsDialog(
       {
@@ -1462,42 +1477,30 @@ describe('SettingsDialog language interactions', () => {
     document.documentElement.removeAttribute('dir');
   });
 
-  it('opens the language menu and marks the current locale as selected', async () => {
+  it('shows every locale as a tile and marks the current locale as selected', async () => {
     renderLanguageSettingsDialog('en');
 
-    const trigger = screen.getByRole('button', { name: /English/i });
-    fireEvent.click(trigger);
-
-    const options = await screen.findAllByRole('menuitemradio');
-    expect(options).toHaveLength(LOCALES.length);
-    expect(screen.getByRole('menuitemradio', { name: /English/i }).getAttribute('aria-checked')).toBe('true');
-    expect(screen.getByRole('menuitemradio', { name: /简体中文/i }).getAttribute('aria-checked')).toBe('false');
+    const tiles = await screen.findAllByRole('radio');
+    expect(tiles).toHaveLength(LOCALES.length);
+    expect(screen.getByRole('radio', { name: /English/i }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('radio', { name: /简体中文/i }).getAttribute('aria-checked')).toBe('false');
   });
 
-  it('switches locale immediately, updates localStorage, and closes the menu', async () => {
+  it('switches locale immediately and updates localStorage', async () => {
     renderLanguageSettingsDialog('en');
 
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: /简体中文/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /简体中文/i }));
 
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByRole('button', { name: /简体中文/i })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /简体中文/i }).getAttribute('aria-checked')).toBe('true');
     expect(window.localStorage.getItem('open-design:locale')).toBe('zh-CN');
     expect(document.documentElement.getAttribute('lang')).toBe('zh-CN');
     expect(document.documentElement.getAttribute('dir')).toBe('ltr');
   });
 
-  it('sets rtl direction for rtl locales and closes the menu on escape', async () => {
+  it('sets rtl direction for rtl locales', async () => {
     renderLanguageSettingsDialog('en');
 
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => {
-      expect(screen.queryByRole('menu')).toBeNull();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: /فارسی/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /فارسی/i }));
 
     expect(window.localStorage.getItem('open-design:locale')).toBe('fa');
     expect(document.documentElement.getAttribute('lang')).toBe('fa');
@@ -1507,8 +1510,7 @@ describe('SettingsDialog language interactions', () => {
   it('does not route language changes through autosave and closing does not revert an applied locale', async () => {
     const { onPersist, onClose } = renderLanguageSettingsDialog('en');
 
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: /Deutsch/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Deutsch/i }));
 
     expect(window.localStorage.getItem('open-design:locale')).toBe('de');
     expect(document.documentElement.getAttribute('lang')).toBe('de');
@@ -1669,6 +1671,16 @@ describe('SettingsDialog appearance interactions', () => {
     expect(screen.getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('applies the first accent color as the default appearance color', () => {
+    renderSettingsDialog(
+      { theme: 'system' },
+      { initialSection: 'appearance' },
+    );
+
+    expect(screen.getByRole('radio', { name: 'Default accent color' }).getAttribute('aria-checked')).toBe('true');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#c96442');
+  });
+
   it('live previews explicit themes and removes the explicit document theme when switching back to System', () => {
     renderSettingsDialog(
       { theme: 'dark' },
@@ -1719,6 +1731,48 @@ describe('SettingsDialog appearance interactions', () => {
       }),
       {},
     );
+  });
+
+  it('switches back to the default accent color and persists it explicitly', async () => {
+    const { onPersist } = renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex', theme: 'light', accentColor: '#2563eb' },
+      { initialSection: 'appearance' },
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Default accent color' }));
+
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#c96442');
+
+    await waitForPersist(
+      onPersist,
+      expect.objectContaining({
+        accentColor: '#c96442',
+      }),
+      {},
+    );
+  });
+
+  it('keeps an autosaved accent color applied after the dialog closes', async () => {
+    const view = renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex', theme: 'light', accentColor: '#2563eb' },
+      { initialSection: 'appearance' },
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: '#059669' }));
+
+    await waitForPersist(
+      view.onPersist,
+      expect.objectContaining({
+        accentColor: '#059669',
+      }),
+      {},
+    );
+
+    fireEvent.click(view.container.querySelector('.settings-close') as HTMLElement);
+    expect(view.onClose).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#059669');
   });
 
   it('live previews and autosaves preset and custom accent colors', async () => {

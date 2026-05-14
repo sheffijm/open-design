@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, Dispatch, SetStateAction } from 'react';
 import { validateBaseUrl } from '@open-design/contracts/api/connectionTest';
+import {
+  agentIdToTracking,
+  executionModeToTracking,
+  settingsSectionToTracking,
+} from '@open-design/contracts/analytics';
+import { useAnalytics } from '../analytics/provider';
+import {
+  trackSettingsByokTestResult,
+  trackSettingsCliTestResult,
+  trackSettingsClickByokField,
+  trackSettingsClickByokProviderOption,
+  trackSettingsClickCliProviderCard,
+  trackSettingsClickExecutionModeTab,
+  trackSettingsView,
+} from '../analytics/events';
 import { LOCALE_LABEL, LOCALES, useI18n } from '../i18n';
 import type { Locale } from '../i18n';
 import type { Dict } from '../i18n/types';
@@ -52,7 +67,7 @@ import type {
 } from '../types';
 import { testAgent, testApiProvider } from '../providers/connection-test';
 import { fetchProviderModels } from '../providers/provider-models';
-import { fetchConnectors, fetchSkills } from '../providers/registry';
+import { fetchConnectors, fetchDesignTemplates } from '../providers/registry';
 import { MEDIA_PROVIDERS } from '../media/models';
 import type { MediaProvider } from '../media/models';
 import { PetSettings } from './pet/PetSettings';
@@ -65,8 +80,11 @@ import { ConnectorsBrowser } from './ConnectorsBrowser';
 import { MemoryModelInline } from './MemoryModelInline';
 import { MemorySection } from './MemorySection';
 import {
+  ACCENT_SWATCHES,
+  DEFAULT_ACCENT_COLOR,
   applyAppearanceToDocument,
   normalizeAccentColor,
+  resolveAccentColor,
 } from '../state/appearance';
 import { isAutosaveDraftOnlyChange } from '../App';
 import {
@@ -634,21 +652,35 @@ export function SettingsDialog({
   onReloadMediaProviders,
 }: Props) {
   const { t, locale, setLocale } = useI18n();
+  const analytics = useAnalytics();
   const [cfg, setCfg] = useState<AppConfig>(initial);
+  const lastSavedAppearanceRef = useRef({
+    theme: initial.theme ?? 'system',
+    accentColor: resolveAccentColor(initial.accentColor),
+  });
 
-  // Revert the live theme preview when the dialog closes without saving.
-  // On Save, App's useLayoutEffect fires after unmount and applies the new
-  // saved theme, so this cleanup is effectively a no-op in that path.
-  useLayoutEffect(() => {
-    return () => {
-      applyAppearanceToDocument({
-        theme: initial.theme ?? 'system',
-        accentColor: initial.accentColor,
-      });
+  // settings_view — fire on dialog open and on every section switch so the
+  // configuration funnel can see which section the user spent time in.
+  // The fire is keyed on section so a section bounce (open → switch →
+  // close) emits one event per surface.
+  const lastViewSectionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    lastSavedAppearanceRef.current = {
+      theme: initial.theme ?? 'system',
+      accentColor: resolveAccentColor(initial.accentColor),
     };
   }, [initial.theme, initial.accentColor]);
+
+  // Revert the live theme preview to the most recently persisted appearance.
+  // That is the initial appearance until autosave succeeds; after autosave,
+  // closing Settings must not roll the document back to stale colors.
+  useLayoutEffect(() => {
+    return () => {
+      applyAppearanceToDocument(lastSavedAppearanceRef.current);
+    };
+  }, []);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [languageOpen, setLanguageOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
   // Scroll the right-hand content pane back to the top whenever the user
   // picks a different settings section. Without this, switching from a
@@ -656,7 +688,6 @@ export function SettingsDialog({
   // (About) keeps the previous scrollTop, so the new section's header
   // can land out of view and the panel reads as half-loaded. Issue #634.
   const settingsContentRef = useRef<HTMLDivElement | null>(null);
-  const [languageMenuRect, setLanguageMenuRect] = useState<DOMRect | null>(null);
   const [agentRescanRunning, setAgentRescanRunning] = useState(false);
   const [agentRescanNotice, setAgentRescanNotice] =
     useState<RescanNotice | null>(null);
@@ -681,13 +712,32 @@ export function SettingsDialog({
   const [agentCustomModelIds, setAgentCustomModelIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
-  const languageRef = useRef<HTMLDivElement | null>(null);
   // Imperative handle for the External MCP section. The dialog footer Save
   // routes through this when the MCP tab is active so the user can press the
   // single Save button at the bottom instead of hunting for the inner one.
   useEffect(() => {
     setActiveSection(initialSection);
   }, [initialSection]);
+
+  // settings_view — fires whenever the active section changes (and once on
+  // mount). Keying the fire on a section+section-string lets us dedupe
+  // accidental double-renders while still capturing genuine tab switches.
+  useEffect(() => {
+    if (lastViewSectionRef.current === activeSection) return;
+    lastViewSectionRef.current = activeSection;
+    const hasCli = agents.some((a) => a.available);
+    const selected = agents.find((a) => a.id === cfg.agentId && a.available);
+    trackSettingsView(analytics.track, {
+      page: 'settings',
+      area: 'settings_panel',
+      element: 'page',
+      view_type: 'page',
+      active_section: settingsSectionToTracking(activeSection),
+      execution_mode: executionModeToTracking(cfg.mode),
+      has_available_cli: hasCli,
+      ...(selected ? { selected_cli_id: agentIdToTracking(selected.id) } : {}),
+    });
+  }, [activeSection, agents, cfg.mode, cfg.agentId, analytics.track]);
   useEffect(() => {
     const el = settingsContentRef.current;
     if (el) el.scrollTop = 0;
@@ -744,47 +794,28 @@ export function SettingsDialog({
     };
   }, []);
 
-  useEffect(() => {
-    if (!languageOpen) return;
-    const updateRect = () => {
-      const button = languageRef.current?.querySelector('button');
-      setLanguageMenuRect(button?.getBoundingClientRect() ?? null);
-    };
-    updateRect();
-    function onDown(e: MouseEvent) {
-      if (languageRef.current?.contains(e.target as Node)) return;
-      setLanguageOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setLanguageOpen(false);
-    }
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', updateRect);
-    window.addEventListener('scroll', updateRect, true);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', updateRect);
-      window.removeEventListener('scroll', updateRect, true);
-    };
-  }, [languageOpen]);
-
-  // Close the language menu on window resize so its placement (computed on
-  // open) cannot end up stale relative to the new viewport dimensions.
-  useEffect(() => {
-    if (!languageOpen) return;
-    const handleResize = () => setLanguageOpen(false);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [languageOpen]);
-
   const installedCount = useMemo(
     () => agents.filter((a) => a.available).length,
     [agents],
   );
 
-  const setMode = (mode: ExecMode) => setCfg((c) => ({ ...c, mode }));
+  const setMode = (mode: ExecMode) => {
+    setCfg((c) => {
+      const modeBefore = executionModeToTracking(c.mode);
+      const modeAfter = executionModeToTracking(mode);
+      if (modeBefore !== modeAfter) {
+        trackSettingsClickExecutionModeTab(analytics.track, {
+          page: 'settings',
+          area: 'execution_model',
+          element: 'execution_mode_tab',
+          action: 'switch_execution_mode',
+          mode_before: modeBefore,
+          mode_after: modeAfter,
+        });
+      }
+      return { ...c, mode };
+    });
+  };
   const setApiProtocol = (protocol: ApiProtocol) => {
     setApiModelCustomEditing(false);
     setCfg((c) => switchApiProtocolConfig(c, protocol));
@@ -820,6 +851,8 @@ export function SettingsDialog({
     const revision = agentTestRevisionRef.current;
     agentTestAbortRef.current = controller;
     setAgentTestState({ status: 'running' });
+    const startedAt = performance.now();
+    const cliProviderId = agentIdToTracking(selected.id);
     const clearIfStale = () => {
       if (agentTestAbortRef.current === controller) {
         setAgentTestState({ status: 'idle' });
@@ -841,6 +874,14 @@ export function SettingsDialog({
         return;
       }
       setAgentTestState({ status: 'done', result });
+      trackSettingsCliTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        cli_provider_id: cliProviderId,
+        result: result.ok ? 'success' : 'failed',
+        ...(result.ok ? {} : { error_code: result.kind || 'UNKNOWN' }),
+        duration_ms: Math.round(performance.now() - startedAt),
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       if (agentTestRevisionRef.current !== revision) {
@@ -857,6 +898,14 @@ export function SettingsDialog({
           detail: err instanceof Error ? err.message : 'Test request failed',
         },
       });
+      trackSettingsCliTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        cli_provider_id: cliProviderId,
+        result: 'failed',
+        error_code: err instanceof Error ? err.name : 'UNKNOWN',
+        duration_ms: Math.round(performance.now() - startedAt),
+      });
     } finally {
       if (agentTestAbortRef.current === controller) {
         agentTestAbortRef.current = null;
@@ -872,6 +921,7 @@ export function SettingsDialog({
     const revision = providerTestRevisionRef.current;
     providerTestAbortRef.current = controller;
     setProviderTestState({ status: 'running' });
+    const startedAt = performance.now();
     const clearIfStale = () => {
       if (providerTestAbortRef.current === controller) {
         setProviderTestState({ status: 'idle' });
@@ -897,6 +947,14 @@ export function SettingsDialog({
         return;
       }
       setProviderTestState({ status: 'done', result });
+      trackSettingsByokTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        provider_id: apiProtocol,
+        result: result.ok ? 'success' : 'failed',
+        ...(result.ok ? {} : { error_code: result.kind || 'UNKNOWN' }),
+        duration_ms: Math.round(performance.now() - startedAt),
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       if (providerTestRevisionRef.current !== revision) {
@@ -912,6 +970,14 @@ export function SettingsDialog({
           model: cfg.model,
           detail: err instanceof Error ? err.message : 'Test request failed',
         },
+      });
+      trackSettingsByokTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        provider_id: apiProtocol,
+        result: 'failed',
+        error_code: err instanceof Error ? err.name : 'UNKNOWN',
+        duration_ms: Math.round(performance.now() - startedAt),
       });
     } finally {
       if (providerTestAbortRef.current === controller) {
@@ -1065,6 +1131,8 @@ export function SettingsDialog({
         return t('settings.testTimeout', { ms });
       case 'agent_not_installed':
         return t('settings.testAgentMissing', { agentName });
+      case 'agent_auth_required':
+        return result.detail || 'Agent authentication is required.';
       case 'agent_spawn_failed':
         return t('settings.testAgentSpawn', {
           agentName,
@@ -1198,6 +1266,10 @@ export function SettingsDialog({
         try {
           await onPersist(snapshot, persistOptions);
           autosaveLastSavedRef.current = snapshot;
+          lastSavedAppearanceRef.current = {
+            theme: snapshot.theme ?? 'system',
+            accentColor: resolveAccentColor(snapshot.accentColor),
+          };
           if (persistOptions.forceMediaProviderSync) {
             lastSyncedMediaProvidersVersionRef.current = mediaProvidersVersion;
           }
@@ -1274,19 +1346,15 @@ export function SettingsDialog({
   }, [onPersist]);
 
   // Global Escape closes the dialog. With no footer button anymore the
-  // close affordances are: top-right X · backdrop click · Escape. We
-  // skip the handler when an inline popover (e.g. the language menu
-  // listbox) is open, because that menu owns its own Escape handling
-  // and closing the dialog out from under it would be jarring.
+  // close affordances are: top-right X · backdrop click · Escape.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
-      if (languageOpen) return;
       onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, languageOpen]);
+  }, [onClose]);
 
   const protocolProviders = useMemo(
     () => KNOWN_PROVIDERS.filter((p) => p.protocol === apiProtocol),
@@ -1434,7 +1502,6 @@ export function SettingsDialog({
             </>
           ) : (
             <>
-              <span className="kicker">{t('settings.kicker')}</span>
               <h2>{activeHeader.title}</h2>
               <p className="subtitle">{activeHeader.subtitle}</p>
             </>
@@ -1673,7 +1740,17 @@ export function SettingsDialog({
                       role="tab"
                       aria-selected={apiProtocol === tab.id}
                       className={'protocol-chip' + (apiProtocol === tab.id ? ' active' : '')}
-                      onClick={() => setApiProtocol(tab.id)}
+                      onClick={() => {
+                        trackSettingsClickByokProviderOption(analytics.track, {
+                          page: 'settings',
+                          area: 'execution_model',
+                          element: 'byok_provider_option',
+                          action: 'select_byok_provider',
+                          provider_id: tab.id,
+                          is_selected: apiProtocol === tab.id,
+                        });
+                        setApiProtocol(tab.id);
+                      }}
                     >
                       {tab.title}
                     </button>
@@ -1825,16 +1902,33 @@ export function SettingsDialog({
                             className={
                               'agent-card' + (active ? ' active' : '')
                             }
-                            onClick={() =>
-                              setCfg((c) => ({ ...c, agentId: a.id }))
-                            }
+                            onClick={() => {
+                              trackSettingsClickCliProviderCard(analytics.track, {
+                                page: 'settings',
+                                area: 'execution_model',
+                                element: 'cli_provider_card',
+                                action: 'select_cli_provider',
+                                cli_provider_id: agentIdToTracking(a.id),
+                                install_status: a.available ? 'installed' : 'not_installed',
+                                is_selected: !active,
+                              });
+                              setCfg((c) => ({ ...c, agentId: a.id }));
+                            }}
                             aria-pressed={active}
                           >
-                            <AgentIcon id={a.id} size={40} />
+                            <AgentIcon id={a.id} size={32} />
                             <div className="agent-card-body">
                               <div className="agent-card-name">{a.name}</div>
                               <div className="agent-card-meta">
-                                {a.version ? (
+                                {a.authStatus === 'missing' ? (
+                                  <span title={a.authMessage ?? a.path ?? ''}>
+                                    {t('settings.agentAuthRequired')}
+                                  </span>
+                                ) : a.authStatus === 'unknown' ? (
+                                  <span title={a.authMessage ?? a.path ?? ''}>
+                                    {t('settings.agentAuthUnknown')}
+                                  </span>
+                                ) : a.version ? (
                                   <span title={a.path ?? ''}>{a.version}</span>
                                 ) : (
                                   <span title={a.path ?? ''}>
@@ -1863,7 +1957,7 @@ export function SettingsDialog({
                           role="group"
                           aria-label={cardLabel}
                         >
-                          <AgentIcon id={a.id} size={40} />
+                          <AgentIcon id={a.id} size={32} />
                           <div className="agent-card-body">
                             <div className="agent-card-name">{a.name}</div>
                             <div className="agent-card-meta">
@@ -2232,6 +2326,17 @@ export function SettingsDialog({
                     placeholder={API_KEY_PLACEHOLDERS[apiProtocol]}
                     value={cfg.apiKey}
                     onChange={(e) => updateApiConfig({ apiKey: e.target.value })}
+                    onFocus={() => {
+                      trackSettingsClickByokField(analytics.track, {
+                        page: 'settings',
+                        area: 'execution_model',
+                        element: 'byok_field',
+                        action: 'focus_byok_field',
+                        field_id: 'api_key',
+                        provider_id: apiProtocol,
+                        has_value: Boolean(cfg.apiKey?.trim()),
+                      });
+                    }}
                     autoFocus
                   />
                   <button
@@ -2254,6 +2359,17 @@ export function SettingsDialog({
                 </span>
                 <select
                   value={apiModelSelectValue}
+                  onFocus={() => {
+                    trackSettingsClickByokField(analytics.track, {
+                      page: 'settings',
+                      area: 'execution_model',
+                      element: 'byok_field',
+                      action: 'focus_byok_field',
+                      field_id: 'model',
+                      provider_id: apiProtocol,
+                      has_value: Boolean(cfg.model?.trim()),
+                    });
+                  }}
                   onChange={(e) => {
                     if (e.target.value === CUSTOM_MODEL_SENTINEL) {
                       setApiModelCustomEditing(true);
@@ -2308,6 +2424,17 @@ export function SettingsDialog({
                   aria-describedby={
                     baseUrlInvalid ? 'settings-base-url-error' : undefined
                   }
+                  onFocus={() => {
+                    trackSettingsClickByokField(analytics.track, {
+                      page: 'settings',
+                      area: 'execution_model',
+                      element: 'byok_field',
+                      action: 'focus_byok_field',
+                      field_id: 'base_url',
+                      provider_id: apiProtocol,
+                      has_value: Boolean(cfg.baseUrl?.trim()),
+                    });
+                  }}
                   onChange={(e) => updateApiConfig({ baseUrl: e.target.value, apiProviderBaseUrl: null })}
                 />
                 {baseUrlInvalid ? (
@@ -2361,7 +2488,7 @@ export function SettingsDialog({
             />
           ) : null}
 
-          {activeSection === 'routines' ? <RoutinesSection /> : null}
+          {activeSection === 'routines' ? <RoutinesSection onClose={onClose} /> : null}
 
           {activeSection === 'orbit' ? (
             <OrbitSection
@@ -2392,73 +2519,30 @@ export function SettingsDialog({
                 <p className="hint">{t('settings.languageHint')}</p>
               </div>
             </div>
-            <div className="settings-language-picker" ref={languageRef}>
-              <button
-                type="button"
-                className="settings-language-button"
-                aria-haspopup="menu"
-                aria-expanded={languageOpen}
-                onClick={() => setLanguageOpen((v) => !v)}
-              >
-                <span className="settings-language-icon" aria-hidden="true">
-                  <Icon name="languages" size={22} strokeWidth={1.8} />
-                </span>
-                <span className="settings-language-text">
-                  <span className="settings-language-title">
-                    {LOCALE_LABEL[locale]}
-                  </span>
-                  <span className="settings-language-code">{locale}</span>
-                </span>
-                <Icon name="chevron-down" size={16} />
-              </button>
-              {languageOpen && languageMenuRect ? (() => {
-                const spaceBelow = window.innerHeight - languageMenuRect.bottom;
-                const spaceAbove = languageMenuRect.top;
-                // Prefer downward if at least 200px available (enough for ~5 options)
-                const openDownward = spaceBelow >= spaceAbove || spaceBelow >= 200;
+            <div className="settings-language-grid" role="radiogroup" aria-label={t('settings.language')}>
+              {LOCALES.map((code) => {
+                const active = locale === code;
                 return (
-                <div
-                  className="settings-language-menu"
-                  role="menu"
-                  style={{
-                    top: openDownward ? languageMenuRect.bottom + 6 : undefined,
-                    bottom: openDownward
-                      ? undefined
-                      : window.innerHeight - languageMenuRect.top + 6,
-                    left: languageMenuRect.left,
-                    width: languageMenuRect.width,
-                    '--menu-available-h': `${(openDownward ? spaceBelow : spaceAbove) - 6}px`,
-                  } as React.CSSProperties}
-                >
-                  {LOCALES.map((code) => {
-                    const active = locale === code;
-                    return (
-                      <button
-                        key={code}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={active}
-                        className={`settings-language-option${active ? ' active' : ''}`}
-                        onClick={() => {
-                          setLocale(code as Locale);
-                          setLanguageOpen(false);
-                        }}
-                      >
-                        <span>
-                          <span className="settings-language-option-title">
-                            {LOCALE_LABEL[code]}
-                          </span>
-                          <span className="settings-language-option-code">
-                            {code}
-                          </span>
-                        </span>
-                        {active ? <Icon name="check" size={16} /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
+                  <button
+                    key={code}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={`settings-language-tile${active ? ' active' : ''}`}
+                    onClick={() => setLocale(code as Locale)}
+                  >
+                    <span className="settings-language-tile-text">
+                      <span className="settings-language-tile-title">
+                        {LOCALE_LABEL[code]}
+                      </span>
+                      <span className="settings-language-tile-code">
+                        {code}
+                      </span>
+                    </span>
+                    {active ? <Icon name="check" size={16} /> : null}
+                  </button>
                 );
-              })() : null}
+              })}
             </div>
           </section>
           ) : null}
@@ -2483,7 +2567,27 @@ export function SettingsDialog({
             <DesignSystemsSection cfg={cfg} setCfg={setCfg} />
           ) : null}
 
-          {activeSection === 'memory' ? <MemorySection /> : null}
+          {activeSection === 'memory' ? (
+            <>
+              <section className="settings-section">
+                <div className="section-head">
+                  <div>
+                    <h3>{t('settings.customInstructionsTitle')}</h3>
+                    <p className="hint">{t('settings.customInstructionsHint')}</p>
+                  </div>
+                </div>
+                <textarea
+                  className="custom-instructions-input"
+                  rows={5}
+                  maxLength={5000}
+                  placeholder={t('settings.customInstructionsPlaceholder')}
+                  value={cfg.customInstructions ?? ''}
+                  onChange={(e) => setCfg({ ...cfg, customInstructions: e.target.value || undefined })}
+                />
+              </section>
+              <MemorySection />
+            </>
+          ) : null}
 
           {activeSection === 'privacy' ? (
             <PrivacySection cfg={cfg} setCfg={setCfg} />
@@ -2603,12 +2707,27 @@ function ConnectorSection({
   // completes, the daemon returns a tail-only echo, and we land in
   // the saved state with the same UI as a key loaded from disk.
   const [keySaveStatus, setKeySaveStatus] =
-    useState<'idle' | 'saving' | 'error'>('idle');
+    useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0);
+  const keySavedTimerRef = useRef<number | null>(null);
+  // Clear the saved-state timer on unmount to avoid setState after unmount
+  useEffect(() => {
+    return () => {
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
+    };
+  }, []);
   const handleSaveKey = async () => {
     if (keySaveStatus === 'saving') return;
     if (!hasPendingEdit) return;
     if (composioConfigLoading) return;
+    // Clear any stale timer before transitioning to 'saving' to prevent
+    // it from firing during the await and flipping the button back to idle.
+    if (keySavedTimerRef.current != null) {
+      window.clearTimeout(keySavedTimerRef.current);
+      keySavedTimerRef.current = null;
+    }
     const pendingKey = composio.apiKey ?? '';
     setKeySaveStatus('saving');
     try {
@@ -2624,9 +2743,22 @@ function ConnectorSection({
         apiKeyTail: pendingKey.trim().slice(-4),
       });
       setCatalogRefreshNonce((nonce) => nonce + 1);
-      setKeySaveStatus('idle');
+      // Clear any existing timer before starting a new one to avoid
+      // a stale timeout flipping status back to 'idle' after a
+      // subsequent save or clear.
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
+      setKeySaveStatus('saved');
+      keySavedTimerRef.current = window.setTimeout(() => {
+        setKeySaveStatus('idle');
+      }, 2000);
     } catch {
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
       setKeySaveStatus('error');
+      keySavedTimerRef.current = null;
     }
   };
 
@@ -2700,6 +2832,12 @@ function ConnectorSection({
   const handleClearCommit = async () => {
     if (keySaveStatus === 'saving') return;
     if (!clearArmed) return;
+    // Clear any stale timer before transitioning to 'saving', matching
+    // handleSaveKey's pattern for consistency.
+    if (keySavedTimerRef.current != null) {
+      window.clearTimeout(keySavedTimerRef.current);
+      keySavedTimerRef.current = null;
+    }
     setKeySaveStatus('saving');
     try {
       const cleared = {
@@ -2714,7 +2852,11 @@ function ConnectorSection({
       setClearArmed(false);
       setKeySaveStatus('idle');
     } catch {
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
       setKeySaveStatus('error');
+      keySavedTimerRef.current = null;
     }
   };
 
@@ -2817,6 +2959,11 @@ function ConnectorSection({
               <>
                 <Icon name="spinner" size={12} className="icon-spin" />
                 <span>{t('settings.connectorsKeySaving')}</span>
+              </>
+            ) : keySaveStatus === 'saved' ? (
+              <>
+                <Icon name="check" size={12} />
+                <span>{t('settings.connectorsKeySaved')}</span>
               </>
             ) : (
               t('settings.connectorsSaveKey')
@@ -3039,11 +3186,12 @@ function OrbitSection({
   const [legacyLastRunTemplateSkillId, setLegacyLastRunTemplateSkillId] = useState<string | null>(null);
   const legacyLastRunIdentity = status?.lastRun?.id
     ?? `${status?.lastRun?.completedAt ?? ''}:${status?.lastRun?.agentRunId ?? ''}:${status?.lastRun?.markdown ?? ''}`;
-  // Orbit-scenario skill templates fetched from /api/skills. We fetch on mount
-  // and keep three states for graceful UX: `null` = still loading, `[]` =
-  // loaded with no orbit templates available, `SkillSummary[]` = ready. If
-  // the daemon is offline the call resolves with [] (see fetchSkills) so the
-  // section never throws — the rest of the Orbit controls keep working.
+  // Orbit templates ship under the renderable design-templates registry after
+  // the skills/design-templates split. We fetch on mount and keep three states
+  // for graceful UX: `null` = still loading, `[]` = loaded with no Orbit
+  // templates available, `SkillSummary[]` = ready. If the daemon is offline
+  // the call resolves with [] (see fetchDesignTemplates) so the section never
+  // throws — the rest of the Orbit controls keep working.
   const [orbitTemplates, setOrbitTemplates] = useState<SkillSummary[] | null>(null);
   // Connector presence drives the configuration gate at the top of the Orbit
   // tab. We track three states: `null` = still loading (skip rendering the
@@ -3097,14 +3245,15 @@ function OrbitSection({
     return () => window.clearInterval(interval);
   }, [status?.running]);
 
-  // Fetch the skills registry once on mount and filter to scenario === 'orbit'.
-  // We tolerate fetch failure: fetchSkills already swallows errors and returns
-  // []. The component then transitions from "loading" → "empty" and the rest
-  // of the Orbit panel stays fully functional.
+  // Fetch the design-template registry once on mount and filter to
+  // scenario === 'orbit'. We tolerate fetch failure:
+  // fetchDesignTemplates already swallows errors and returns []. The
+  // component then transitions from "loading" → "empty" and the rest of the
+  // Orbit panel stays fully functional.
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const all = await fetchSkills();
+      const all = await fetchDesignTemplates();
       if (!alive) return;
       const filtered = all.filter((s) => s.scenario === 'orbit');
       // Stable order: featured first (higher number = more featured), then by name.
@@ -4594,18 +4743,6 @@ const THEMES: Array<{ value: AppTheme; labelKey: 'settings.themeSystem' | 'setti
   { value: 'dark', labelKey: 'settings.themeDark' },
 ];
 
-const DEFAULT_ACCENT_COLOR = '#c96442';
-const ACCENT_SWATCHES = [
-  DEFAULT_ACCENT_COLOR,
-  '#2563eb',
-  '#7c3aed',
-  '#059669',
-  '#dc2626',
-  '#d97706',
-  '#0891b2',
-  '#db2777',
-] as const;
-
 function AppearanceSection({
   cfg,
   setCfg,
@@ -4615,19 +4752,19 @@ function AppearanceSection({
 }) {
   const { t } = useI18n();
   const current = cfg.theme ?? 'system';
-  const currentAccent = normalizeAccentColor(cfg.accentColor) ?? DEFAULT_ACCENT_COLOR;
+  const currentAccent = resolveAccentColor(cfg.accentColor);
 
   // Apply the draft theme immediately so the user sees a live preview
   // before hitting Save. SettingsDialog's cleanup reverts this on cancel.
   useLayoutEffect(() => {
     applyAppearanceToDocument({
       theme: current,
-      accentColor: cfg.accentColor,
+      accentColor: currentAccent,
     });
-  }, [current, cfg.accentColor]);
+  }, [current, currentAccent]);
 
-  const setAccentColor = (color: string | undefined) => {
-    setCfg((c) => ({ ...c, accentColor: color ? normalizeAccentColor(color) ?? c.accentColor : undefined }));
+  const setAccentColor = (color: string) => {
+    setCfg((c) => ({ ...c, accentColor: normalizeAccentColor(color) ?? c.accentColor ?? DEFAULT_ACCENT_COLOR }));
   };
 
   return (
@@ -4665,7 +4802,7 @@ function AppearanceSection({
                 aria-label={color === DEFAULT_ACCENT_COLOR ? 'Default accent color' : color}
                 aria-checked={active}
                 role="radio"
-                onClick={() => setAccentColor(color === DEFAULT_ACCENT_COLOR ? undefined : color)}
+                onClick={() => setAccentColor(color)}
               />
             );
           })}

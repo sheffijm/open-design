@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ToolCard } from "./ToolCard";
 import { renderMarkdown } from "../runtime/markdown";
 import { projectFileUrl } from "../providers/registry";
@@ -399,6 +399,7 @@ function AssistantFeedback({
   const [burstKey, setBurstKey] = useState(0);
   const [reasonRating, setReasonRating] =
     useState<ChatMessageFeedbackRating | null>(null);
+  const reasonsRef = useRef<HTMLDivElement | null>(null);
   const [draftReasonCodes, setDraftReasonCodes] = useState<
     Set<ChatMessageFeedbackReasonCode>
   >(() => new Set());
@@ -408,6 +409,10 @@ function AssistantFeedback({
     if (selected) return;
     setReasonRating(null);
   }, [selected]);
+  useEffect(() => {
+    if (!reasonRating) return;
+    reasonsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [reasonRating]);
   const toggleFeedback = (rating: ChatMessageFeedbackRating) => {
     const nextRating = selected === rating ? null : rating;
     if (nextRating === "positive") setBurstKey((key) => key + 1);
@@ -495,7 +500,7 @@ function AssistantFeedback({
     <div className="assistant-feedback-wrap">
       <AssistantFooter {...footerProps} feedbackControls={controls} />
       {reasonRating ? (
-        <div className="assistant-feedback-reasons">
+        <div className="assistant-feedback-reasons" ref={reasonsRef}>
           <div className="assistant-feedback-reason-title">
             <span>{t("assistant.feedbackReasonTitle")}</span>
             <span className="assistant-feedback-reason-emoji" aria-hidden="true">
@@ -1159,7 +1164,18 @@ function buildBlocks(events: AgentEvent[]): Block[] {
       )
         continue;
       const last = out[out.length - 1];
-      if (last && last.kind === "status" && last.label === ev.label) continue;
+      if (last && last.kind === "status" && last.label === ev.label) {
+        // Update detail to the latest value rather than skip. When an agent
+        // emits multiple status events with the same label (notably
+        // `label: 'model'` — fired once after `session/new` with the agent's
+        // initial default, then again after the explicit model-selection
+        // call completes), the badge UI must reflect the most recent detail,
+        // not the first one. Without this update the post-selection model
+        // (e.g. `claude-opus-4-7-high`) is silently replaced in the badge
+        // by the stale initial default (`swe-1-6-fast`).
+        last.detail = ev.detail;
+        continue;
+      }
       out.push({ kind: "status", label: ev.label, detail: ev.detail });
       continue;
     }

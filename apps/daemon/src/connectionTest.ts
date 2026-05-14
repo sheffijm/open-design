@@ -21,20 +21,22 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  applyAgentLaunchEnv,
   getAgentDef,
-  inspectAgentExecutableResolution,
-  resolveAgentBin,
+  resolveAgentLaunch,
   spawnEnvForAgent,
 } from './agents.js';
 import { createCommandInvocation } from '@open-design/platform';
-import { attachAcpSession } from './acp.js';
-import { attachPiRpcSession } from './pi-rpc.js';
-import { createClaudeStreamHandler } from './claude-stream.js';
 import { diagnoseClaudeCliFailure } from './claude-diagnostics.js';
-import { createCopilotStreamHandler } from './copilot-stream.js';
-import { createJsonEventStreamHandler } from './json-event-stream.js';
 import { agentCliEnvForAgent, validateAgentCliEnv } from './app-config.js';
+import {
+  classifyAgentAuthFailure,
+  cursorAuthGuidance,
+  probeAgentAuthStatus,
+} from './runtimes/auth.js';
 import type { AgentCliEnvPrefs } from './app-config.js';
+import { createRuntimeAdapter } from './runtimes/runtime-adapter.js';
+import type { RuntimeAgentDef } from './runtimes/types.js';
 import {
   isLoopbackApiHost,
   validateBaseUrl,
@@ -899,7 +901,7 @@ interface AgentSpawnHandle {
 }
 
 function attachAgentStreamHandlers(
-  def: { streamFormat?: string; eventParser?: string; id: string; promptViaStdin?: boolean },
+  def: RuntimeAgentDef,
   child: ReturnType<typeof spawn>,
   prompt: string,
   cwd: string,
@@ -913,57 +915,18 @@ function attachAgentStreamHandlers(
   } | null = null;
   child.stdout?.setEncoding('utf8');
   child.stderr?.setEncoding('utf8');
-  if (def.streamFormat === 'claude-stream-json') {
-    const claude = createClaudeStreamHandler((ev: unknown) => send('agent', ev));
-    child.stdout?.on('data', (chunk: string) => {
-      appendRawStdout?.(chunk);
-      claude.feed(chunk);
-    });
-    child.on('close', () => claude.flush());
-  } else if (def.streamFormat === 'copilot-stream-json') {
-    const copilot = createCopilotStreamHandler((ev: unknown) => send('agent', ev));
-    child.stdout?.on('data', (chunk: string) => copilot.feed(chunk));
-    child.on('close', () => copilot.flush());
-  } else if (def.streamFormat === 'pi-rpc') {
-    acpSession = attachPiRpcSession({
-      child,
-      prompt,
-      cwd,
-      model: model ?? null,
-      send,
-      imagePaths: [],
-    });
-  } else if (def.streamFormat === 'acp-json-rpc') {
-    acpSession = attachAcpSession({
-      child,
-      prompt,
-      cwd,
-      model: model ?? null,
-      mcpServers: [],
-      send,
-    });
-  } else if (def.streamFormat === 'json-event-stream') {
-    const handler = createJsonEventStreamHandler(
-      def.eventParser || def.id,
-      (ev: unknown) => {
-        const data = (ev ?? {}) as { type?: unknown; message?: unknown };
-        if (data.type === 'error') {
-          send('error', {
-            message:
-              typeof data.message === 'string'
-                ? data.message
-                : 'agent stream error',
-          });
-          return;
-        }
-        send('agent', ev);
-      },
-    );
-    child.stdout?.on('data', (chunk: string) => handler.feed(chunk));
-    child.on('close', () => handler.flush());
-  } else {
-    child.stdout?.on('data', (chunk: string) => send('stdout', { chunk }));
-  }
+  child.stdout?.on('data', (chunk: string) => appendRawStdout?.(chunk));
+  const adapter = createRuntimeAdapter(def);
+  const attachment = adapter.attach({
+    child,
+    prompt,
+    cwd,
+    model: model ?? null,
+    mcpServers: [],
+    imagePaths: [],
+    send,
+  });
+  acpSession = attachment.session;
   child.stderr?.on('data', (chunk: string) => send('stderr', { chunk }));
   return { child, acpSession };
 }
@@ -999,16 +962,14 @@ async function testAgentConnectionInternal(
       detail: `Unknown agent id: ${input.agentId}`,
     };
   }
+  const runtimeAdapter = createRuntimeAdapter(def);
   const configuredAgentEnv = agentCliEnvForAgent(
     validateAgentCliEnv(input.agentCliEnv),
     input.agentId,
   );
-  const executableResolution = inspectAgentExecutableResolution(
-    def,
-    configuredAgentEnv,
-  );
-  const resolvedBin = resolveAgentBin(input.agentId, configuredAgentEnv);
-  if (!resolvedBin) {
+  const executableResolution = resolveAgentLaunch(def, configuredAgentEnv);
+  const resolvedBin = executableResolution.selectedPath;
+  if (!resolvedBin || !executableResolution.launchPath) {
     return {
       ok: false,
       kind: 'agent_not_installed',
@@ -1065,6 +1026,18 @@ async function testAgentConnectionInternal(
     const detail = redactSecrets(
       error instanceof Error ? error.message : String(error),
     );
+    const auth = classifyAgentAuthFailure(input.agentId, detail);
+    if (auth?.status === 'missing') {
+      console.warn(`[test:agent] ${def.name} → auth_required: ${detail}`);
+      return {
+        ok: false,
+        kind: 'agent_auth_required',
+        latencyMs,
+        model,
+        agentName: def.name,
+        detail: auth.message ?? cursorAuthGuidance(),
+      };
+    }
     if (detail && isLikelyModelErrorText(detail)) {
       console.warn(
         `[test:agent] ${def.name} → not_found_model: ${detail}`,
@@ -1126,9 +1099,8 @@ async function testAgentConnectionInternal(
         detail: redactSecrets(detail),
       };
     }
-    const stdinMode =
-      def.promptViaStdin || def.streamFormat === 'acp-json-rpc' ? 'pipe' : 'ignore';
-    const env = spawnEnvForAgent(
+    const stdinMode = runtimeAdapter.stdinMode();
+    const baseEnv = spawnEnvForAgent(
       input.agentId,
       {
         ...process.env,
@@ -1136,8 +1108,20 @@ async function testAgentConnectionInternal(
       },
       configuredAgentEnv,
     );
+    const env = applyAgentLaunchEnv(baseEnv, executableResolution);
+    const auth = await probeAgentAuthStatus(input.agentId, executableResolution.launchPath, env);
+    if (auth?.status === 'missing') {
+      return {
+        ok: false,
+        kind: 'agent_auth_required',
+        latencyMs: Date.now() - start,
+        model,
+        agentName: def.name,
+        detail: auth.message ?? cursorAuthGuidance(),
+      };
+    }
     const invocation = createCommandInvocation({
-      command: resolvedBin,
+      command: executableResolution.launchPath,
       args,
       env,
     });
@@ -1176,11 +1160,11 @@ async function testAgentConnectionInternal(
         const latencyMs = Date.now() - start;
         const detail = redactSecrets(winner.error.message);
         const guidance = redactSecrets(
-          codexExecutableGuidance(
+          `${codexExecutableGuidance(
             input.agentId,
             executableResolution.configuredOverridePath,
             executableResolution.pathResolvedPath,
-          ),
+          )}${executableResolution.diagnostic ? ` ${executableResolution.diagnostic}` : ''}`,
         );
         const errnoCode = (winner.error as NodeJS.ErrnoException).code;
         const isMissing = errnoCode === 'ENOENT';
@@ -1231,6 +1215,28 @@ async function testAgentConnectionInternal(
       const stderrTail = sink.getStderrTail().trim();
       const rawStdoutTail = sink.getRawStdoutTail().trim();
       const acpFatal = Boolean(acpSession?.hasFatalError?.());
+      const rawDetail = [
+        winner.code != null ? `exit ${winner.code}` : null,
+        winner.signal ? `signal ${winner.signal}` : null,
+        stderrTail ? `stderr: ${stderrTail.slice(-200)}` : null,
+        rawStdoutTail || buffered
+          ? `stdout: ${(rawStdoutTail || buffered).slice(-200)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const auth = classifyAgentAuthFailure(input.agentId, rawDetail);
+      if (auth?.status === 'missing') {
+        console.warn(`[test:agent] ${def.name} → auth_required: ${redactSecrets(rawDetail)}`);
+        return {
+          ok: false,
+          kind: 'agent_auth_required',
+          latencyMs,
+          model,
+          agentName: def.name,
+          detail: auth.message ?? cursorAuthGuidance(),
+        };
+      }
       const claudeDiagnostic = diagnoseClaudeCliFailure({
         agentId: input.agentId,
         exitCode: winner.code,
@@ -1253,21 +1259,14 @@ async function testAgentConnectionInternal(
         };
       }
       const detail = redactSecrets(
-        [
-          winner.code != null ? `exit ${winner.code}` : null,
-          winner.signal ? `signal ${winner.signal}` : null,
-          stderrTail ? `stderr: ${stderrTail.slice(-200)}` : null,
-          buffered ? `stdout: ${buffered.slice(-200)}` : null,
-        ]
-          .filter(Boolean)
-          .join(' · '),
+        rawDetail,
       );
       const guidance = redactSecrets(
-        codexExecutableGuidance(
+        `${codexExecutableGuidance(
           input.agentId,
           executableResolution.configuredOverridePath,
           executableResolution.pathResolvedPath,
-        ),
+        )}${executableResolution.diagnostic ? ` ${executableResolution.diagnostic}` : ''}`,
       );
       const label = buffered ? 'exit_failed' : 'no_text';
       console.warn(
@@ -1284,7 +1283,7 @@ async function testAgentConnectionInternal(
       };
     };
 
-    if (def.promptViaStdin && child.stdin && def.streamFormat !== 'pi-rpc') {
+    if (runtimeAdapter.shouldWritePromptToStdin() && child.stdin) {
       child.stdin.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code !== 'EPIPE') {
           sink.send('error', {
@@ -1394,11 +1393,15 @@ export async function testAgentConnection(
   const configuredAgentEnv = agentCliEnvForAgent(validatedPrefs, input.agentId);
   const def = getAgentDef(input.agentId);
   const executableResolution = def
-    ? inspectAgentExecutableResolution(def, configuredAgentEnv)
+    ? resolveAgentLaunch(def, configuredAgentEnv)
     : {
         configuredOverridePath: null,
         pathResolvedPath: null,
         selectedPath: null,
+        launchPath: null,
+        launchKind: 'selected' as const,
+        childPathPrepend: [],
+        diagnostic: null,
       };
   if (
     input.agentId === 'codex' &&
@@ -1409,7 +1412,7 @@ export async function testAgentConnection(
       return {
         ...primaryResult,
         configuredExecutablePath: executableResolution.configuredOverridePath,
-        usedExecutablePath: executableResolution.configuredOverridePath,
+        usedExecutablePath: executableResolution.launchPath ?? executableResolution.configuredOverridePath,
         usedExecutableSource: 'configured',
         ...(executableResolution.pathResolvedPath
           ? { detectedExecutablePath: executableResolution.pathResolvedPath }
@@ -1426,7 +1429,7 @@ export async function testAgentConnection(
         ...primaryResult,
         configuredExecutablePath: configuredCodexBin,
         detectedExecutablePath: executableResolution.pathResolvedPath,
-        usedExecutablePath: executableResolution.pathResolvedPath,
+        usedExecutablePath: executableResolution.launchPath ?? executableResolution.pathResolvedPath,
         usedExecutableSource: 'fallback_invalid',
         detail: redactSecrets(
           codexInvalidConfiguredPathFallbackDetail(
@@ -1460,7 +1463,7 @@ export async function testAgentConnection(
     ...fallbackResult,
     configuredExecutablePath: executableResolution.configuredOverridePath,
     detectedExecutablePath: executableResolution.pathResolvedPath,
-    usedExecutablePath: executableResolution.pathResolvedPath,
+    usedExecutablePath: executableResolution.launchPath ?? executableResolution.pathResolvedPath,
     usedExecutableSource: 'fallback_failed',
     detail: redactSecrets(
       codexExecutableFallbackSuccessDetail(
