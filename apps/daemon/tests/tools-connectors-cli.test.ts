@@ -693,6 +693,73 @@ describe('connectors tool CLI', () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
+  it('fails a design-system package audit when rich binary evidence is collapsed to one asset and font', async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'od-package-audit-thin-binaries-'));
+    process.chdir(tmpDir);
+    await mkdir(path.join(tmpDir, 'preview'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'ui_kits/app/components'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'assets'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'fonts/ubuntu'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'context/local-code/cherry/files/build'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'context/local-code/cherry/files/src/assets/fonts/ubuntu'), { recursive: true });
+    await writeFile(path.join(tmpDir, 'DESIGN.md'), AUDIT_DESIGN_MD);
+    await writeFile(path.join(tmpDir, 'README.md'), AUDIT_README);
+    await writeFile(path.join(tmpDir, 'SKILL.md'), AUDIT_SKILL);
+    await writeFile(path.join(tmpDir, 'colors_and_type.css'), AUDIT_TOKENS_CSS);
+    for (const fileName of [
+      'colors-primary.html',
+      'colors-theme-light.html',
+      'typography-specimens.html',
+      'spacing-tokens.html',
+      'components-buttons.html',
+      'brand-assets.html',
+    ]) {
+      await writeFile(path.join(tmpDir, 'preview', fileName), auditHtml(fileName));
+    }
+    await writeFile(path.join(tmpDir, 'ui_kits/app/index.html'), auditHtml('Cherry Studio UI kit'));
+    await writeFile(path.join(tmpDir, 'ui_kits/app/README.md'), '# UI kit\n');
+    for (const componentName of AUDIT_COMPONENT_FILES) {
+      await writeFile(
+        path.join(tmpDir, 'ui_kits/app/components', componentName),
+        auditComponent(componentName.replace(/\.jsx$/u, '')),
+      );
+    }
+    await writeFile(path.join(tmpDir, 'assets/logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    await writeFile(path.join(tmpDir, 'fonts/ubuntu/Ubuntu-Regular.ttf'), Buffer.from('font-data'));
+    for (const fileName of ['icon.png', 'logo.png', 'tray_icon.png']) {
+      await writeFile(path.join(tmpDir, 'context/local-code/cherry/files/build', fileName), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    }
+    for (const fileName of ['Ubuntu-Regular.ttf', 'Ubuntu-Medium.ttf', 'Ubuntu-Bold.ttf']) {
+      await writeFile(path.join(tmpDir, 'context/local-code/cherry/files/src/assets/fonts/ubuntu', fileName), Buffer.from('font-data'));
+    }
+    await writeFile(path.join(tmpDir, 'context/source-context.md'), '# Design System Source Context\n\n## Local Code\n\n- /tmp/cherry\n');
+    await writeFile(path.join(tmpDir, 'context/local-code/cherry.md'), [
+      '# Local Design Evidence: cherry',
+      '',
+      'Snapshot files written: 6',
+      '',
+      '### Brand assets and icons',
+      '- build/icon.png -> `context/local-code/cherry/files/build/icon.png` (binary asset)',
+      '- build/logo.png -> `context/local-code/cherry/files/build/logo.png` (binary asset)',
+      '- build/tray_icon.png -> `context/local-code/cherry/files/build/tray_icon.png` (binary asset)',
+      '',
+      '### Fonts',
+      '- src/assets/fonts/ubuntu/Ubuntu-Regular.ttf -> `context/local-code/cherry/files/src/assets/fonts/ubuntu/Ubuntu-Regular.ttf` (binary asset)',
+      '- src/assets/fonts/ubuntu/Ubuntu-Medium.ttf -> `context/local-code/cherry/files/src/assets/fonts/ubuntu/Ubuntu-Medium.ttf` (binary asset)',
+      '- src/assets/fonts/ubuntu/Ubuntu-Bold.ttf -> `context/local-code/cherry/files/src/assets/fonts/ubuntu/Ubuntu-Bold.ttf` (binary asset)',
+    ].join('\n'));
+
+    const result = await runConnectorsToolCli(['design-system-package-audit', '--path', tmpDir]);
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(stdoutOutput.join('')).errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'insufficient_preserved_assets', path: 'assets/' }),
+      expect.objectContaining({ code: 'insufficient_preserved_fonts', path: 'fonts/' }),
+    ]));
+
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
   it('fails a design-system package audit when evidence-backed artifacts are missing', async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'od-package-audit-fail-'));
     process.chdir(tmpDir);

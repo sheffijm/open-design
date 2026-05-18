@@ -1575,6 +1575,10 @@ async function auditDesignSystemPackage(
 
   const hasAssetEvidence = evidenceHasAssets(evidenceText) || files.some((filePath) => /^context\/(github|local-code)\/.+\/files\/.+\.(svg|png|jpe?g|webp|ico)$/iu.test(filePath));
   const hasFontEvidence = evidenceHasFonts(evidenceText) || files.some((filePath) => /^context\/(github|local-code)\/.+\/files\/.+\.(ttf|otf|woff2?)$/iu.test(filePath));
+  const evidenceAssetFiles = evidenceSnapshotFiles(files, evidenceText, /\.(svg|png|jpe?g|webp|ico)$/iu);
+  const evidenceFontFiles = evidenceSnapshotFiles(files, evidenceText, /\.(ttf|otf|woff2?)$/iu);
+  const preservedAssetFiles = files.filter((filePath) => /^assets\/.+\.(svg|png|jpe?g|webp|ico)$/iu.test(filePath));
+  const preservedFontFiles = files.filter((filePath) => /^fonts\/.+\.(ttf|otf|woff2?|css)$/iu.test(filePath));
   const hasComponentEvidence = evidenceHasReusableComponents(evidenceText)
     || files.some((filePath) => /^context\/(github|local-code)\/.+\/files\/.+(?:\/|^)(components?|ui|app|layout|shell|navbar|sidebar|chat|input|composer|assistant|message|model)[^/]*\/?.*\.(tsx|ts|jsx|js|css|scss|less)$/iu.test(filePath));
   const hasChatUiEvidence = evidenceHasChatInterface(evidenceText)
@@ -1611,15 +1615,33 @@ async function auditDesignSystemPackage(
     }
   }
   if (hasAssetEvidence) {
-    if (!files.some((filePath) => /^assets\/.+\.(svg|png|jpe?g|webp|ico)$/iu.test(filePath))) {
+    if (preservedAssetFiles.length === 0) {
       addIssue('error', 'missing_preserved_assets', 'Source evidence includes brand assets; preserve selected logos/icons/avatars under assets/.', 'assets/');
+    }
+    if (evidenceAssetFiles.length >= 3 && preservedAssetFiles.length < 3) {
+      addIssue(
+        'error',
+        'insufficient_preserved_assets',
+        `Source evidence includes ${evidenceAssetFiles.length} brand asset snapshots; preserve at least 3 representative logos/icons/avatars under assets/. Found ${preservedAssetFiles.length}.`,
+        'assets/',
+      );
     }
     if (!fileSet.has('preview/brand-assets.html')) {
       addIssue('error', 'missing_brand_assets_preview', 'Source evidence includes brand assets; add preview/brand-assets.html.', 'preview/brand-assets.html');
     }
   }
-  if (hasFontEvidence && !files.some((filePath) => /^fonts\/.+\.(ttf|otf|woff2?|css)$/iu.test(filePath))) {
-    addIssue('error', 'missing_preserved_fonts', 'Source evidence includes font files; preserve selected fonts under fonts/ and bind them in colors_and_type.css.', 'fonts/');
+  if (hasFontEvidence) {
+    if (preservedFontFiles.length === 0) {
+      addIssue('error', 'missing_preserved_fonts', 'Source evidence includes font files; preserve selected fonts under fonts/ and bind them in colors_and_type.css.', 'fonts/');
+    }
+    if (evidenceFontFiles.length >= 3 && preservedFontFiles.length < 3) {
+      addIssue(
+        'error',
+        'insufficient_preserved_fonts',
+        `Source evidence includes ${evidenceFontFiles.length} font snapshots; preserve at least 3 representative font files or declarations under fonts/. Found ${preservedFontFiles.length}.`,
+        'fonts/',
+      );
+    }
   }
 
   const errors = issues.filter((issue) => issue.severity === 'error');
@@ -1714,6 +1736,14 @@ function validateHtmlDocument(text: string): string | undefined {
   if (!/<style[\s>]/iu.test(text)) return 'Expected embedded CSS styles for review fidelity.';
   if (!/<(main|section|article|aside|header|div)\b/iu.test(text)) return 'Expected real layout markup, not only metadata.';
   return undefined;
+}
+
+function evidenceSnapshotFiles(files: string[], evidenceText: string, pattern: RegExp): string[] {
+  const fromFiles = files.filter((filePath) => /^context\/(github|local-code)\/.+\/files\//u.test(filePath) && pattern.test(filePath));
+  const fromText = [...evidenceText.matchAll(/context\/(?:github|local-code)\/[^`\s)]+\/files\/[^`\s)]+/giu)]
+    .map((match) => match[0])
+    .filter((filePath) => pattern.test(filePath));
+  return [...new Set([...fromFiles, ...fromText])];
 }
 
 function stalePackageReferences(text: string): string[] {
