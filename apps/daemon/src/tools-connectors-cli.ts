@@ -1596,6 +1596,7 @@ async function auditDesignSystemPackage(
   const preservedFontFiles = files.filter((filePath) => /^fonts\/.+\.(ttf|otf|woff2?|css)$/iu.test(filePath));
   const evidenceComponentNames = sourceComponentNamesFromEvidence(files, evidenceText);
   const visualSourceAnchors = await sourceComponentAnchorsInVisualArtifacts(projectPath, files, evidenceComponentNames);
+  const sourceExampleAnchors = sourceComponentExamplesInPackage(files, evidenceComponentNames);
   const hasComponentEvidence = evidenceHasReusableComponents(evidenceText)
     || files.some((filePath) => /^context\/(github|local-code)\/.+\/files\/.+(?:\/|^)(components?|ui|app|layout|shell|navbar|sidebar|chat|input|composer|assistant|message|model)[^/]*\/?.*\.(tsx|ts|jsx|js|css|scss|less)$/iu.test(filePath));
   const hasChatUiEvidence = evidenceHasChatInterface(evidenceText)
@@ -1714,6 +1715,14 @@ async function auditDesignSystemPackage(
       'generic_visual_artifacts',
       `Source evidence includes ${evidenceComponentNames.length} component snapshots, but preview/UI-kit visuals only reference ${visualSourceAnchors.length} source component name(s). Model or label at least 3 source-backed components such as ${evidenceComponentNames.slice(0, 5).join(', ')}.`,
       'preview/',
+    );
+  }
+  if (hasComponentEvidence && evidenceComponentNames.length >= 6 && sourceExampleAnchors.length < 3) {
+    addIssue(
+      'warning',
+      'missing_source_component_examples',
+      `Source evidence includes ${evidenceComponentNames.length} component snapshots, but the package preserves only ${sourceExampleAnchors.length} source-backed component example(s) outside context/. Copy at least 3 high-signal examples such as ${evidenceComponentNames.slice(0, 5).join(', ')} into source_examples/, a component examples folder, or root/nested TSX files like Claude Design exports.`,
+      'source_examples/',
     );
   }
   if (hasAssetEvidence) {
@@ -1886,6 +1895,27 @@ async function sourceComponentAnchorsInVisualArtifacts(
   const texts = await Promise.all(visualFiles.map(async (filePath) => await readAuditText(projectPath, filePath) ?? ''));
   const normalizedText = normalizeAnchorText(texts.join('\n'));
   return sourceNames.filter((name) => normalizedText.includes(normalizeAnchorText(name)));
+}
+
+function sourceComponentExamplesInPackage(files: string[], sourceNames: string[]): string[] {
+  if (sourceNames.length === 0) return [];
+  const sourceNameSet = new Set(sourceNames.map(normalizeAnchorText));
+  return files.filter(isPackageSourceExampleFile).filter((filePath) => {
+    const name = sourceComponentNameFromPath(filePath);
+    return name !== undefined && sourceNameSet.has(normalizeAnchorText(name));
+  });
+}
+
+function isPackageSourceExampleFile(filePath: string): boolean {
+  return /\.(tsx|ts|jsx|js)$/iu.test(filePath)
+    && !/^context\//u.test(filePath)
+    && !/^preview\//u.test(filePath)
+    && !/^ui_kits\/app\//u.test(filePath)
+    && !/^assets\//u.test(filePath)
+    && !/^fonts\//u.test(filePath)
+    && !/^dist\//u.test(filePath)
+    && !/^node_modules\//u.test(filePath)
+    && !/(^|\/)(package|tsconfig|vite\.config|next\.config|design-system-reference)\.(tsx|ts|jsx|js)$/iu.test(filePath);
 }
 
 function normalizeAnchorText(text: string): string {

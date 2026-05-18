@@ -1227,6 +1227,67 @@ describe('connectors tool CLI', () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
+  it('warns when rich component evidence is not preserved as source examples outside context', async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'od-package-audit-source-examples-'));
+    process.chdir(tmpDir);
+    await mkdir(path.join(tmpDir, 'preview'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'ui_kits/app/components'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'context/local-code/cherry/files/src/components'), { recursive: true });
+    await writeFile(path.join(tmpDir, 'DESIGN.md'), AUDIT_DESIGN_MD);
+    await writeFile(path.join(tmpDir, 'README.md'), AUDIT_README);
+    await writeFile(path.join(tmpDir, 'SKILL.md'), AUDIT_SKILL);
+    await writeFile(path.join(tmpDir, 'colors_and_type.css'), AUDIT_TOKENS_CSS);
+    for (const fileName of [
+      'colors-primary.html',
+      'colors-theme-light.html',
+      'typography-specimens.html',
+      'spacing-tokens.html',
+      'components-buttons.html',
+      'brand-assets.html',
+    ]) {
+      await writeFile(path.join(tmpDir, 'preview', fileName), auditHtml(fileName));
+    }
+    const componentFiles = [...AUDIT_COMPONENT_FILES, 'PreviewCard.jsx'];
+    await writeFile(path.join(tmpDir, 'ui_kits/app/index.html'), auditUiKitIndex(componentFiles));
+    await writeFile(path.join(tmpDir, 'ui_kits/app/README.md'), '# UI kit\n');
+    for (const componentName of componentFiles) {
+      await writeFile(
+        path.join(tmpDir, 'ui_kits/app/components', componentName),
+        auditUiKitComponent(componentName),
+      );
+    }
+    await writeFile(path.join(tmpDir, 'context/source-context.md'), '# Design System Source Context\n\n## Local Code\n\n- /tmp/cherry\n');
+    await writeFile(path.join(tmpDir, 'context/local-code/cherry.md'), [
+      '# Local Design Evidence: cherry',
+      '',
+      'Snapshot files written: 6',
+      '',
+      '### Reusable components',
+      '- src/components/Sidebar.tsx -> `context/local-code/cherry/files/src/components/Sidebar.tsx` (source)',
+      '- src/components/AssistantsList.tsx -> `context/local-code/cherry/files/src/components/AssistantsList.tsx` (source)',
+      '- src/components/ChatArea.tsx -> `context/local-code/cherry/files/src/components/ChatArea.tsx` (source)',
+      '- src/components/InputBar.tsx -> `context/local-code/cherry/files/src/components/InputBar.tsx` (source)',
+      '- src/components/MessageBubble.tsx -> `context/local-code/cherry/files/src/components/MessageBubble.tsx` (source)',
+      '- src/components/PreviewCard.tsx -> `context/local-code/cherry/files/src/components/PreviewCard.tsx` (source)',
+    ].join('\n'));
+    for (const componentName of ['Sidebar', 'AssistantsList', 'ChatArea', 'InputBar', 'MessageBubble', 'PreviewCard']) {
+      await writeFile(path.join(tmpDir, 'context/local-code/cherry/files/src/components', `${componentName}.tsx`), `export function ${componentName}(){ return null; }`);
+    }
+
+    const result = await runConnectorsToolCli(['design-system-package-audit', '--path', tmpDir]);
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(stdoutOutput.join('')).warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'missing_source_component_examples',
+        path: 'source_examples/',
+        message: expect.stringContaining('source-backed component example'),
+      }),
+    ]));
+
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
   it('fails a design-system package audit when evidence-backed artifacts are missing', async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'od-package-audit-fail-'));
     process.chdir(tmpDir);
