@@ -1104,7 +1104,7 @@ function DesignSystemProjectPanel({
   const needsReviewSectionReviews = visibleSectionReviews.filter(designSystemReviewNeedsAttention);
   const primaryNeedsReview = needsReviewSectionReviews.slice(0, 1);
   const groupedSectionReviews = designSystemReviewGroups(visibleSectionReviews);
-  const creatingInitialDraft = streaming && !published && !generationReviewHasStarted;
+  const creatingInitialDraft = streaming && !published;
   const generationSteps = designSystemInitialGenerationSteps({
     files,
     sectionReviews,

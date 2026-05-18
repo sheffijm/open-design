@@ -161,6 +161,36 @@ describe('FileWorkspace design-system project surface', () => {
     expect(markup).not.toContain('Review draft design system');
   });
 
+  it('keeps generated preview cards hidden until the initial run finishes', () => {
+    const markup = renderToStaticMarkup(
+      <FileWorkspace
+        projectId="ds-acme"
+        projectKind="prototype"
+        files={[
+          workspaceFile('DESIGN.md'),
+          workspaceFile('preview/typography-scale.html'),
+          workspaceFile('preview/colors-node-types.html'),
+          workspaceFile('ui_kits/generated_interface/index.html'),
+        ]}
+        liveArtifacts={[]}
+        onRefreshFiles={vi.fn()}
+        isDeck={false}
+        streaming
+        tabsState={{ tabs: [], active: null }}
+        onTabsStateChange={vi.fn()}
+        designSystemProject={designSystem()}
+        designSystemActivityEvents={[
+          toolUse('Write', { file_path: '/project/preview/typography-scale.html' }, 'write-preview'),
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('Creating your design system...');
+    expect(markup).not.toContain('Review draft design system');
+    expect(markup).not.toContain('typography-scale');
+    expect(markup).not.toContain('<iframe');
+  });
+
   it('keeps source evidence files out of the Design System review tab', () => {
     const container = renderWorkspace(
       <FileWorkspace
