@@ -1057,13 +1057,11 @@ export function HomeView({
             projectMetadata: metadataForHomeMediaComposer(mediaSurface, composer.inputs, promptTemplates),
             editableInputNames: composer.editableFieldNames,
             preserveInputFields: true,
-            // Type chips bind a plugin context; they do not seed the
-            // textarea or warn the user about replacement. The
-            // surfaced opt-in to load a starter sentence is the
-            // example-prompt panel that appears below the composer.
+            // Media chips are an editable generation form: the prompt
+            // slots are where users adjust model, duration, ratio, and
+            // audio text before running. Keep this path eager so the
+            // inline options and required plugin inputs stay visible.
             replaceWithoutConfirmation: true,
-            suppressPromptUpdate: true,
-            deferApply: true,
           });
           return;
         }
