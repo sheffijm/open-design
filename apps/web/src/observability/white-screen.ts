@@ -5,11 +5,20 @@
 // timer, and (importantly) cancels itself the moment the React root mounts
 // content — so a perfectly normal boot produces zero events.
 //
-// What counts as "mounted":
-//   - The root container exists in the DOM, AND
-//   - it has at least one child, AND
-//   - its visible text exceeds a small floor (so a single "Loading…"
-//     shell doesn't count as a successful mount).
+// Success condition (anything below is treated as "still showing a
+// pre-mount skeleton" and the timer keeps running):
+//
+//   1. The App component has set `data-od-app-mounted="1"` on
+//      `<html>` (its very first `useEffect` runs that). This is the
+//      authoritative marker — once App has rendered at all, any later
+//      tree crash is a `$exception` story, not a white-screen story.
+//   2. *Fallback only.* If the marker is missing (a render-time crash
+//      that prevented the effect from firing, or older app build
+//      without the marker), we accept "any non-loading-shell child of
+//      <body> with > MIN_VISIBLE_TEXT visible text". This guards
+//      against the loading sentinel
+//      `<div class="od-loading-shell">Loading Open Design…</div>`
+//      being mistaken for a mount (codex review on PR #2527).
 //
 // We do not try to discriminate between "still loading" and "white screen
 // caused by a render error" — both are equally bad from the user's seat,
@@ -19,9 +28,13 @@
 import { reportSafetyEvent } from '../analytics/error-tracking';
 
 const APP_MOUNT_TIMEOUT_MS = 5000;
-// Below this floor we treat the root as still showing the skeleton shell
-// (e.g. the dynamic import's loading sentinel "Loading Open Design…").
+// Below this floor we treat the root as still showing the skeleton shell.
 const MIN_VISIBLE_TEXT = 10;
+// Class names that signal "still loading" — we ignore them when computing
+// whether the app rendered something meaningful. `od-loading-shell` is
+// the dynamic-import fallback rendered by `client-app.tsx`.
+const LOADING_SHELL_CLASSES = new Set(['od-loading-shell']);
+const APP_MOUNTED_ATTR = 'data-od-app-mounted';
 
 export function installWhiteScreenDetector(): () => void {
   if (typeof window === 'undefined') return () => undefined;
@@ -63,15 +76,31 @@ export function installWhiteScreenDetector(): () => void {
 
 function isAppMounted(): boolean {
   if (typeof document === 'undefined') return false;
-  // The Next.js shell renders into the `__next` root. Falling back to
-  // `document.body` keeps the check working in test harnesses that mount
-  // into different containers.
+  // Primary signal: the App component's mount effect ran.
+  if (document.documentElement.getAttribute(APP_MOUNTED_ATTR) === '1') {
+    return true;
+  }
+  // Fallback: scan the body subtree for content that ISN'T just the
+  // dynamic-import loading shell. We only count children whose classList
+  // doesn't contain a known loading-shell marker; their visible text
+  // determines whether something meaningful is on-screen.
   const root = document.getElementById('__next') ?? document.body;
   if (!root) return false;
-  if (root.children.length === 0) return false;
-  const text = (root.innerText ?? root.textContent ?? '').trim();
+  const meaningful = Array.from(root.children).filter((el) => !isLoadingShell(el));
+  if (meaningful.length === 0) return false;
+  const text = meaningful
+    .map((el) => (el as HTMLElement).innerText ?? el.textContent ?? '')
+    .join('')
+    .trim();
   if (text.length < MIN_VISIBLE_TEXT) return false;
   return true;
+}
+
+function isLoadingShell(el: Element): boolean {
+  for (const name of LOADING_SHELL_CLASSES) {
+    if (el.classList.contains(name)) return true;
+  }
+  return false;
 }
 
 function monitorMount(onMounted: () => void): () => void {

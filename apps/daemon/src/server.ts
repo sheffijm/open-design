@@ -4331,33 +4331,60 @@ export async function startServer({
   // user sees a 500 (or worse, a connection drop) and we see nothing.
   // Both listeners install AFTER the analyticsService is created so the
   // captureSafety dispatch path is guaranteed to be ready.
-  process.on('uncaughtException', (error) => {
-    analyticsService.captureSafety({
-      eventName: 'daemon_uncaught_exception',
-      appVersion: cachedAppVersion?.version ?? '0.0.0',
-      properties: {
-        error_message: error?.message ?? String(error),
-        error_name: error?.name ?? 'Error',
-        // Stack truncation: 8 KB ceiling to keep the ingest payload bounded
-        // even when the stack contains huge native frames. Most actionable
-        // stacks fit in well under 2 KB.
-        error_stack: typeof error?.stack === 'string' ? error.stack.slice(0, 8192) : undefined,
-      },
+  //
+  // IMPORTANT — these handlers MUST keep Node's fatal-exit semantics.
+  // Installing an `uncaughtException` listener silences Node's default
+  // crash/exit path, and Node 15+ does the same for `unhandledRejection`
+  // when a listener is present (the `--unhandled-rejections=throw` mode
+  // only fires when nothing has subscribed). We bounded-flush posthog-
+  // node and then call `process.exit(1)` explicitly so the supervisor
+  // (pm2, packaged updater, dev `tools-dev`) gets a fresh process and
+  // we don't leave a half-broken daemon answering requests with state
+  // corruption. See codex review on PR #2527 (Siri-Ray).
+  const FATAL_FLUSH_TIMEOUT_MS = 1000;
+  let fatalShuttingDown = false;
+  const triggerFatalShutdown = (
+    eventName: string,
+    properties: Record<string, unknown>,
+  ): void => {
+    if (fatalShuttingDown) return;
+    fatalShuttingDown = true;
+    try {
+      analyticsService.captureSafety({
+        eventName,
+        appVersion: cachedAppVersion?.version ?? '0.0.0',
+        properties,
+      });
+    } catch {
+      // capture must never block the exit path
+    }
+    // Race shutdown against a hard timeout. If posthog-node hangs on
+    // a slow flush we still die in bounded time — the supervisor will
+    // restart us, which is the whole point.
+    void Promise.race([
+      analyticsService.shutdown(),
+      new Promise<void>((resolve) => setTimeout(resolve, FATAL_FLUSH_TIMEOUT_MS).unref?.()),
+    ]).finally(() => {
+      process.exitCode = 1;
+      process.exit(1);
     });
-    // Re-throw is NOT what we want here — Node's default unhandled
-    // exception behavior is to exit. We log + dispatch and let the
-    // process die naturally so a supervisor restarts it cleanly.
+  };
+  process.on('uncaughtException', (error) => {
+    triggerFatalShutdown('daemon_uncaught_exception', {
+      error_message: error?.message ?? String(error),
+      error_name: error?.name ?? 'Error',
+      // Stack truncation: 8 KB ceiling to keep the ingest payload bounded
+      // even when the stack contains huge native frames. Most actionable
+      // stacks fit in well under 2 KB.
+      error_stack: typeof error?.stack === 'string' ? error.stack.slice(0, 8192) : undefined,
+    });
   });
   process.on('unhandledRejection', (reason) => {
     const asError = reason instanceof Error ? reason : null;
-    analyticsService.captureSafety({
-      eventName: 'daemon_unhandled_rejection',
-      appVersion: cachedAppVersion?.version ?? '0.0.0',
-      properties: {
-        error_message: asError?.message ?? (typeof reason === 'string' ? reason : String(reason)),
-        error_name: asError?.name ?? 'NonErrorRejection',
-        error_stack: typeof asError?.stack === 'string' ? asError.stack.slice(0, 8192) : undefined,
-      },
+    triggerFatalShutdown('daemon_unhandled_rejection', {
+      error_message: asError?.message ?? (typeof reason === 'string' ? reason : String(reason)),
+      error_name: asError?.name ?? 'NonErrorRejection',
+      error_stack: typeof asError?.stack === 'string' ? asError.stack.slice(0, 8192) : undefined,
     });
   });
 
