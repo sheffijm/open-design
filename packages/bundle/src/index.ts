@@ -14,6 +14,8 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
+import { z } from "zod";
+
 export const BUNDLE_BASE_PATH_ENV = "OD_BUNDLE_BASE_PATH";
 export const BUNDLE_DESCRIPTOR_FILE = "bundle.json";
 export const BUNDLE_DESCRIPTOR_SCHEMA_VERSION = 1;
@@ -178,16 +180,92 @@ export class BundleStoreError extends Error {
   }
 }
 
+const bundleKeySchema = z.string().regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*)+$/);
+const bundleVersionSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/);
+const bundleEpochSchema = z.string().regex(BUNDLE_EPOCH_RE);
+const bundlePublicationPathSegmentSchema = z.string()
+  .regex(BUNDLE_PUBLICATION_PATH_SEGMENT_RE)
+  .refine((value) => value !== "." && value !== "..");
+const bundlePublicationPlatformSchema = z.string().regex(BUNDLE_PUBLICATION_PLATFORM_RE);
+const bundleRefInputSchema = z.object({
+  key: z.string(),
+  version: z.string(),
+}).strict();
+const bundleDescriptorEntryInputSchema = z.object({
+  kind: z.enum(["js", "tsx"]),
+  path: z.string().min(1),
+}).strict();
+const bundleDescriptorInputSchema = z.discriminatedUnion("schemaVersion", [
+  z.object({
+    entry: bundleDescriptorEntryInputSchema,
+    schemaVersion: z.literal(BUNDLE_DESCRIPTOR_SCHEMA_VERSION),
+  }).strict(),
+  z.object({
+    entry: bundleDescriptorEntryInputSchema,
+    key: z.string(),
+    schemaVersion: z.literal(BUNDLE_DESCRIPTOR_SCHEMA_VERSION_V2),
+    version: z.string(),
+  }).catchall(z.unknown()),
+]);
+const nullSafeStringSchema = z.string().refine((value) => !value.includes("\0"), {
+  message: "must not contain null bytes",
+});
+const bundlePublicationLocalizedTextInputSchema = z.record(
+  z.string().min(1).refine((value) => !value.includes("\0"), {
+    message: "keys must not contain null bytes",
+  }),
+  nullSafeStringSchema,
+);
+const bundlePublicationDisplayInputSchema = z.object({
+  summary: bundlePublicationLocalizedTextInputSchema.optional(),
+  title: bundlePublicationLocalizedTextInputSchema.optional(),
+  version: nullSafeStringSchema.min(1).optional(),
+}).strict();
+const bundlePublicationVariantInputSchema = z.object({
+  compatible: z.object({
+    hostEpoch: z.string(),
+  }).strict(),
+  platform: z.string(),
+  version: z.string(),
+}).strict();
+const bundlePublicationInputSchema = z.object({
+  bundle: z.object({
+    key: z.string(),
+    pathKey: z.string(),
+    variants: z.array(bundlePublicationVariantInputSchema).min(1),
+  }).strict(),
+  metadata: z.object({
+    channel: z.string(),
+    display: bundlePublicationDisplayInputSchema.optional(),
+    publish: z.record(z.string(), z.unknown()).optional().default({}),
+    version: z.string(),
+  }).strict(),
+  schemaVersion: z.literal(BUNDLE_PUBLICATION_SCHEMA_VERSION),
+}).strict();
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function assertKnownKeys(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
-  const allowedSet = new Set<string>(allowed);
-  const unexpected = Object.keys(value).filter((key) => !allowedSet.has(key));
-  if (unexpected.length > 0) {
-    throw new BundleStoreError("bundle-shape-invalid", `${label} contains unsupported fields: ${unexpected.join(", ")}`);
+function formatZodPath(path: PropertyKey[]): string {
+  return path.map(String).join(".");
+}
+
+function formatZodError(label: string, error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length === 0 ? label : `${label}.${formatZodPath(issue.path)}`;
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
+}
+
+function parseSchema<T>(schema: z.ZodType<T>, value: unknown, code: string, label: string): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw new BundleStoreError(code, formatZodError(label, result.error));
   }
+  return result.data;
 }
 
 function containsPath(root: string, candidate: string): boolean {
@@ -206,51 +284,47 @@ function resolveAbsolutePath(value: string, label: string): string {
 }
 
 export function validateBundleKey(key: string): string {
-  if (!/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*)+$/.test(key)) {
+  const result = bundleKeySchema.safeParse(key);
+  if (!result.success) {
     throw new BundleStoreError(
       "bundle-key-invalid",
       `bundle key must use a colon-separated lowercase namespace pattern: ${key}`,
     );
   }
-  return key;
+  return result.data;
 }
 
 export function validateBundleVersion(version: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(version)) {
+  const result = bundleVersionSchema.safeParse(version);
+  if (!result.success) {
     throw new BundleStoreError(
       "bundle-version-invalid",
       `bundle version must be a safe path segment: ${version}`,
     );
   }
-  return version;
+  return result.data;
 }
 
 export function validateBundlePublicationPathKey(pathKey: string): string {
-  if (
-    !BUNDLE_PUBLICATION_PATH_SEGMENT_RE.test(pathKey) ||
-    pathKey === "." ||
-    pathKey === ".."
-  ) {
+  const result = bundlePublicationPathSegmentSchema.safeParse(pathKey);
+  if (!result.success) {
     throw new BundleStoreError(
       "bundle-publication-path-key-invalid",
       `bundle publication pathKey must be a lowercase safe path segment: ${pathKey}`,
     );
   }
-  return pathKey;
+  return result.data;
 }
 
 export function validateBundlePublicationChannel(channel: string): string {
-  if (
-    !BUNDLE_PUBLICATION_PATH_SEGMENT_RE.test(channel) ||
-    channel === "." ||
-    channel === ".."
-  ) {
+  const result = bundlePublicationPathSegmentSchema.safeParse(channel);
+  if (!result.success) {
     throw new BundleStoreError(
       "bundle-publication-channel-invalid",
       `bundle publication channel must be a lowercase safe path segment: ${channel}`,
     );
   }
-  return channel;
+  return result.data;
 }
 
 export function validateBundlePublicationVersionOrTag(versionOrTag: string): string {
@@ -258,23 +332,25 @@ export function validateBundlePublicationVersionOrTag(versionOrTag: string): str
 }
 
 export function validateBundlePublicationPlatform(platform: string): string {
-  if (!BUNDLE_PUBLICATION_PLATFORM_RE.test(platform)) {
+  const result = bundlePublicationPlatformSchema.safeParse(platform);
+  if (!result.success) {
     throw new BundleStoreError(
       "bundle-publication-platform-invalid",
       `bundle publication platform must be any or a lowercase platform tag: ${platform}`,
     );
   }
-  return platform;
+  return result.data;
 }
 
 export function validateBundleEpoch(epoch: string): string {
-  if (!BUNDLE_EPOCH_RE.test(epoch)) {
+  const result = bundleEpochSchema.safeParse(epoch);
+  if (!result.success) {
     throw new BundleStoreError(
       "bundle-epoch-invalid",
       `bundle epoch must use X.Y.Z or X.Y.Z-<channel>.N: ${epoch}`,
     );
   }
-  return epoch;
+  return result.data;
 }
 
 export function parseBundleEpochVersion(version: string): BundleEpochVersion {
@@ -315,162 +391,95 @@ export function createBundleEpochVersion(input: {
 }
 
 export function validateBundleRef(ref: BundleRef): BundleRef {
-  if (!isRecord(ref)) {
-    throw new BundleStoreError("bundle-ref-invalid", "bundle ref must be an object");
-  }
+  const parsed = parseSchema(bundleRefInputSchema, ref, "bundle-ref-invalid", "bundle ref");
   return {
-    key: validateBundleKey(ref.key),
-    version: validateBundleVersion(ref.version),
+    key: validateBundleKey(parsed.key),
+    version: validateBundleVersion(parsed.version),
   };
 }
 
 function validateBundleDescriptorEntry(value: unknown): BundleArtifactDescriptor["entry"] {
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-descriptor-invalid", "bundle descriptor entry must be an object");
-  }
-
-  if (value.kind !== "js" && value.kind !== "tsx") {
-    throw new BundleStoreError("bundle-entry-kind-invalid", "bundle descriptor entry kind must be js or tsx");
-  }
-
-  if (typeof value.path !== "string" || value.path.length === 0) {
-    throw new BundleStoreError("bundle-entry-path-invalid", "bundle descriptor entry path must be a non-empty string");
-  }
-  assertNoNullBytes(value.path, "bundle descriptor entry path");
-  if (isAbsolute(value.path)) {
+  const parsed = parseSchema(bundleDescriptorEntryInputSchema, value, "bundle-descriptor-invalid", "bundle descriptor entry");
+  assertNoNullBytes(parsed.path, "bundle descriptor entry path");
+  if (isAbsolute(parsed.path)) {
     throw new BundleStoreError("bundle-entry-path-invalid", "bundle descriptor entry path must be relative");
   }
 
   return {
-    kind: value.kind,
-    path: value.path.split("\\").join("/"),
+    kind: parsed.kind,
+    path: parsed.path.split("\\").join("/"),
   };
 }
 
 export function validateBundleDescriptor(value: unknown): BundleArtifactDescriptor {
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-descriptor-invalid", "bundle descriptor must contain schemaVersion=1 or schemaVersion=2");
-  }
-  if (value.schemaVersion !== BUNDLE_DESCRIPTOR_SCHEMA_VERSION && value.schemaVersion !== BUNDLE_DESCRIPTOR_SCHEMA_VERSION_V2) {
-    throw new BundleStoreError("bundle-descriptor-invalid", "bundle descriptor must contain schemaVersion=1 or schemaVersion=2");
-  }
+  const parsed = parseSchema(bundleDescriptorInputSchema, value, "bundle-descriptor-invalid", "bundle descriptor");
+  const entry = validateBundleDescriptorEntry(parsed.entry);
 
-  const entry = validateBundleDescriptorEntry(value.entry);
-
-  if (value.schemaVersion === BUNDLE_DESCRIPTOR_SCHEMA_VERSION) {
+  if (parsed.schemaVersion === BUNDLE_DESCRIPTOR_SCHEMA_VERSION) {
     return {
       entry,
       schemaVersion: BUNDLE_DESCRIPTOR_SCHEMA_VERSION,
     };
   }
 
-  if (typeof value.key !== "string") {
-    throw new BundleStoreError("bundle-descriptor-invalid", "schemaVersion=2 bundle descriptor key must be a string");
-  }
-  if (typeof value.version !== "string") {
-    throw new BundleStoreError("bundle-descriptor-invalid", "schemaVersion=2 bundle descriptor version must be a string");
-  }
-
   return {
-    ...value,
+    ...parsed,
     entry,
-    key: validateBundleKey(value.key),
+    key: validateBundleKey(parsed.key),
     schemaVersion: BUNDLE_DESCRIPTOR_SCHEMA_VERSION_V2,
-    version: parseBundleEpochVersion(value.version).version,
+    version: parseBundleEpochVersion(parsed.version).version,
   } as BundleArtifactDescriptorV2;
 }
 
 function validateBundlePublicationLocalizedText(value: unknown, label: string): BundlePublicationLocalizedText {
-  if (value == null) return { default: "" };
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-publication-invalid", `${label} must be an object`);
-  }
-
-  const result: Record<string, string> = {};
-  for (const [key, text] of Object.entries(value)) {
-    if (key.length === 0 || key.includes("\0")) {
-      throw new BundleStoreError("bundle-publication-invalid", `${label} keys must be non-empty strings`);
-    }
-    if (typeof text !== "string") {
-      throw new BundleStoreError("bundle-publication-invalid", `${label}.${key} must be a string`);
-    }
-    assertNoNullBytes(text, `${label}.${key}`);
-    result[key] = text;
-  }
-  return { ...result, default: result.default ?? "" };
+  const parsed = parseSchema(
+    bundlePublicationLocalizedTextInputSchema,
+    value ?? {},
+    "bundle-publication-invalid",
+    label,
+  );
+  return { ...parsed, default: parsed.default ?? "" };
 }
 
 function validateBundlePublicationDisplay(value: unknown, metadataVersion: string): BundlePublicationDisplay {
-  if (value == null) {
-    return {
-      summary: { default: "" },
-      title: { default: "" },
-      version: metadataVersion,
-    };
-  }
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication metadata.display must be an object");
-  }
-  assertKnownKeys(value, ["summary", "title", "version"], "bundle publication metadata.display");
-
-  const version = value.version == null ? metadataVersion : value.version;
-  if (typeof version !== "string" || version.length === 0) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication display.version must be a non-empty string");
-  }
-  assertNoNullBytes(version, "bundle publication display.version");
-
+  const parsed = parseSchema(
+    bundlePublicationDisplayInputSchema,
+    value ?? {},
+    "bundle-publication-invalid",
+    "bundle publication metadata.display",
+  );
   return {
-    summary: validateBundlePublicationLocalizedText(value.summary, "bundle publication display.summary"),
-    title: validateBundlePublicationLocalizedText(value.title, "bundle publication display.title"),
-    version,
+    summary: validateBundlePublicationLocalizedText(parsed.summary, "bundle publication display.summary"),
+    title: validateBundlePublicationLocalizedText(parsed.title, "bundle publication display.title"),
+    version: parsed.version ?? metadataVersion,
   };
 }
 
 function validateBundlePublicationMetadata(value: unknown): BundlePublication["metadata"] {
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication metadata must be an object");
-  }
-  assertKnownKeys(value, ["channel", "display", "publish", "version"], "bundle publication metadata");
-  if (typeof value.channel !== "string") {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication metadata.channel must be a string");
-  }
-  if (typeof value.version !== "string") {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication metadata.version must be a string");
-  }
-  const publish = value.publish == null ? {} : value.publish;
-  if (!isRecord(publish)) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication metadata.publish must be an object");
-  }
-  const version = validateBundlePublicationVersionOrTag(value.version);
+  const parsed = parseSchema(
+    bundlePublicationInputSchema.shape.metadata,
+    value,
+    "bundle-publication-invalid",
+    "bundle publication metadata",
+  );
+  const version = validateBundlePublicationVersionOrTag(parsed.version);
   return {
-    channel: validateBundlePublicationChannel(value.channel),
-    display: validateBundlePublicationDisplay(value.display, version),
-    publish: { ...publish },
+    channel: validateBundlePublicationChannel(parsed.channel),
+    display: validateBundlePublicationDisplay(parsed.display, version),
+    publish: { ...parsed.publish },
     version,
   };
 }
 
 function validateBundlePublicationVariant(value: unknown): BundlePublicationVariant {
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication variant must be an object");
-  }
-  assertKnownKeys(value, ["compatible", "platform", "version"], "bundle publication variant");
-  if (typeof value.platform !== "string") {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication variant.platform must be a string");
-  }
-  if (typeof value.version !== "string") {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication variant.version must be a string");
-  }
-  if (!isRecord(value.compatible)) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication variant.compatible must be an object");
-  }
-  assertKnownKeys(value.compatible, ["hostEpoch"], "bundle publication variant.compatible");
-  if (typeof value.compatible.hostEpoch !== "string") {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication variant.compatible.hostEpoch must be a string");
-  }
-
-  const hostEpoch = validateBundleEpoch(value.compatible.hostEpoch);
-  const parsedVersion = parseBundleEpochVersion(value.version);
+  const parsed = parseSchema(
+    bundlePublicationVariantInputSchema,
+    value,
+    "bundle-publication-invalid",
+    "bundle publication variant",
+  );
+  const hostEpoch = validateBundleEpoch(parsed.compatible.hostEpoch);
+  const parsedVersion = parseBundleEpochVersion(parsed.version);
   if (parsedVersion.epoch !== hostEpoch) {
     throw new BundleStoreError(
       "bundle-publication-host-epoch-mismatch",
@@ -480,27 +489,19 @@ function validateBundlePublicationVariant(value: unknown): BundlePublicationVari
 
   return {
     compatible: { hostEpoch },
-    platform: validateBundlePublicationPlatform(value.platform),
+    platform: validateBundlePublicationPlatform(parsed.platform),
     version: parsedVersion.version,
   };
 }
 
 function validateBundlePublicationBundle(value: unknown): BundlePublication["bundle"] {
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication bundle must be an object");
-  }
-  assertKnownKeys(value, ["key", "pathKey", "variants"], "bundle publication bundle");
-  if (typeof value.key !== "string") {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication bundle.key must be a string");
-  }
-  if (typeof value.pathKey !== "string") {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication bundle.pathKey must be a string");
-  }
-  if (!Array.isArray(value.variants) || value.variants.length === 0) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication bundle.variants must be a non-empty array");
-  }
-
-  const variants = value.variants.map(validateBundlePublicationVariant);
+  const parsed = parseSchema(
+    bundlePublicationInputSchema.shape.bundle,
+    value,
+    "bundle-publication-invalid",
+    "bundle publication bundle",
+  );
+  const variants = parsed.variants.map(validateBundlePublicationVariant);
   const seen = new Set<string>();
   for (const variant of variants) {
     const identity = `${variant.compatible.hostEpoch}\0${variant.platform}`;
@@ -514,24 +515,22 @@ function validateBundlePublicationBundle(value: unknown): BundlePublication["bun
   }
 
   return {
-    key: validateBundleKey(value.key),
-    pathKey: validateBundlePublicationPathKey(value.pathKey),
+    key: validateBundleKey(parsed.key),
+    pathKey: validateBundlePublicationPathKey(parsed.pathKey),
     variants,
   };
 }
 
 export function validateBundlePublication(value: unknown): BundlePublication {
-  if (!isRecord(value)) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication must be a JSON object");
-  }
-  assertKnownKeys(value, ["bundle", "metadata", "schemaVersion"], "bundle publication");
-  if (value.schemaVersion !== BUNDLE_PUBLICATION_SCHEMA_VERSION) {
-    throw new BundleStoreError("bundle-publication-invalid", "bundle publication must contain schemaVersion=1");
-  }
-
+  const parsed = parseSchema(
+    bundlePublicationInputSchema,
+    value,
+    "bundle-publication-invalid",
+    "bundle publication",
+  );
   return {
-    bundle: validateBundlePublicationBundle(value.bundle),
-    metadata: validateBundlePublicationMetadata(value.metadata),
+    bundle: validateBundlePublicationBundle(parsed.bundle),
+    metadata: validateBundlePublicationMetadata(parsed.metadata),
     schemaVersion: BUNDLE_PUBLICATION_SCHEMA_VERSION,
   };
 }

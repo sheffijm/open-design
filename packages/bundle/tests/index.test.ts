@@ -126,6 +126,11 @@ describe("bundle artifact descriptors", () => {
     });
     expect(() => validateBundleDescriptor({ entry: { kind: "ts", path: "sidecar/index.ts" }, schemaVersion: 1 })).toThrow(BundleStoreError);
     expect(() => validateBundleDescriptor({ entry: { kind: "tsx", path: "/tmp/entry.ts" }, schemaVersion: 1 })).toThrow(BundleStoreError);
+    expect(() => validateBundleDescriptor({
+      entry: { kind: "tsx", path: "sidecar/index.ts" },
+      schemaVersion: 1,
+      web: { outputMode: "standalone" },
+    })).toThrow(BundleStoreError);
     expect(() => validateBundleDescriptor({ entry: { kind: "tsx", path: "../entry.ts" }, schemaVersion: 1 })).not.toThrow();
     expect(() => resolveBundleEntryPath({
       bundlePath: "/tmp/bundle",
@@ -329,6 +334,40 @@ describe("bundle publications", () => {
       metadata: { channel: "beta", publish: {}, version: "0.8.0-beta.4" },
       schemaVersion: 1,
     })).toThrow(/duplicate variant/);
+  });
+
+  it("rejects unsupported publication fields with zod path context", () => {
+    try {
+      validateBundlePublication({
+        bundle: {
+          key: "od:sidecar:web",
+          pathKey: "od-sidecar-web",
+          variants: [
+            {
+              compatible: { hostEpoch: "0.8.0-beta.4" },
+              platform: "any",
+              version: "0.8.0-beta.4.web.1",
+            },
+          ],
+        },
+        metadata: {
+          channel: "beta",
+          display: {
+            badge: "beta",
+            version: "0.8.0 beta",
+          },
+          publish: {},
+          version: "0.8.0-beta.4",
+        },
+        schemaVersion: 1,
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(BundleStoreError);
+      expect((error as BundleStoreError).code).toBe("bundle-publication-invalid");
+      expect((error as Error).message).toContain("bundle publication.metadata.display");
+      return;
+    }
+    throw new Error("expected invalid publication to throw");
   });
 });
 

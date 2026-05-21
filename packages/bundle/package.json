@@ -17,6 +17,9 @@
       "default": "./dist/index.mjs"
     }
   },
+  "dependencies": {
+    "zod": "4.4.2"
+  },
   "scripts": {
     "build": "node ./esbuild.config.mjs && tsc -p tsconfig.json --emitDeclarationOnly",
     "test": "vitest run",
