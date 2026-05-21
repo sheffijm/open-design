@@ -13,11 +13,25 @@ export interface AgentInfo {
   path?: string;
   version?: string | null;
   models?: AgentModelOption[];
+  /** Whether models came from the installed CLI or Open Design's static fallback. */
+  modelsSource?: 'live' | 'fallback';
   reasoningOptions?: AgentModelOption[];
   /** HTTPS URL to install or download the CLI (vendor docs, GitHub README, npm). */
   installUrl?: string;
   /** Optional HTTPS URL for configuration / auth / usage docs. */
   docsUrl?: string;
+  /**
+   * How the daemon forwards the user's `.od/mcp-config.json` external MCP
+   * servers to this runtime at spawn time. Mirrors the field on
+   * `RuntimeAgentDef` in the daemon. Undefined means the runtime has no
+   * native MCP transport wired yet, in which case the settings UI surfaces
+   * a "configure MCP in the agent's own config file" hint instead of
+   * silently dropping the servers (issue #2142).
+   */
+  externalMcpInjection?:
+    | 'claude-mcp-json'
+    | 'acp-merge'
+    | 'opencode-env-content';
 }
 
 export interface AgentsResponse {
@@ -160,6 +174,49 @@ export interface DesignSystemSummary {
 
 export interface DesignSystemDetail extends DesignSystemSummary {
   body: string;
+  packageInfo?: DesignSystemPackageInfo;
+}
+
+export interface DesignSystemPackageInfo {
+  manifest?: {
+    schemaVersion: string;
+    id: string;
+    name: string;
+    category: string;
+    source?: { type?: string; url?: string; path?: string; branch?: string; commit?: string; importedAt?: string };
+    files?: {
+      design?: string;
+      tokens?: string;
+      components?: string;
+    };
+    usage?: string;
+    componentsManifest?: string;
+    importMode?: string;
+    craft?: {
+      applies?: string[];
+      suggested?: string[];
+      exemptions?: string[];
+    };
+    fonts?: Array<{ family?: string; weight?: string | number; style?: string; file?: string }>;
+    preview?: {
+      dir?: string;
+      pages?: Array<{ path?: string; role?: string; title?: string }>;
+    };
+    sourceFiles?: {
+      scanned?: string;
+      evidence?: string;
+      tokens?: string;
+      snippets?: string;
+    };
+    assetsDir?: string;
+  };
+  sourceEvidence?: {
+    scannedFileCount?: number;
+    tokenCount?: number;
+    snippetCount?: number;
+    confidence?: Record<string, string | number>;
+    evidenceExcerpt?: string;
+  };
 }
 
 export interface DesignSystemsResponse {
@@ -302,6 +359,38 @@ export interface DesignSystemRevisionJobRequest {
   feedback: string;
   sectionTitle?: string;
   body?: string;
+}
+
+export interface ImportLocalDesignSystemRequest {
+  /** Absolute local project directory selected by the user. */
+  baseDir: string;
+  /** Optional display name override for the generated design-system project. */
+  name?: string;
+  /** Import structure mode. Defaults to hybrid for real project imports. */
+  importMode?: 'normalized' | 'hybrid' | 'verbatim';
+  /** Craft sections that should actively apply when this system is used. */
+  craftApplies?: string[];
+}
+
+export interface ImportLocalDesignSystemResponse {
+  designSystem: DesignSystemSummary;
+}
+
+export interface ImportGitHubDesignSystemRequest {
+  /** Public GitHub repository URL, e.g. https://github.com/owner/repo. */
+  githubUrl: string;
+  /** Optional branch to clone. Defaults to the repository default branch. */
+  branch?: string;
+  /** Optional display name override for the generated design-system project. */
+  name?: string;
+  /** Import structure mode. Defaults to hybrid for real project imports. */
+  importMode?: 'normalized' | 'hybrid' | 'verbatim';
+  /** Craft sections that should actively apply when this system is used. */
+  craftApplies?: string[];
+}
+
+export interface ImportGitHubDesignSystemResponse {
+  designSystem: DesignSystemSummary;
 }
 
 export interface HealthResponse {

@@ -1,8 +1,10 @@
 import type { Express } from 'express';
 import {
-  defaultScenarioPluginIdForKind,
+  defaultScenarioPluginIdForProjectMetadata,
   type PluginManifest,
 } from '@open-design/contracts';
+import { createProjectArtifactFile } from './artifact-create.js';
+import { ArtifactPublicationBlockedError } from './artifact-publication-guard.js';
 import { ArtifactRegressionError } from './artifact-stub-guard.js';
 import { listDesignSystems } from './design-systems.js';
 import {
@@ -225,9 +227,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       let resolveBody =
         explicitPlugin ? (req.body as Record<string, unknown>) : null;
       if (!resolveBody) {
-        const fallbackPluginId = defaultScenarioPluginIdForKind(
-          projectMetadata?.kind,
-        );
+        const fallbackPluginId = defaultScenarioPluginIdForProjectMetadata(projectMetadata);
         if (fallbackPluginId && getInstalledPlugin(db, fallbackPluginId)) {
           resolveBody = { ...(req.body || {}), pluginId: fallbackPluginId };
         }
@@ -1053,7 +1053,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
           const body = { file: meta };
           return res.json(body);
         }
-        const { name, content, encoding, artifactManifest } = req.body || {};
+        const { name, content, encoding, artifactManifest, artifact, overwrite } = req.body || {};
         if (typeof name !== 'string' || typeof content !== 'string') {
           return sendApiError(
             res,
@@ -1080,14 +1080,25 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
           encoding === 'base64'
             ? Buffer.from(content, 'base64')
             : Buffer.from(content, 'utf8');
-        const meta = await writeProjectFile(
-          PROJECTS_DIR,
-          req.params.id,
-          name,
-          buf,
-          { artifactManifest },
-          uploadProject?.metadata,
-        );
+        const meta = artifact === true
+          ? await createProjectArtifactFile({
+              projectsRoot: PROJECTS_DIR,
+              projectId: req.params.id,
+              input: { name, content, encoding, artifactManifest },
+              metadata: uploadProject?.metadata,
+              writeProjectFile,
+            })
+          : await writeProjectFile(
+              PROJECTS_DIR,
+              req.params.id,
+              name,
+              buf,
+              {
+                artifactManifest,
+                ...(overwrite === false ? { overwrite: false } : {}),
+              },
+              uploadProject?.metadata,
+            );
         /** @type {import('@open-design/contracts').ProjectFileResponse} */
         const body = { file: meta };
         res.json(body);
@@ -1101,6 +1112,20 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
               priorName: err.priorName,
             },
           });
+        }
+        if (err instanceof ArtifactPublicationBlockedError) {
+          return sendApiError(res, 422, 'ARTIFACT_PUBLICATION_BLOCKED', err.message, {
+            details: { placeholders: err.placeholders },
+          });
+        }
+        if (err?.code === 'EEXIST') {
+          return sendApiError(res, 409, 'FILE_EXISTS', 'file already exists');
+        }
+        if (err?.code === 'ARTIFACT_MANIFEST_REQUIRED') {
+          return sendApiError(res, 400, 'ARTIFACT_MANIFEST_REQUIRED', err.message);
+        }
+        if (err?.code === 'ARTIFACT_MANIFEST_INVALID') {
+          return sendApiError(res, 400, 'BAD_REQUEST', err.message);
         }
         sendApiError(res, 500, 'INTERNAL_ERROR', 'upload failed');
       }

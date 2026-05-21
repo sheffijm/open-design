@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ConnectorConnectResponse, ConnectorDetail, ConnectorStatusResponse } from '@open-design/contracts';
 import { streamViaDaemon } from '../providers/daemon';
 import {
@@ -50,20 +50,34 @@ import type {
   DesignSystemProvenance,
   DesignSystemRevision,
   OpenTabsState,
+  Project,
   ProjectFile,
   ProjectMetadata,
 } from '../types';
 import { decideAutoOpenAfterWrite } from './auto-open-file';
 import { ChatPane } from './ChatPane';
 import { FileWorkspace } from './FileWorkspace';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
+import { useAnalytics } from '../analytics/provider';
+import { trackPageView } from '../analytics/events';
+import {
+  clearOnboardingSessionId,
+  peekOnboardingSessionId,
+} from '../analytics/onboarding-session';
+import type {
+  TrackingDesignSystemStatus,
+  TrackingDesignSystemsEntryFrom,
+} from '@open-design/contracts/analytics';
+import { useI18n } from '../i18n';
 
 interface CreationProps {
   onBack: () => void;
-  onCreated: (projectId: string) => void;
+  onCreated: (projectId: string, project?: Project) => void;
+  onProjectPrepared?: (project: Project) => void;
   onSystemsRefresh?: () => Promise<void> | void;
   config?: AppConfig;
   onOpenConnectorsTab?: () => void;
+  chrome?: 'standalone' | 'embedded';
 }
 
 interface DetailProps {
@@ -181,9 +195,11 @@ function clearRememberedGenerationJob(designSystemId: string): void {
 export function DesignSystemCreationFlow({
   onBack,
   onCreated,
+  onProjectPrepared,
   onSystemsRefresh,
   config,
   onOpenConnectorsTab,
+  chrome = 'standalone',
 }: CreationProps) {
   const [step, setStep] = useState<SetupStep>('setup');
   const [state, setState] = useState<SetupState>(EMPTY_SETUP);
@@ -197,15 +213,41 @@ export function DesignSystemCreationFlow({
   const [githubAuthorizationPending, setGithubAuthorizationPending] = useState(false);
   const [githubAuthorizationUrl, setGithubAuthorizationUrl] = useState<string | null>(null);
   const githubConnectorRefreshId = useRef(0);
+  const githubConnectorRequestInFlight = useRef(false);
+  const embedded = chrome === 'embedded';
+
+  // DS create page_view (v2 doc). Only fires for the standalone
+  // /design-systems/create route — the embedded variant lives inside
+  // OnboardingView, which owns the `area=design_system` step page_view.
+  const analytics = useAnalytics();
+  const creationPageViewFiredRef = useRef(false);
+  useEffect(() => {
+    if (embedded) return;
+    if (creationPageViewFiredRef.current) return;
+    creationPageViewFiredRef.current = true;
+    const onboardingSessionId = peekOnboardingSessionId();
+    trackPageView(analytics.track, {
+      page_name: 'design_systems',
+      area: 'design_system_create',
+      view_type: 'page',
+      entry_from: onboardingSessionId ? 'onboarding' : 'design_systems_page',
+    });
+  }, [analytics.track, embedded]);
 
   const refreshGithubConnector = useCallback(async () => {
-    const refreshId = ++githubConnectorRefreshId.current;
     if (!composioConfigured) {
+      githubConnectorRefreshId.current += 1;
+      githubConnectorRequestInFlight.current = false;
       setGithubConnector(null);
+      setGithubConnectorLoading(false);
+      setGithubConnectorError(null);
       setGithubAuthorizationPending(false);
       setGithubAuthorizationUrl(null);
       return;
     }
+    if (githubConnectorRequestInFlight.current) return;
+    const refreshId = ++githubConnectorRefreshId.current;
+    githubConnectorRequestInFlight.current = true;
     setGithubConnectorLoading(true);
     setGithubConnectorError(null);
     try {
@@ -229,6 +271,9 @@ export function DesignSystemCreationFlow({
       setGithubConnector(null);
       setGithubConnectorError(err instanceof Error ? err.message : 'Could not check the GitHub connector.');
     } finally {
+      if (githubConnectorRefreshId.current === refreshId) {
+        githubConnectorRequestInFlight.current = false;
+      }
       if (githubConnectorRefreshId.current === refreshId) {
         setGithubConnectorLoading(false);
       }
@@ -358,37 +403,20 @@ export function DesignSystemCreationFlow({
         setStep('setup');
         return;
       }
-      const stagedLocalCode = await stageLocalCodeFiles(workspace.project.id, state.codeFileObjects);
-      const stagedFigma = await stageFigmaFiles(workspace.project.id, state.figFileObjects);
-      const stagedAssets = await stageAssetFiles(workspace.project.id, state.assetFileObjects);
-      await writeProjectTextFile(
-        workspace.project.id,
-        SOURCE_CONTEXT_MANIFEST_PATH,
-        buildSourceContextManifest(state, {
+      const project = workspace.project;
+      const setupState = state;
+      const connector = githubConnector;
+      onCreated(project.id, project);
+      scheduleAfterProjectHandoff(() => {
+        void prepareCreatedDesignSystemProject({
+          project,
+          state: setupState,
           composioConfigured,
-          githubConnector,
-          stagedLocalCode,
-          stagedFigma,
-          stagedAssets,
-        }),
-      );
-      const metadata = mergeLinkedCodeFolders(workspace.project.metadata, state.codeFolders);
-      const prompt = buildCreationAgentPrompt(
-        state,
-        stagedLocalCode,
-        SOURCE_CONTEXT_MANIFEST_PATH,
-        stagedAssets,
-        stagedFigma,
-      );
-      await patchProject(workspace.project.id, { pendingPrompt: prompt, metadata });
-      try {
-        window.sessionStorage.setItem(`od:auto-send-first:${workspace.project.id}`, '1');
-      } catch {
-        // If sessionStorage is unavailable, the project still opens with the
-        // pending prompt ready for the user to send manually.
-      }
-      onCreated(workspace.project.id);
-      void onSystemsRefresh?.();
+          githubConnector: connector,
+          onProjectPrepared,
+          onSystemsRefresh,
+        });
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not prepare the design system project.');
       setStep('setup');
@@ -424,38 +452,40 @@ export function DesignSystemCreationFlow({
   }
 
   return (
-    <div className="ds-setup-shell">
-      <header className="ds-setup-topbar">
-        <button type="button" className="ghost" onClick={onBack}>
-          <Icon name="arrow-left" />
-          Back
-        </button>
-        <span className="ds-setup-mark">
-          <Icon name="palette" />
-        </span>
-        <button
-          type="button"
-          className="primary"
-          disabled={!state.company.trim()}
-          onClick={() => {
-            if (!state.company.trim()) {
-              setError('Tell Open Design about the company or design system first.');
-              return;
-            }
-            setStep('confirm');
-          }}
-        >
-          Continue to generation
-          <Icon name="chevron-right" />
-        </button>
-      </header>
+    <div className={`ds-setup-shell${embedded ? ' ds-setup-shell--embedded' : ''}`}>
+      {embedded ? null : (
+        <header className="ds-setup-topbar">
+          <button type="button" className="ghost" onClick={onBack}>
+            <Icon name="arrow-left" />
+            Back
+          </button>
+          <span className="ds-setup-mark">
+            <Icon name="blocks" />
+          </span>
+          <button
+            type="button"
+            className="primary"
+            disabled={!state.company.trim()}
+            onClick={() => {
+              if (!state.company.trim()) {
+                setError('Tell Open Design about the company or design system first.');
+                return;
+              }
+              setStep('confirm');
+            }}
+          >
+            Continue to generation
+            <Icon name="chevron-right" />
+          </button>
+        </header>
+      )}
 
       <main className="ds-setup-form">
-        <h1>Set up your design system</h1>
-        <p>Tell us about your company and attach any design resources you have.</p>
+        <h1>Generate from your material</h1>
+        <p>Start with a short description, then add any source files you already have.</p>
 
         <label className="ds-setup-field">
-          <span>Company name and blurb (or name of design system)</span>
+          <span>Describe your brand or product</span>
           <textarea
             rows={4}
             value={state.company}
@@ -465,11 +495,11 @@ export function DesignSystemCreationFlow({
         </label>
 
         <section className="ds-resource-section">
-          <h2>Provide examples of your design system and products <span>(all optional)</span></h2>
-          <p>What works best: code and designs for your design system and your code products.</p>
+          <h2>Add source material <span>(optional)</span></h2>
+          <p>Use anything that shows your current style.</p>
           <div className="ds-resource-card">
             <div className="ds-resource-row">
-              <strong>Link code on GitHub</strong>
+              <strong>GitHub repo</strong>
               <div className="ds-resource-inline">
                 <input
                   value={state.githubUrl}
@@ -502,7 +532,7 @@ export function DesignSystemCreationFlow({
                   ))}
                 </div>
               ) : null}
-              <GitHubConnectorGate
+              <GitHubRepositoryAccessPanel
                 composioConfigured={composioConfigured}
                 connector={githubConnector}
                 loading={githubConnectorLoading}
@@ -517,8 +547,8 @@ export function DesignSystemCreationFlow({
               />
             </div>
             <DropZone
-              label="Link code from your computer"
-              helper="Open Design can link a local folder for the agent to read, or copy a focused browser-selected folder snapshot into this design-system project."
+              label="Link local code"
+              helper="Use a folder or selected files from this computer."
               prompt="Drag a folder here or browse"
               names={localCodeSourceLabels(state)}
               directory
@@ -535,8 +565,8 @@ export function DesignSystemCreationFlow({
               }}
             />
             <DropZone
-              label="Upload a .fig file"
-              helper="The .fig source is parsed locally in your browser; only an extracted summary enters this project."
+              label="Upload .fig"
+              helper="Parsed locally; only a summary is added."
               prompt="Drop .fig here or browse"
               accept=".fig"
               names={state.figFiles}
@@ -551,7 +581,7 @@ export function DesignSystemCreationFlow({
               }}
             />
             <DropZone
-              label="Add fonts, logos and assets"
+              label="Add assets"
               prompt="Drag files here or browse"
               names={state.assetFiles}
               onFiles={(_names, files) => {
@@ -567,16 +597,41 @@ export function DesignSystemCreationFlow({
           </div>
         </section>
 
-        <label className="ds-setup-field">
-          <span>Any other notes?</span>
-          <textarea
-            rows={4}
-            value={state.notes}
-            onChange={(event) => setState((curr) => ({ ...curr, notes: event.target.value }))}
-            placeholder="e.g. We use a warm, earthy color palette with rounded corners. Our brand voice is playful but professional..."
-          />
-        </label>
+        {embedded ? null : (
+          <label className="ds-setup-field">
+            <span>Notes</span>
+            <textarea
+              rows={4}
+              value={state.notes}
+              onChange={(event) => setState((curr) => ({ ...curr, notes: event.target.value }))}
+              placeholder="e.g. We use a warm, earthy color palette with rounded corners. Our brand voice is playful but professional..."
+            />
+          </label>
+        )}
         {error ? <div className="ds-editor-error">{error}</div> : null}
+        {embedded ? (
+          <div className="ds-setup-actions ds-setup-actions--embedded">
+            <button type="button" className="ghost" onClick={onBack}>
+              <Icon name="arrow-left" />
+              Back
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={!state.company.trim()}
+              onClick={() => {
+                if (!state.company.trim()) {
+                  setError('Tell Open Design about the company or design system first.');
+                  return;
+                }
+                setStep('confirm');
+              }}
+            >
+              Generate
+              <Icon name="chevron-right" />
+            </button>
+          </div>
+        ) : null}
       </main>
     </div>
   );
@@ -593,6 +648,7 @@ export function DesignSystemDetailView({
   onSystemsRefresh,
   onProjectsRefresh,
 }: DetailProps) {
+  const { locale } = useI18n();
   const [system, setSystem] = useState<DesignSystemDetail | null>(null);
   const [body, setBody] = useState('');
   const [tab, setTab] = useState<ReviewTab>('system');
@@ -832,6 +888,62 @@ export function DesignSystemDetailView({
   const recentRevisions = revisions.slice(0, 5);
   const generationActive =
     activeJob?.status === 'queued' || activeJob?.status === 'running';
+
+  // Multi-surface DS page_view (v2 doc). One emission per
+  // (system, generationActive) transition: while generation is
+  // running we surface `area=design_system_generation`; once it
+  // settles we surface `area=design_system_preview`. The fourth
+  // onboarding step (`area=generation_progress`) piggy-backs on the
+  // generation emission when an onboarding session id is present.
+  const analytics = useAnalytics();
+  const designSystemStatus: TrackingDesignSystemStatus = generationActive
+    ? 'generating'
+    : (system?.status as TrackingDesignSystemStatus | undefined) ?? 'unknown';
+  useEffect(() => {
+    if (!system) return;
+    const onboardingSessionId = peekOnboardingSessionId();
+    const entryFrom: TrackingDesignSystemsEntryFrom = onboardingSessionId
+      ? 'onboarding'
+      : 'unknown';
+    if (generationActive) {
+      trackPageView(analytics.track, {
+        page_name: 'design_system_project',
+        area: 'design_system_generation',
+        view_type: 'page',
+        entry_from: entryFrom,
+        design_system_id: system.id,
+        // Origin is the DS's provenance-style source. We don't yet
+        // have a precise mapping from `system.source` / provenance
+        // metadata to the v2 enum, so we report `unknown` rather
+        // than mis-tag — dashboards still see the funnel via
+        // `entry_from`. A follow-up can derive this honestly.
+        design_system_source: 'unknown',
+        design_system_status: 'generating',
+      });
+      if (onboardingSessionId) {
+        trackPageView(analytics.track, {
+          page_name: 'onboarding',
+          area: 'generation_progress',
+          step_index: 'progress',
+          step_name: 'generation',
+          onboarding_session_id: onboardingSessionId,
+        });
+        // Generation is the last onboarding step; clear so a later
+        // DS visit unrelated to onboarding doesn't re-attribute.
+        clearOnboardingSessionId();
+      }
+    } else {
+      trackPageView(analytics.track, {
+        page_name: 'design_system_project',
+        area: 'design_system_preview',
+        view_type: 'page',
+        entry_from: entryFrom,
+        design_system_id: system.id,
+        design_system_source: 'unknown',
+        design_system_status: designSystemStatus,
+      });
+    }
+  }, [analytics.track, system?.id, generationActive, designSystemStatus, system]);
   const introChatMessages = useMemo(
     () => buildDesignSystemChatMessages({
       system,
@@ -1050,6 +1162,7 @@ export function DesignSystemDetailView({
         commentAttachments,
         model: selectedModel?.model ?? null,
         reasoning: selectedModel?.reasoning ?? null,
+        locale,
         handlers: {
           onDelta: (delta) => {
             updateAssistant((message) => ({
@@ -1182,6 +1295,7 @@ export function DesignSystemDetailView({
       ensureWorkspaceProject,
       feedbackSection,
       introChatMessages,
+      locale,
       onProjectsRefresh,
       persistProjectMessage,
       projectChatMessages,
@@ -1355,6 +1469,7 @@ export function DesignSystemDetailView({
                 </button>
               ) : null}
             </div>
+            <DesignSystemPackageCard system={system} />
             <div className="ds-warning-card">
               <Icon name="help-circle" />
               <span>
@@ -1582,6 +1697,146 @@ function findWorkspaceActivityMessage(messages: ChatMessage[]): ChatMessage | nu
   return null;
 }
 
+function DesignSystemPackageCard({ system }: { system: DesignSystemDetail }) {
+  const info = system.packageInfo;
+  const manifest = info?.manifest;
+  const evidence = info?.sourceEvidence;
+  const sourceLabel = manifest?.source?.type ? sourceTypeLabel(manifest.source.type) : sourceTypeLabel(system.source);
+  const previewPages = manifest?.preview?.pages ?? [];
+  const sourceFiles = manifest?.sourceFiles;
+  const sourceFileCount = [sourceFiles?.scanned, sourceFiles?.evidence, sourceFiles?.tokens, sourceFiles?.snippets]
+    .filter(Boolean)
+    .length;
+  const protocolItems = [
+    manifest?.usage ? manifest.usage : null,
+    manifest?.files?.design ?? 'DESIGN.md',
+    manifest?.files?.tokens ?? 'tokens.css',
+    manifest?.files?.components,
+    manifest?.componentsManifest,
+  ].filter((item): item is string => typeof item === 'string' && item.length > 0);
+  const evidenceStats = [
+    evidence?.scannedFileCount !== undefined ? { label: 'Scanned files', value: String(evidence.scannedFileCount) } : null,
+    evidence?.tokenCount !== undefined ? { label: 'Source tokens', value: String(evidence.tokenCount) } : null,
+    evidence?.snippetCount !== undefined ? { label: 'Snippets', value: String(evidence.snippetCount) } : null,
+    manifest?.fonts?.length ? { label: 'Fonts', value: String(manifest.fonts.length) } : null,
+  ].filter((item): item is { label: string; value: string } => item !== null);
+  const confidence = evidence?.confidence ? Object.entries(evidence.confidence) : [];
+
+  return (
+    <section className="ds-package-card">
+      <div className="ds-package-card__head">
+        <span>
+          <strong>{manifest ? 'Structured import package' : 'Legacy design system'}</strong>
+          <small>
+            {manifest
+              ? `${sourceLabel} · ${manifest.importMode ?? 'normalized'} mode · manifest indexed`
+              : `${sourceLabel} · DESIGN.md-only fallback`}
+          </small>
+        </span>
+        <span className={manifest ? 'ds-package-pill is-ready' : 'ds-package-pill'}>
+          {manifest ? 'Hybrid ready' : 'Fallback'}
+        </span>
+      </div>
+
+      <div className="ds-package-grid">
+        <div>
+          <h2>Agent push layer</h2>
+          <div className="ds-package-chips">
+            {protocolItems.map((item) => (
+              <code key={item}>{item}</code>
+            ))}
+          </div>
+        </div>
+        <div>
+          <h2>Pull layer</h2>
+          <div className="ds-package-metrics">
+            <span><strong>{previewPages.length}</strong><small>Preview pages</small></span>
+            <span><strong>{sourceFileCount}</strong><small>Evidence indexes</small></span>
+            <span><strong>{manifest?.assetsDir ? 'Yes' : 'No'}</strong><small>Assets</small></span>
+          </div>
+        </div>
+      </div>
+
+      {evidenceStats.length > 0 || confidence.length > 0 ? (
+        <div className="ds-evidence-panel">
+          <div className="ds-evidence-stats">
+            {evidenceStats.map((item) => (
+              <span key={item.label}>
+                <strong>{item.value}</strong>
+                <small>{item.label}</small>
+              </span>
+            ))}
+          </div>
+          {confidence.length > 0 ? (
+            <div className="ds-confidence-row">
+              {confidence.map(([key, value]) => (
+                <span key={key}>{key}: {String(value)}</span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {manifest ? (
+        <div className="ds-package-files">
+          <PackageFileGroup
+            title="Preview"
+            files={previewPages.map((page) => ({
+              path: page.path ?? '',
+              meta: [page.title, page.role].filter(Boolean).join(' · '),
+            }))}
+          />
+          <PackageFileGroup
+            title="Source evidence"
+            files={[
+              sourceFiles?.scanned ? { path: sourceFiles.scanned, meta: 'Scanned file inventory' } : null,
+              sourceFiles?.evidence ? { path: sourceFiles.evidence, meta: 'Evidence notes' } : null,
+              sourceFiles?.tokens ? { path: sourceFiles.tokens, meta: 'Token extraction evidence' } : null,
+              sourceFiles?.snippets ? { path: sourceFiles.snippets, meta: 'Snippet index' } : null,
+            ].filter((item): item is { path: string; meta: string } => item !== null)}
+          />
+        </div>
+      ) : null}
+      {evidence?.evidenceExcerpt ? (
+        <pre className="ds-evidence-excerpt">{evidence.evidenceExcerpt}</pre>
+      ) : null}
+    </section>
+  );
+}
+
+function PackageFileGroup({
+  title,
+  files,
+}: {
+  title: string;
+  files: Array<{ path: string; meta?: string }>;
+}) {
+  const visibleFiles = files.filter((file) => file.path.length > 0);
+  if (visibleFiles.length === 0) return null;
+  return (
+    <div>
+      <h2>{title}</h2>
+      <div className="ds-package-file-list">
+        {visibleFiles.map((file) => (
+          <span key={file.path}>
+            <code>{file.path}</code>
+            {file.meta ? <small>{file.meta}</small> : null}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function sourceTypeLabel(value: string | undefined): string {
+  if (value === 'github') return 'GitHub import';
+  if (value === 'local') return 'Local import';
+  if (value === 'bundled' || value === 'built-in') return 'Bundled';
+  if (value === 'user') return 'User workspace';
+  if (value === 'installed') return 'Installed';
+  return 'Design system';
+}
+
 function WorkspaceActivityCard({
   message,
   active,
@@ -1705,9 +1960,10 @@ function workspaceActivityProgress(
   return 18;
 }
 
-function todoStatusClass(status: 'pending' | 'in_progress' | 'completed'): 'pending' | 'running' | 'succeeded' {
+function todoStatusClass(status: ReturnType<typeof latestTodosFromEvents>[number]['status']): 'pending' | 'running' | 'succeeded' | 'failed' {
   if (status === 'completed') return 'succeeded';
   if (status === 'in_progress') return 'running';
+  if (status === 'stopped') return 'failed';
   return 'pending';
 }
 
@@ -2057,7 +2313,20 @@ function withRelativePath(file: File, relativePath: string): File {
   return file;
 }
 
-function GitHubConnectorGate({
+type AccessBadgeTone = 'muted' | 'success' | 'warning' | 'danger' | 'loading';
+
+interface GitHubAccessMethod {
+  id: string;
+  icon: IconName;
+  title: string;
+  badge: string;
+  tone: AccessBadgeTone;
+  description: string;
+  action?: ReactNode;
+  note?: string | null;
+}
+
+function GitHubRepositoryAccessPanel({
   composioConfigured,
   connector,
   loading,
@@ -2082,69 +2351,141 @@ function GitHubConnectorGate({
   onOpenAuthorization: () => void;
   onDisconnect: () => void;
 }) {
+  const [methodsExpanded, setMethodsExpanded] = useState(false);
   const connected = isGithubConnectorConnected(connector);
   const account = getDisplayableGithubAccountLabel(connector);
   const busy = action !== null;
-  let title = 'GitHub connector optional';
-  let description = 'Repositories can be read with local git or GitHub CLI. For private repos, authorize with gh auth login.';
-  let icon: 'github' | 'settings' | 'spinner' = 'github';
+  let composioBadge = 'Optional';
+  let composioTone: AccessBadgeTone = 'muted';
+  let composioDescription = 'Composio GitHub connector access for agent tools; repo URLs still work with local git or GitHub CLI.';
+  let composioIcon: IconName = 'settings';
 
   if (!composioConfigured) {
-    title = 'Local GitHub intake available';
-    description = 'Add repository URLs now. Configure Composio only for connector-backed access; local git or GitHub CLI auth can still snapshot repos.';
-    icon = 'settings';
-  } else if (loading) {
-    title = 'Checking GitHub connector';
-    description = 'Open Design is checking whether GitHub is already connected.';
-    icon = 'spinner';
-  } else if (authorizationPending) {
-    title = 'GitHub authorization pending';
-    description = 'Finish authorization in the browser window. Repo URLs can still use local git or GitHub CLI fallback.';
+    composioBadge = 'Not configured';
+    composioDescription = 'Add a Composio API key only if this project needs connector-backed GitHub tools.';
   } else if (connected) {
-    title = account ? `Connected as ${account}` : 'GitHub connected';
-    description = 'Repository intake will try the connector first, then use local git or authenticated GitHub CLI fallback if needed.';
-  } else if (composioConfigured) {
-    title = 'Composio key configured';
-    description = 'Connect GitHub for connector-backed access, or add repository URLs and let local git/GitHub CLI snapshot them.';
+    composioBadge = 'Connected';
+    composioTone = 'success';
+    composioIcon = 'github';
+    composioDescription = account
+      ? `Composio GitHub connector connected as ${account}; it is available as fallback when this device cannot read the repository.`
+      : 'Composio GitHub connector is available as fallback when this device cannot read the repository.';
+  } else if (authorizationPending) {
+    composioBadge = 'Pending';
+    composioTone = 'warning';
+    composioIcon = 'external-link';
+    composioDescription = 'Finish the Composio authorization window; local GitHub intake remains available.';
+  } else if (loading) {
+    composioBadge = 'Checking';
+    composioTone = 'loading';
+    composioIcon = 'spinner';
+    composioDescription = 'Checking connector status in the background; URL intake is not blocked.';
+  } else if (error) {
+    composioBadge = 'Needs attention';
+    composioTone = 'warning';
+  } else if (connector?.status === 'error') {
+    composioBadge = 'Needs attention';
+    composioTone = 'danger';
+    composioDescription = 'Reconnect the Composio GitHub connector, or continue with local git/GitHub CLI.';
   }
+
+  const composioAction = !composioConfigured ? (
+    <button type="button" className="ghost" onClick={onOpenConnectorsTab}>
+      Configure Composio
+    </button>
+  ) : connected || authorizationPending ? (
+    <>
+      {authorizationPending && authorizationUrl ? (
+        <button type="button" className="ghost" disabled={busy} onClick={onOpenAuthorization}>
+          Open authorization
+        </button>
+      ) : null}
+      <button type="button" className="ghost" disabled={busy} onClick={onDisconnect}>
+        {action === 'disconnect' ? 'Disconnecting...' : 'Disconnect'}
+      </button>
+    </>
+  ) : (
+    <button type="button" className="ghost" disabled={busy} onClick={onConnect}>
+      {action === 'connect' ? 'Connecting...' : 'Connect via Composio'}
+    </button>
+  );
+
+  const methods: GitHubAccessMethod[] = [
+    {
+      id: 'local',
+      icon: 'github',
+      title: 'This device',
+      badge: 'Automatic',
+      tone: 'success',
+      description: 'Uses public git clone, local git credentials, or GitHub CLI auth available on this machine.',
+    },
+    {
+      id: 'native-oauth',
+      icon: 'link',
+      title: 'Open Design account',
+      badge: 'Coming soon',
+      tone: 'muted',
+      description: 'Native GitHub sign-in managed by Open Design; this build does not use an OD-managed GitHub token yet.',
+    },
+    {
+      id: 'composio',
+      icon: composioIcon,
+      title: 'Connector platform',
+      badge: composioBadge,
+      tone: composioTone,
+      description: composioDescription,
+      action: composioAction,
+      note: error,
+    },
+  ];
 
   return (
     <div
       className={[
-        'ds-github-connector-gate',
-        !composioConfigured ? 'is-missing-key' : '',
-        connected ? 'is-connected' : '',
+        'ds-github-access-panel',
+        connected ? 'has-connected-connector' : '',
       ].filter(Boolean).join(' ')}
     >
-      <div className="ds-github-connector-copy">
-        <Icon name={icon} />
+      <div className="ds-github-access-header">
         <span>
-          <strong>{title}</strong>
-          <p>{description}</p>
-          {error ? <em>{error}</em> : null}
+          <strong>Repository access: Auto</strong>
+          <p>Paste a GitHub URL. Open Design will use the first working access method.</p>
         </span>
+        <button
+          type="button"
+          className="ghost ds-github-access-toggle"
+          aria-expanded={methodsExpanded}
+          aria-controls="ds-github-access-methods"
+          onClick={() => setMethodsExpanded((current) => !current)}
+        >
+          <Icon name={methodsExpanded ? 'chevron-down' : 'chevron-right'} />
+          {methodsExpanded ? 'Hide access methods' : 'Show access methods'}
+        </button>
       </div>
-      <div className="ds-github-connector-actions">
-        {!composioConfigured ? (
-          <button type="button" className="ghost" onClick={onOpenConnectorsTab}>
-            Configure Composio key
-          </button>
-        ) : connected || authorizationPending ? (
-          <>
-            {authorizationPending && authorizationUrl ? (
-              <button type="button" className="ghost" disabled={busy} onClick={onOpenAuthorization}>
-                Open authorization page
-              </button>
-            ) : null}
-            <button type="button" className="ghost" disabled={busy} onClick={onDisconnect}>
-              {action === 'disconnect' ? 'Disconnecting...' : 'Disconnect'}
-            </button>
-          </>
-        ) : (
-          <button type="button" className="ghost" disabled={busy} onClick={onConnect}>
-            {action === 'connect' ? 'Connecting...' : 'Connect GitHub'}
-          </button>
-        )}
+      <div
+        id="ds-github-access-methods"
+        className={`accordion-collapsible ${methodsExpanded ? 'open' : ''}`}
+        hidden={!methodsExpanded}
+        aria-hidden={!methodsExpanded}
+      >
+        <div className="accordion-collapsible-inner">
+          <div className="ds-github-access-methods" aria-label="GitHub repository access methods">
+            {methods.map((method) => (
+              <div key={method.id} className="ds-github-access-method">
+                <Icon name={method.icon} />
+                <span className="ds-github-access-method-copy">
+                  <span className="ds-github-access-method-title">
+                    <strong>{method.title}</strong>
+                    <small className={`ds-github-access-badge is-${method.tone}`}>{method.badge}</small>
+                  </span>
+                  <p>{method.description}</p>
+                  {method.note ? <em>{method.note}</em> : null}
+                  {method.action ? <span className="ds-github-access-actions">{method.action}</span> : null}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2248,6 +2589,75 @@ function genericUrlTitleFromText(text: string): string | undefined {
   }
 }
 
+function scheduleAfterProjectHandoff(task: () => void): void {
+  if (typeof window === 'undefined') {
+    task();
+    return;
+  }
+  const run = () => window.setTimeout(task, 0);
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(run);
+    return;
+  }
+  run();
+}
+
+async function prepareCreatedDesignSystemProject({
+  project,
+  state,
+  composioConfigured,
+  githubConnector,
+  onProjectPrepared,
+  onSystemsRefresh,
+}: {
+  project: Project;
+  state: SetupState;
+  composioConfigured: boolean;
+  githubConnector: ConnectorDetail | null;
+  onProjectPrepared?: (project: Project) => void;
+  onSystemsRefresh?: () => Promise<void> | void;
+}): Promise<void> {
+  try {
+    const stagedLocalCode = await stageLocalCodeFiles(project.id, state.codeFileObjects);
+    const stagedFigma = await stageFigmaFiles(project.id, state.figFileObjects);
+    const stagedAssets = await stageAssetFiles(project.id, state.assetFileObjects);
+    await writeProjectTextFile(
+      project.id,
+      SOURCE_CONTEXT_MANIFEST_PATH,
+      buildSourceContextManifest(state, {
+        composioConfigured,
+        githubConnector,
+        stagedLocalCode,
+        stagedFigma,
+        stagedAssets,
+      }),
+    );
+    const metadata = mergeLinkedCodeFolders(project.metadata, state.codeFolders);
+    const prompt = buildCreationAgentPrompt(
+      state,
+      stagedLocalCode,
+      SOURCE_CONTEXT_MANIFEST_PATH,
+      stagedAssets,
+      stagedFigma,
+    );
+    const preparedProject = await patchProject(project.id, { pendingPrompt: prompt, metadata });
+    try {
+      window.sessionStorage.setItem(`od:auto-send-first:${project.id}`, '1');
+    } catch {
+      // If sessionStorage is unavailable, the project still opens with the
+      // pending prompt ready for the user to send manually.
+    }
+    onProjectPrepared?.(preparedProject ?? {
+      ...project,
+      pendingPrompt: prompt,
+      metadata,
+    });
+    void onSystemsRefresh?.();
+  } catch (err) {
+    console.error('Could not prepare the design system project after opening it.', err);
+  }
+}
+
 function humanizeRepositoryName(repo: string): string | undefined {
   const words = repo.replace(/\.git$/iu, '').replace(/[-_]+/gu, ' ').trim().split(/\s+/u).filter(Boolean);
   if (words.length === 0) return undefined;
@@ -2299,15 +2709,17 @@ function isGithubConnectorConnected(connector: ConnectorDetail | null): boolean 
 async function fetchGithubConnectorStatusWithTimeout(): Promise<{ connector: ConnectorDetail | null; timedOut: boolean }> {
   let timeoutId: number | undefined;
   let timedOut = false;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
   try {
     const timeout = new Promise<null>((resolve) => {
       timeoutId = window.setTimeout(() => {
         timedOut = true;
+        controller?.abort();
         resolve(null);
       }, GITHUB_CONNECTOR_STATUS_TIMEOUT_MS);
     });
     const statuses = await Promise.race([
-      fetchConnectorStatuses(),
+      fetchConnectorStatuses(controller ? { signal: controller.signal } : undefined),
       timeout,
     ]);
     return { connector: githubConnectorFromStatus(statuses?.[GITHUB_CONNECTOR_ID]), timedOut };
@@ -2695,9 +3107,9 @@ function buildCreationAgentPrompt(
     'Completion gate:',
     '- For each linked GitHub repository, there must be a `context/github/*.md` evidence note plus command-written snapshots under `context/github/*/files/` before writing final design-system rules or previews. The snapshots should include theme/token/source files and any available binary assets or fonts selected by the intake command.',
     '- For each linked local code folder, run the listed `local-design-context` command and use its `context/local-code/*.md` evidence note plus command-written snapshots under `context/local-code/*/files/` before writing final design-system rules or previews. Browser-copied snapshots already under `context/local-code/` are also valid local evidence.',
-    '- Do not call GitHub connector tree/content/raw tools directly from the agent. Use only the bounded `github-design-context` command listed in `context/source-context.md`; it handles large repositories by narrowing and snapshotting evidence locally.',
-    '- If the bounded command records that it used its shallow local clone fallback because the connector was unavailable, permission-blocked, rate-limited, or oversized, treat those command-written snapshots as valid evidence and continue.',
-    '- For private repositories, local git credentials or GitHub CLI authentication (`gh auth login --web`) are valid intake paths because the command still writes local evidence snapshots.',
+    '- Do not call GitHub connector tree/content/raw tools directly from the agent. Use only the bounded `github-design-context` command listed in `context/source-context.md`; it tries this-device git first, authenticated GitHub CLI second, then connector-platform fallback when local access cannot read the repository.',
+    '- If the bounded command records `Read method: git-clone`, treat those this-device snapshots as the primary evidence. If it records `Read method: connector`, treat the connector-platform snapshots as valid fallback evidence and continue.',
+    '- For private repositories, local git credentials or GitHub CLI authentication (`gh auth login --web`) are preferred intake paths because the command still writes local evidence snapshots.',
     '- If the bounded command cannot write snapshots at all, stop with the permission, GitHub CLI login, connection, rate-limit, or clone issue. Do not substitute ad-hoc public GitHub browsing, memory, or URL-only inference.',
     '- Finish only after the project contains reviewable design-system artifacts: `DESIGN.md`, `README.md`, `SKILL.md`, reusable token/style files, focused preview HTML cards, UI-kit examples, preserved assets/fonts when supported, and provenance/context notes.',
     '- Before your final response, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path . --fail-on-warnings`. Fix every audit error and design-quality warning, including generic visual artifacts, thin source-backed modules, stale manifest paths, and missing representative assets/fonts. If an issue cannot be fixed because source evidence is missing, explain that blocker instead of claiming the design system is ready.',
@@ -2708,7 +3120,7 @@ function buildCreationAgentPrompt(
     '',
     `Company / design system context:\n${state.company.trim()}`,
     sourceContextManifestPath
-      ? `\nSource context manifest:\n- Read \`${sourceContextManifestPath}\` before drafting. It records GitHub connector readiness, local folder links, copied code snapshots, uploaded resources, and the review contract for this design system project.`
+      ? `\nSource context manifest:\n- Read \`${sourceContextManifestPath}\` before drafting. It records GitHub access readiness, local folder links, copied code snapshots, uploaded resources, and the review contract for this design system project.`
       : '',
     sourceNotes ? `\nProvided resources:\n${sourceNotes}` : '',
     githubUrls.length
@@ -2853,7 +3265,7 @@ function buildSourceContextManifest(
     '- assets/, build/, fonts/, and context/ should preserve logos, app icons, tray icons, installer/runtime icons, wordmarks, font files, provenance, and source notes for future projects.',
     BUILD_ASSET_PRESERVATION_CONTRACT,
     '- preview/brand-assets.html should visibly reference preserved files from assets/ or build/ instead of recreating logos/icons as inline placeholder drawings.',
-    '- GitHub evidence must come from the bounded `github-design-context` command, not direct connector tree/content/raw tool calls. The command may record connector use, local git clone, or authenticated GitHub CLI clone when connector output is unavailable, rate-limited, or oversized.',
+    '- GitHub evidence must come from the bounded `github-design-context` command, not direct connector tree/content/raw tool calls. The command tries this-device git first, authenticated GitHub CLI second, and connector-platform fallback only when local access cannot read the repository.',
     '- Linked local folder evidence should come from the bounded `local-design-context` command, which writes a local evidence note and snapshots under `context/local-code/` before final design-system rules are drafted.',
     '- Before marking the design system ready, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path . --fail-on-warnings` and fix every reported error or warning.',
     '- Draft design systems cannot be used by other projects until published.',
@@ -2884,16 +3296,15 @@ function buildGithubConnectorRunbook(githubUrls: string[]): string {
     .join('\n');
   return [
     'GitHub repository intake is required before drafting the design system:',
-    '1. Run `"$OD_NODE_BIN" "$OD_BIN" tools connectors list --format compact` to check whether the connected `github` connector is available. If it is missing, permission-blocked, rate-limited, or output-limited, the bounded intake command can still use local git credentials or authenticated GitHub CLI (`gh auth login --web`) for public and private repositories.',
-    '2. For each linked repository, run the local intake command before writing design-system files:',
+    '1. For each linked repository, run the bounded intake command before writing design-system files. The command tries this-device access first (`git clone`, then authenticated GitHub CLI via `gh auth login --web`) and uses the Composio GitHub connector only as a connector-platform fallback.',
     intakeCommands,
-    '3. Do not call GitHub connector tree/content/raw tools directly from the agent. Large repositories can trigger `CONNECTOR_OUTPUT_TOO_LARGE`; the bounded intake command is the only allowed GitHub repository intake path for this workflow.',
-    '4. The intake command narrows large repositories through bounded directory browsing, selects design-system-relevant source files plus available logos/icons/fonts, and writes a reviewable evidence note plus file snapshots under `context/github/`; keep those files as the source evidence for this design-system project.',
-    '5. If you already hit `CONNECTOR_OUTPUT_TOO_LARGE` or `CONNECTOR_RATE_LIMITED` from a direct connector call, do not stop and do not retry the same direct tool. Run the bounded intake command above, then inspect the written snapshots.',
-    '6. The command may use a shallow local clone fallback after connector output is unavailable, permission-blocked, rate-limited, or oversized. Plain git credentials and authenticated GitHub CLI clone are both valid because the command writes bounded snapshots under `context/github/*/files/`.',
-    '7. The command is strict: if the bounded intake command cannot write snapshot files, stop and explain the permission, GitHub CLI login, connection, rate-limit, or clone problem. Do not use ad-hoc public GitHub browsing, memory, or URL-only inference for design-system files.',
-    '8. Inspect the generated evidence note plus snapshots for README, package manifests, Tailwind/theme/token files, global CSS, font declarations, component source for buttons/forms/navigation/cards/tables, layout shells, icons/logos/assets, and representative app entry files.',
-    '9. Use that evidence to create or update `DESIGN.md`, `colors_and_type.css`, `README.md`, `SKILL.md`, `preview/`, `ui_kits/app/`, `assets/`, and `fonts/` so the Design System tab can review the output as a reusable package.',
+    '2. Do not call GitHub connector tree/content/raw tools directly from the agent. Large repositories can trigger `CONNECTOR_OUTPUT_TOO_LARGE`; the bounded intake command is the only allowed GitHub repository intake path for this workflow.',
+    '3. The intake command selects design-system-relevant source files plus available logos/icons/fonts and writes a reviewable evidence note plus file snapshots under `context/github/`; keep those files as the source evidence for this design-system project.',
+    '4. If you already hit `CONNECTOR_OUTPUT_TOO_LARGE` or `CONNECTOR_RATE_LIMITED` from a direct connector call, do not stop and do not retry the same direct tool. Run the bounded intake command above, then inspect the written snapshots.',
+    '5. Treat `Read method: git-clone` as the preferred this-device path. Treat `Read method: connector` as valid connector-platform fallback evidence when local git/GitHub CLI could not read the repository.',
+    '6. The command is strict: if the bounded intake command cannot write snapshot files, stop and explain the permission, GitHub CLI login, connection, rate-limit, or clone problem. Do not use ad-hoc public GitHub browsing, memory, or URL-only inference for design-system files.',
+    '7. Inspect the generated evidence note plus snapshots for README, package manifests, Tailwind/theme/token files, global CSS, font declarations, component source for buttons/forms/navigation/cards/tables, layout shells, icons/logos/assets, and representative app entry files.',
+    '8. Use that evidence to create or update `DESIGN.md`, `colors_and_type.css`, `README.md`, `SKILL.md`, `preview/`, `ui_kits/app/`, `assets/`, and `fonts/` so the Design System tab can review the output as a reusable package.',
   ].join('\n');
 }
 

@@ -1,11 +1,26 @@
-// Design-system registry. Scans <projectRoot>/design-systems/* for DESIGN.md
-// files. Title comes from the first H1. Category comes from a
-// `> Category: <name>` blockquote line beneath the H1. Summary is the first
-// paragraph between the H1 and the next heading (Category line stripped).
+// Design-system registry. Scans <projectRoot>/design-systems/* for design
+// system projects. Project folders may opt into manifest.json; legacy folders
+// with only DESIGN.md remain valid. Without a manifest, title comes from the
+// first H1, category from a `> Category: <name>` blockquote line beneath the
+// H1, and summary from the first paragraph between the H1 and next heading.
+//
+// YAML frontmatter (Google spec, issue #1857): frontmatter `colors` wins
+// over Markdown swatches only when its row fills every semantic slot;
+// otherwise Markdown wins. Other fields (`name`/`description`/`category`/
+// `surface`) fall back to frontmatter when the body has none.
 
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+
+import {
+  type ComponentsManifest,
+  extractComponentsManifest,
+  summarizeComponentsManifestForPrompt,
+} from '@open-design/contracts';
+
+import { parseFrontmatter } from './frontmatter.js';
+import type { FrontmatterObject, FrontmatterValue } from './frontmatter.js';
 
 export type DesignSystemSurface = 'web' | 'image' | 'video' | 'audio';
 export type DesignSystemSource = 'built-in' | 'installed' | 'user';
@@ -51,6 +66,27 @@ export type DesignSystemFileDetail = DesignSystemFileSummary & {
   content: string;
 };
 
+export type DesignSystemPullFileDetail = {
+  path: string;
+  name: string;
+  kind: DesignSystemFileKind;
+  size: number;
+  updatedAt: string;
+  encoding: 'utf8' | 'base64';
+  content: string;
+};
+
+export type DesignSystemPackageInfo = {
+  manifest?: DesignSystemProjectManifest;
+  sourceEvidence?: {
+    scannedFileCount?: number;
+    tokenCount?: number;
+    snippetCount?: number;
+    confidence?: Record<string, string | number>;
+    evidenceExcerpt?: string;
+  };
+};
+
 export type DesignSystemRevision = {
   id: string;
   designSystemId: string;
@@ -65,6 +101,49 @@ export type DesignSystemRevision = {
 };
 
 type ColorToken = { name: string; value: string };
+type SwatchRow = { values: string[]; filledAllSlots: boolean };
+type DesignSystemProjectManifest = {
+  schemaVersion: 'od-design-system-project/v1';
+  id: string;
+  name: string;
+  category: string;
+  description?: string;
+  files: {
+    design: 'DESIGN.md';
+    tokens: 'tokens.css';
+    components?: 'components.html';
+  };
+  assetsDir?: 'assets';
+  previewDir?: 'preview';
+  usage?: string;
+  componentsManifest?: string;
+  fonts?: Array<{
+    family: string;
+    file: string;
+    weight?: number | string;
+    style?: string;
+  }>;
+  preview?: {
+    dir: string;
+    pages: Array<{
+      path: string;
+      role?: string;
+      title?: string;
+    }>;
+  };
+  sourceFiles?: {
+    scanned?: string;
+    evidence?: string;
+    tokens?: string;
+    snippets?: string;
+  };
+  importMode?: 'normalized' | 'hybrid' | 'verbatim';
+  craft?: {
+    applies?: string[];
+    suggested?: string[];
+    exemptions?: string[];
+  };
+};
 
 export type DesignSystemProvenance = {
   companyBlurb?: string;
@@ -155,22 +234,50 @@ export async function listDesignSystems(
     return out;
   }
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const designPath = path.join(root, entry.name, 'DESIGN.md');
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const brandRoot = path.join(root, entry.name);
+    const manifest = await readProjectManifest(brandRoot, entry.name);
+    const designPath = path.join(brandRoot, manifest?.files.design ?? 'DESIGN.md');
     try {
       const stats = await stat(designPath);
       if (!stats.isFile()) continue;
       const raw = await readFile(designPath, 'utf8');
       const metadata = await readUserMetadata(root, entry.name);
-      const titleMatch = /^#\s+(.+?)\s*$/m.exec(raw);
-      const title = cleanTitle(metadata.title ?? titleMatch?.[1] ?? entry.name);
+      const { data: frontmatter, body } = parseFrontmatter(raw);
+      const titleMatch = /^#\s+(.+?)\s*$/m.exec(body);
+      const markdownTitle =
+        titleMatch?.[1] !== undefined ? cleanTitle(titleMatch[1]) : '';
+      const fallbackTitle = markdownTitle || stringField(frontmatter, 'name') || entry.name;
+      const title = cleanTitle(
+        metadata.title
+        ?? manifest?.name
+        ?? fallbackTitle,
+      );
+      const frontmatterCategory = stringField(frontmatter, 'category');
+      const category = (
+        metadata.category
+        ?? manifest?.category
+        ?? extractCategory(body)
+        ?? frontmatterCategory
+      ) || 'Uncategorized';
+      const markdownSummary = summarize(body);
+      const markdownSwatches = extractSwatches(body);
+      const frontmatterSwatchRow = swatchesFromFrontmatter(frontmatter);
+      const swatches = pickFinalSwatchRow(frontmatterSwatchRow, markdownSwatches);
       out.push({
         id: `${options.idPrefix ?? ''}${entry.name}`,
         title,
-        category: metadata.category ?? extractCategory(raw) ?? 'Uncategorized',
-        summary: summarize(raw),
-        swatches: extractSwatches(raw),
-        surface: metadata.surface ?? extractSurface(raw),
+        category,
+        summary:
+          (manifest?.description?.trim() || markdownSummary)
+          || stringField(frontmatter, 'description')
+          || '',
+        swatches,
+        surface:
+          metadata.surface
+          ?? extractSurface(body)
+          ?? frontmatterSurface(frontmatter)
+          ?? 'web',
         body: raw,
         source: options.source ?? 'built-in',
         status: metadata.status ?? options.defaultStatus ?? 'published',
@@ -187,6 +294,44 @@ export async function listDesignSystems(
   return out;
 }
 
+function stringField(data: FrontmatterObject, key: string): string {
+  const v: FrontmatterValue | undefined = data[key];
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function frontmatterSurface(data: FrontmatterObject): DesignSystemSurface | undefined {
+  const v = stringField(data, 'surface').toLowerCase();
+  return isDesignSystemSurface(v) ? v : undefined;
+}
+
+function swatchesFromFrontmatter(data: FrontmatterObject): SwatchRow | null {
+  const raw = data['colors'];
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const colors: ColorToken[] = [];
+  const seen = new Set<string>();
+  for (const [name, value] of Object.entries(raw)) {
+    if (typeof value !== 'string') continue;
+    const hex = normalizeHex(value);
+    if (!hex) continue;
+    const cleanName = name.replace(/\s+/g, ' ').trim().toLowerCase();
+    const key = `${cleanName}|${hex}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    colors.push({ name: cleanName, value: hex });
+  }
+  if (colors.length === 0) return null;
+  return pickSwatchRow(colors);
+}
+
+function pickFinalSwatchRow(
+  frontmatter: SwatchRow | null,
+  markdownSwatches: string[],
+): string[] {
+  if (frontmatter !== null && frontmatter.filledAllSlots) return frontmatter.values;
+  if (markdownSwatches.length > 0) return markdownSwatches;
+  return frontmatter?.values ?? [];
+}
+
 export async function readDesignSystem(
   root: string,
   id: string,
@@ -194,7 +339,9 @@ export async function readDesignSystem(
 ): Promise<string | null> {
   const dirId = stripPrefixAndValidateId(id, options.idPrefix);
   if (!dirId) return null;
-  const file = path.join(root, dirId, 'DESIGN.md');
+  const brandRoot = path.join(root, dirId);
+  const manifest = await readProjectManifest(brandRoot, dirId);
+  const file = path.join(brandRoot, manifest?.files.design ?? 'DESIGN.md');
   try {
     return await readFile(file, 'utf8');
   } catch {
@@ -202,15 +349,53 @@ export async function readDesignSystem(
   }
 }
 
+export async function readDesignSystemPackageInfo(
+  root: string,
+  id: string,
+  options: { idPrefix?: string } = {},
+): Promise<DesignSystemPackageInfo | null> {
+  const dirId = stripPrefixAndValidateId(id, options.idPrefix);
+  if (!dirId) return null;
+  const brandRoot = path.join(root, dirId);
+  const manifest = await readProjectManifest(brandRoot, dirId);
+  if (manifest === null) return null;
+
+  const sourceEvidence = await readDesignSystemSourceEvidence(brandRoot, manifest);
+  return {
+    manifest,
+    ...(sourceEvidence ? { sourceEvidence } : {}),
+  };
+}
+
 /**
  * Structured (compiled) form of a brand's design system. Optional sibling
  * files alongside DESIGN.md that, when present, give agents a
  * machine-readable token contract and a worked fixture instead of having
- * to re-derive both from prose.
+ * to re-derive both from prose. Both fields are individually optional —
+ * the daemon falls back to the DESIGN.md-only path when neither is
+ * available, which is the current state for the ~138 brands without
+ * hand-authored or derived tokens.
+ *
+ * - `tokensCss`     — verbatim content of `<brand>/tokens.css`.
+ * - `usageMd`       — optional agent-facing router for the package.
+ * - `fixtureHtml`   — verbatim content of `<brand>/components.html`.
+ * - `componentsManifest` — concise summary derived from components.html
+ *                          or read from components.manifest.json cache
+ *                          for prompt injection; when absent, callers
+ *                          can fall back to `fixtureHtml`.
+ * - `pullIndex`     — short manifest-derived file index. It lists
+ *                     richer preview/source evidence paths without
+ *                     loading those files into the push prompt.
  */
 export type DesignSystemAssets = {
+  usageMd?: string | undefined;
   tokensCss?: string | undefined;
   fixtureHtml?: string | undefined;
+  componentsManifest?: string | undefined;
+  pullIndex?: string | undefined;
+  importMode?: 'normalized' | 'hybrid' | 'verbatim' | undefined;
+  craftApplies?: string[] | undefined;
+  craftExemptions?: string[] | undefined;
 };
 
 export async function readDesignSystemAssets(
@@ -219,11 +404,68 @@ export async function readDesignSystemAssets(
 ): Promise<DesignSystemAssets> {
   const dirId = stripPrefixAndValidateId(id, id.startsWith('user:') ? 'user:' : '');
   if (!dirId) return {};
-  const [tokensCss, fixtureHtml] = await Promise.all([
-    readFileOptional(path.join(root, dirId, 'tokens.css')),
-    readFileOptional(path.join(root, dirId, 'components.html')),
+  const brandRoot = path.join(root, dirId);
+  const manifest = await readProjectManifest(brandRoot, dirId);
+  const [usageMd, tokensCss, fixtureHtml, componentsManifestJson] = await Promise.all([
+    readManifestFileOptional(brandRoot, manifest?.usage ?? 'USAGE.md'),
+    readFileOptional(path.join(brandRoot, manifest?.files.tokens ?? 'tokens.css')),
+    manifest?.files.components === undefined && manifest !== null
+      ? Promise.resolve(undefined)
+      : readFileOptional(path.join(brandRoot, manifest?.files.components ?? 'components.html')),
+    readManifestFileOptional(brandRoot, manifest?.componentsManifest ?? 'components.manifest.json'),
   ]);
-  return { tokensCss, fixtureHtml };
+  return withComponentsManifest(id, {
+    usageMd,
+    tokensCss,
+    fixtureHtml,
+    componentsManifestJson,
+    pullIndex: buildDesignSystemPullIndex(manifest),
+    importMode: manifest?.importMode,
+    craftApplies: manifest?.craft?.applies,
+    craftExemptions: manifest?.craft?.exemptions,
+  });
+}
+
+export async function readDesignSystemPullFile(
+  root: string,
+  id: string,
+  relativePath: string,
+): Promise<DesignSystemPullFileDetail | null> {
+  const dirId = stripPrefixAndValidateId(id, id.startsWith('user:') ? 'user:' : '');
+  const cleanPath = sanitizeRelativeFilePath(relativePath);
+  if (!dirId || !cleanPath) return null;
+
+  const brandRoot = path.join(root, dirId);
+  const manifest = await readProjectManifest(brandRoot, dirId);
+  if (manifest === null) return null;
+
+  const allowed = await buildDesignSystemPullFileAllowlist(brandRoot, manifest);
+  if (!allowed.has(cleanPath)) return null;
+
+  const resolvedRoot = path.resolve(brandRoot);
+  const filePath = path.resolve(brandRoot, cleanPath);
+  if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    return null;
+  }
+
+  try {
+    const stats = await stat(filePath);
+    if (!stats.isFile()) return null;
+    const bytes = await readFile(filePath);
+    const encoding = isTextDesignSystemPullFile(cleanPath) ? 'utf8' : 'base64';
+    return {
+      path: cleanPath,
+      name: path.basename(cleanPath),
+      kind: classifyDesignSystemFile(cleanPath, false),
+      size: stats.size,
+      updatedAt: stats.mtime.toISOString(),
+      encoding,
+      content: encoding === 'utf8' ? bytes.toString('utf8') : bytes.toString('base64'),
+    };
+  } catch (err) {
+    if (isAbsenceError(err)) return null;
+    throw err;
+  }
 }
 
 export function isDesignTokenChannelEnabled(
@@ -239,7 +481,16 @@ export async function resolveDesignSystemAssets(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<DesignSystemAssets> {
   if (!isDesignTokenChannelEnabled(env)) {
-    return { tokensCss: undefined, fixtureHtml: undefined };
+    return {
+      usageMd: undefined,
+      tokensCss: undefined,
+      fixtureHtml: undefined,
+      componentsManifest: undefined,
+      pullIndex: undefined,
+      importMode: undefined,
+      craftApplies: undefined,
+      craftExemptions: undefined,
+    };
   }
 
   const builtIn = await readDesignSystemAssets(builtInRoot, designSystemId);
@@ -248,10 +499,264 @@ export async function resolveDesignSystemAssets(
   }
 
   const userInstalled = await readDesignSystemAssets(userInstalledRoot, designSystemId);
-  return {
+  return withComponentsManifest(designSystemId, {
+    usageMd: builtIn.usageMd ?? userInstalled.usageMd,
     tokensCss: builtIn.tokensCss ?? userInstalled.tokensCss,
     fixtureHtml: builtIn.fixtureHtml ?? userInstalled.fixtureHtml,
+    componentsManifestJson: undefined,
+    componentsManifest: builtIn.componentsManifest ?? userInstalled.componentsManifest,
+    pullIndex: builtIn.pullIndex ?? userInstalled.pullIndex,
+    importMode: builtIn.importMode ?? userInstalled.importMode,
+    craftApplies: builtIn.craftApplies ?? userInstalled.craftApplies,
+    craftExemptions: builtIn.craftExemptions ?? userInstalled.craftExemptions,
+  });
+}
+
+function withComponentsManifest(
+  designSystemId: string,
+  assets: Pick<
+    DesignSystemAssets,
+    | 'usageMd'
+    | 'tokensCss'
+    | 'fixtureHtml'
+    | 'componentsManifest'
+    | 'pullIndex'
+    | 'importMode'
+    | 'craftApplies'
+    | 'craftExemptions'
+  > & {
+    componentsManifestJson?: string | undefined;
+  },
+): DesignSystemAssets {
+  const { componentsManifestJson, ...publicAssets } = assets;
+  const componentsManifest =
+    publicAssets.componentsManifest
+    ?? summarizeComponentsManifestCache(componentsManifestJson)
+    ?? buildComponentsManifestSummary(
+      designSystemId,
+      publicAssets.fixtureHtml,
+      publicAssets.tokensCss,
+    );
+  return { ...publicAssets, componentsManifest };
+}
+
+function summarizeComponentsManifestCache(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw.trim().length === 0) return undefined;
+  try {
+    return summarizeComponentsManifestForPrompt(JSON.parse(raw) as ComponentsManifest);
+  } catch {
+    return undefined;
+  }
+}
+
+function buildComponentsManifestSummary(
+  designSystemId: string,
+  fixtureHtml: string | undefined,
+  tokensCss: string | undefined,
+): string | undefined {
+  if (fixtureHtml === undefined || fixtureHtml.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    const manifest =
+      tokensCss === undefined
+        ? extractComponentsManifest({ brandId: designSystemId, fixtureHtml })
+        : extractComponentsManifest({ brandId: designSystemId, fixtureHtml, tokensCss });
+    return summarizeComponentsManifestForPrompt(manifest);
+  } catch {
+    return undefined;
+  }
+}
+
+function buildDesignSystemPullIndex(
+  manifest: DesignSystemProjectManifest | null,
+): string | undefined {
+  if (manifest === null) return undefined;
+  const entries: string[] = [];
+  const add = (filePath: string | undefined, label: string): void => {
+    if (!filePath || !isSafeManifestPath(filePath)) return;
+    entries.push(`- ${filePath}: ${label}`);
   };
+
+  if (manifest.preview?.pages) {
+    for (const page of manifest.preview.pages) {
+      if (!isSafeManifestPath(page.path)) continue;
+      const labelParts = [page.title, page.role].filter((part) => typeof part === 'string' && part.trim().length > 0);
+      entries.push(`- ${page.path}: ${labelParts.join('; ') || 'preview page'}`);
+    }
+  } else if (manifest.previewDir === 'preview') {
+    entries.push('- preview/: preview pages');
+  }
+
+  if (manifest.assetsDir === 'assets') entries.push('- assets/: brand assets');
+  for (const font of manifest.fonts ?? []) {
+    add(font.file, `font: ${font.family}${font.weight ? ` ${font.weight}` : ''}${font.style ? ` ${font.style}` : ''}`);
+  }
+
+  add(manifest.sourceFiles?.scanned, 'scanned source file inventory');
+  add(manifest.sourceFiles?.evidence, 'import evidence notes');
+  add(manifest.sourceFiles?.tokens, 'source-token evidence');
+  add(manifest.sourceFiles?.snippets, 'source snippet index');
+
+  if (entries.length === 0) return undefined;
+  return ['Additional design-system files declared by manifest.json:', ...entries].join('\n');
+}
+
+async function buildDesignSystemPullFileAllowlist(
+  brandRoot: string,
+  manifest: DesignSystemProjectManifest,
+): Promise<Set<string>> {
+  const allowed = new Set<string>();
+  const add = (filePath: string | undefined): void => {
+    const cleanPath = typeof filePath === 'string' ? sanitizeRelativeFilePath(filePath) : null;
+    if (cleanPath) allowed.add(cleanPath);
+  };
+
+  for (const page of manifest.preview?.pages ?? []) add(page.path);
+  add(manifest.sourceFiles?.scanned);
+  add(manifest.sourceFiles?.evidence);
+  add(manifest.sourceFiles?.tokens);
+  add(manifest.sourceFiles?.snippets);
+
+  if (manifest.assetsDir === 'assets') {
+    await addFilesUnderDeclaredDir(brandRoot, 'assets', allowed);
+  }
+
+  if (manifest.sourceFiles?.snippets) {
+    await addSnippetIndexEntries(brandRoot, manifest.sourceFiles.snippets, allowed);
+  }
+
+  return allowed;
+}
+
+async function addFilesUnderDeclaredDir(
+  brandRoot: string,
+  dir: string,
+  allowed: Set<string>,
+): Promise<void> {
+  if (!isSafeManifestPath(dir)) return;
+  const absoluteDir = path.join(brandRoot, dir);
+  let entries;
+  try {
+    entries = await readdir(absoluteDir, { withFileTypes: true });
+  } catch (err) {
+    if (isAbsenceError(err)) return;
+    throw err;
+  }
+  await Promise.all(entries.map(async (entry) => {
+    const relativePath = `${dir}/${entry.name}`;
+    if (!isSafeManifestPath(relativePath)) return;
+    if (entry.isDirectory()) {
+      await addFilesUnderDeclaredDir(brandRoot, relativePath, allowed);
+    } else if (entry.isFile()) {
+      allowed.add(relativePath);
+    }
+  }));
+}
+
+async function addSnippetIndexEntries(
+  brandRoot: string,
+  indexPath: string,
+  allowed: Set<string>,
+): Promise<void> {
+  if (!isSafeManifestPath(indexPath)) return;
+  let raw: string | undefined;
+  try {
+    raw = await readFileOptional(path.join(brandRoot, indexPath));
+  } catch {
+    return;
+  }
+  if (raw === undefined) return;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+    const snippets = (parsed as { snippets?: unknown }).snippets;
+    if (!Array.isArray(snippets)) return;
+    for (const snippet of snippets) {
+      if (!snippet || typeof snippet !== 'object' || Array.isArray(snippet)) continue;
+      const snippetPath = (snippet as { path?: unknown }).path;
+      if (typeof snippetPath === 'string') {
+        const cleanPath = sanitizeRelativeFilePath(snippetPath);
+        if (cleanPath?.startsWith('source/snippets/')) allowed.add(cleanPath);
+      }
+    }
+  } catch {
+    // A malformed snippets index should not widen the allowlist.
+  }
+}
+
+function isTextDesignSystemPullFile(relativePath: string): boolean {
+  const ext = path.extname(relativePath).toLowerCase();
+  return new Set([
+    '.css',
+    '.html',
+    '.js',
+    '.jsx',
+    '.json',
+    '.md',
+    '.mjs',
+    '.svg',
+    '.ts',
+    '.tsx',
+    '.txt',
+    '.xml',
+    '.yaml',
+    '.yml',
+  ]).has(ext);
+}
+
+async function readDesignSystemSourceEvidence(
+  brandRoot: string,
+  manifest: DesignSystemProjectManifest,
+): Promise<DesignSystemPackageInfo['sourceEvidence'] | undefined> {
+  const [scanned, tokens, snippets, evidence] = await Promise.all([
+    readManifestJsonOptional(brandRoot, manifest.sourceFiles?.scanned),
+    readManifestJsonOptional(brandRoot, manifest.sourceFiles?.tokens),
+    readManifestJsonOptional(brandRoot, manifest.sourceFiles?.snippets),
+    readManifestFileOptional(brandRoot, manifest.sourceFiles?.evidence ?? ''),
+  ]);
+
+  const out: NonNullable<DesignSystemPackageInfo['sourceEvidence']> = {};
+  if (scanned && typeof scanned === 'object' && !Array.isArray(scanned)) {
+    const files = (scanned as { files?: unknown }).files;
+    if (Array.isArray(files)) out.scannedFileCount = files.length;
+  }
+  if (tokens && typeof tokens === 'object' && !Array.isArray(tokens)) {
+    const tokenCount = (tokens as { tokenCount?: unknown }).tokenCount;
+    if (typeof tokenCount === 'number') out.tokenCount = tokenCount;
+    const confidence = (tokens as { confidence?: unknown }).confidence;
+    if (confidence && typeof confidence === 'object' && !Array.isArray(confidence)) {
+      const cleanConfidence: Record<string, string | number> = {};
+      for (const [key, value] of Object.entries(confidence)) {
+        if (typeof value === 'string' || typeof value === 'number') cleanConfidence[key] = value;
+      }
+      if (Object.keys(cleanConfidence).length > 0) out.confidence = cleanConfidence;
+    }
+  }
+  if (snippets && typeof snippets === 'object' && !Array.isArray(snippets)) {
+    const entries = (snippets as { snippets?: unknown }).snippets;
+    if (Array.isArray(entries)) out.snippetCount = entries.length;
+  }
+  if (typeof evidence === 'string' && evidence.trim().length > 0) {
+    out.evidenceExcerpt = evidence.trim().split(/\r?\n/).filter(Boolean).slice(0, 5).join('\n');
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+async function readManifestJsonOptional(
+  brandRoot: string,
+  relativePath: string | undefined,
+): Promise<unknown | undefined> {
+  if (!relativePath) return undefined;
+  const raw = await readManifestFileOptional(brandRoot, relativePath);
+  if (raw === undefined) return undefined;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function createUserDesignSystem(
@@ -271,13 +776,14 @@ export async function createUserDesignSystem(
     title,
     sourceNotes,
   });
+  const surface = input.surface ?? extractSurface(body) ?? 'web';
   await mkdir(path.join(root, dirId), { recursive: true });
   await writeFile(path.join(root, dirId, 'DESIGN.md'), body, 'utf8');
   const artifactMode = normalizeArtifactMode(input.artifactMode);
   await writeUserMetadata(root, dirId, {
     title,
     category: cleanText(input.category) || extractCategory(body) || 'Custom',
-    surface: input.surface ?? extractSurface(body),
+    surface,
     status: input.status ?? 'draft',
     ...(artifactMode ? { artifactMode } : {}),
     createdAt: now,
@@ -288,7 +794,7 @@ export async function createUserDesignSystem(
     await writeGeneratedDesignSystemFiles(root, dirId, {
       title,
       category: cleanText(input.category) || extractCategory(body) || 'Custom',
-      surface: input.surface ?? extractSurface(body),
+      surface,
       summary: summarize(body),
       ...(provenance ? { provenance } : {}),
       ...(sourceNotes ? { sourceNotes } : {}),
@@ -323,7 +829,7 @@ export async function updateUserDesignSystem(
   const now = new Date().toISOString();
   const title = normalizeTitle(input.title ?? existingMeta.title ?? firstHeading(existingBody) ?? dirId);
   const category = cleanText(input.category) || existingMeta.category || extractCategory(existingBody) || 'Custom';
-  const surface = input.surface ?? existingMeta.surface ?? extractSurface(existingBody);
+  const surface = input.surface ?? existingMeta.surface ?? extractSurface(existingBody) ?? 'web';
   const nextProvenance = normalizeProvenance(input.provenance, {
     ...(input.sourceNotes ? { sourceNotes: input.sourceNotes } : {}),
   });
@@ -579,7 +1085,7 @@ async function ensureGeneratedDesignSystemFiles(root: string, id: string): Promi
     const body = await readFile(path.join(root, id, 'DESIGN.md'), 'utf8');
     const title = normalizeTitle(metadata.title ?? firstHeading(body) ?? id);
     const category = metadata.category ?? extractCategory(body) ?? 'Custom';
-    const surface = metadata.surface ?? extractSurface(body);
+    const surface = metadata.surface ?? extractSurface(body) ?? 'web';
     await writeGeneratedDesignSystemFiles(root, id, {
       title,
       category,
@@ -2163,10 +2669,65 @@ async function readFileOptional(file: string): Promise<string | undefined> {
   }
 }
 
+async function readManifestFileOptional(
+  brandRoot: string,
+  relativePath: string,
+): Promise<string | undefined> {
+  if (!isSafeManifestPath(relativePath)) return undefined;
+  return readFileOptional(path.join(brandRoot, relativePath));
+}
+
+function isSafeManifestPath(relativePath: string): boolean {
+  if (relativePath.trim().length === 0) return false;
+  if (path.isAbsolute(relativePath)) return false;
+  const parts = relativePath.split(/[\\/]+/);
+  return parts.every((part) => part.length > 0 && part !== '.' && part !== '..');
+}
+
 function isAbsenceError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
   const code = (err as { code?: unknown }).code;
   return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+async function readProjectManifest(
+  brandRoot: string,
+  expectedId: string,
+): Promise<DesignSystemProjectManifest | null> {
+  let raw: string | undefined;
+  try {
+    raw = await readFileOptional(path.join(brandRoot, 'manifest.json'));
+  } catch {
+    return null;
+  }
+  if (raw === undefined) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isProjectManifest(parsed, expectedId)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isProjectManifest(value: unknown, expectedId: string): value is DesignSystemProjectManifest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.schemaVersion !== 'od-design-system-project/v1') return false;
+  if (record.id !== expectedId) return false;
+  if (typeof record.name !== 'string' || record.name.trim().length === 0) return false;
+  if (typeof record.category !== 'string' || record.category.trim().length === 0) return false;
+  if (record.description !== undefined && typeof record.description !== 'string') return false;
+
+  const files = record.files;
+  if (typeof files !== 'object' || files === null || Array.isArray(files)) return false;
+  const fileRecord = files as Record<string, unknown>;
+  return (
+    fileRecord.design === 'DESIGN.md' &&
+    fileRecord.tokens === 'tokens.css' &&
+    (fileRecord.components === undefined || fileRecord.components === 'components.html')
+  );
 }
 
 function summarize(raw: string): string {
@@ -2197,11 +2758,11 @@ const KNOWN_REVISION_STATUSES = new Set<DesignSystemRevisionStatus>([
   'accepted',
   'rejected',
 ]);
-function extractSurface(raw: string): DesignSystemSurface {
+function extractSurface(raw: string): DesignSystemSurface | undefined {
   const m = /^>\s*Surface:\s*(.+?)\s*$/im.exec(raw);
-  if (!m) return 'web';
+  if (!m) return undefined;
   const v = m[1]?.trim().toLowerCase();
-  return isDesignSystemSurface(v) ? v : 'web';
+  return isDesignSystemSurface(v) ? v : undefined;
 }
 
 function isDesignSystemSurface(value: string | undefined): value is DesignSystemSurface {
@@ -2263,7 +2824,10 @@ function extractSwatches(raw: string): string[] {
   const reB = /\*\*([A-Za-z][A-Za-z0-9 /&()+_-]{1,40}?)\*\*\s*\(?\s*`?(#[0-9a-fA-F]{3,8})/g;
   while ((m = reB.exec(raw)) !== null) push(m[1] ?? '', m[2] ?? '');
   if (colors.length === 0) return [];
+  return pickSwatchRow(colors).values;
+}
 
+function pickSwatchRow(colors: ColorToken[]): SwatchRow {
   function pick(hints: string[]): string | null {
     for (const h of hints) {
       const found = colors.find((c) => c.name.includes(h));
@@ -2279,25 +2843,28 @@ function extractSwatches(raw: string): string[] {
     return Math.max(r, g, b) - Math.min(r, g, b) < 10;
   }
 
-  const bg =
-    pick(['page background', 'background', 'canvas', 'paper', 'surface'])
-    ?? '#ffffff';
-  const fg =
-    pick(['heading', 'foreground', 'ink', 'fg', 'text', 'navy', 'graphite'])
-    ?? '#111111';
+  const bgHit = pick(['page background', 'background', 'canvas', 'paper', 'surface']);
+  const fgHit = pick(['heading', 'foreground', 'ink', 'fg', 'text', 'navy', 'graphite']);
+  const accentHit = pick(['primary brand', 'brand primary', 'accent', 'brand', 'primary']);
+  const supportHit = pick(['border', 'divider', 'rule', 'muted', 'secondary', 'subtle']);
+
+  const bg = bgHit ?? '#ffffff';
+  const fg = fgHit ?? '#111111';
   const accent =
-    pick(['primary brand', 'brand primary', 'accent', 'brand', 'primary'])
+    accentHit
     ?? colors.find((c) => !isNeutral(c.value))?.value
     ?? colors[0]?.value
     ?? '#888888';
   const support =
-    pick(['border', 'divider', 'rule', 'muted', 'secondary', 'subtle'])
+    supportHit
     ?? colors.find(
       (c) => isNeutral(c.value) && c.value !== bg && c.value !== fg,
     )?.value
     ?? '#cccccc';
 
-  return [bg, support, fg, accent];
+  const filledAllSlots =
+    bgHit !== null && fgHit !== null && accentHit !== null && supportHit !== null;
+  return { values: [bg, support, fg, accent], filledAllSlots };
 }
 
 function normalizeHex(raw: string): string | null {

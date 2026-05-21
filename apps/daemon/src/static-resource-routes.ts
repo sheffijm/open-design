@@ -13,6 +13,14 @@ import {
 } from './skills.js';
 import { listCodexPets, readCodexPetSpritesheet } from './codex-pets.js';
 import { syncCommunityPets } from './community-pets-sync.js';
+import { readDesignSystem } from './design-systems.js';
+import {
+  LocalDesignSystemImportError,
+  importLocalDesignSystemProject,
+} from './design-system-import.js';
+import { importGitHubDesignSystemProject } from './design-system-github-import.js';
+import { renderDesignSystemPreview } from './design-system-preview.js';
+import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { listPromptTemplates, readPromptTemplate } from './prompt-templates.js';
 import { readAppConfig } from './app-config.js';
 import { installFromTarget, uninstallById } from './library-install.js';
@@ -23,6 +31,8 @@ export interface RegisterStaticResourceRoutesDeps extends RouteDeps<'http' | 'pa
 export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticResourceRoutesDeps) {
   const {
     RUNTIME_DATA_DIR,
+    RUNTIME_DATA_DIR_CANONICAL,
+    PROJECT_ROOT,
     DESIGN_SYSTEMS_DIR,
     USER_DESIGN_SYSTEMS_DIR,
     DESIGN_TEMPLATES_DIR,
@@ -580,6 +590,117 @@ export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticRe
     }
   });
 
+  app.post('/api/design-systems/import/local', async (req, res) => {
+    if (!requireLocalOrigin(req, res)) return;
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const inputPath =
+        typeof body.baseDir === 'string'
+          ? body.baseDir
+          : typeof body.path === 'string'
+            ? body.path
+            : typeof body.localPath === 'string'
+              ? body.localPath
+              : '';
+      if (!path.isAbsolute(inputPath)) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'local project path must be absolute');
+      }
+      let sourceRoot: string;
+      let sourceStats: fs.Stats;
+      try {
+        sourceRoot = fs.realpathSync.native(inputPath);
+        sourceStats = fs.statSync(sourceRoot);
+      } catch {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'local project path was not found');
+      }
+      if (!sourceStats.isDirectory()) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'local project path must be a directory');
+      }
+      const sourceParent = path.dirname(sourceRoot);
+      if (sourceRoot === sourceParent) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'local project path cannot be a filesystem root');
+      }
+      try {
+        const runtimeRoot = fs.realpathSync.native(RUNTIME_DATA_DIR_CANONICAL);
+        if (sourceRoot === runtimeRoot || sourceRoot.startsWith(`${runtimeRoot}${path.sep}`)) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'cannot import Open Design runtime data');
+        }
+      } catch {
+        // The runtime data directory may not exist yet in first-run tests.
+      }
+
+      const before = await listAllDesignSystems();
+      const importMode = normalizeDesignSystemImportMode(body.importMode);
+      const craftApplies = normalizeDesignSystemCraftApplies(body.craftApplies);
+      const result = await importLocalDesignSystemProject(sourceRoot, USER_DESIGN_SYSTEMS_DIR, {
+        ...(typeof body.name === 'string' ? { name: body.name } : {}),
+        ...(importMode ? { importMode } : {}),
+        ...(craftApplies ? { craftApplies } : {}),
+        reservedIds: before.map((system) => system.id),
+      });
+      const systems = await listAllDesignSystems();
+      const designSystem = systems.find((system) => system.id === result.id);
+      if (!designSystem) {
+        return sendApiError(
+          res,
+          500,
+          'INTERNAL_ERROR',
+          `imported design system was not found in catalog: ${result.dir}`,
+        );
+      }
+      res.status(201).json({ designSystem });
+    } catch (err: any) {
+      if (err instanceof LocalDesignSystemImportError) {
+        return sendApiError(res, err.code === 'BAD_REQUEST' ? 400 : 500, err.code, err.message);
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
+    }
+  });
+
+  app.post('/api/design-systems/import/github', async (req, res) => {
+    if (!requireLocalOrigin(req, res)) return;
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const githubUrl =
+        typeof body.githubUrl === 'string'
+          ? body.githubUrl
+          : typeof body.url === 'string'
+            ? body.url
+            : '';
+      const before = await listAllDesignSystems();
+      const importMode = normalizeDesignSystemImportMode(body.importMode);
+      const craftApplies = normalizeDesignSystemCraftApplies(body.craftApplies);
+      const result = await importGitHubDesignSystemProject(
+        githubUrl,
+        path.join(PROJECT_ROOT, '.tmp'),
+        USER_DESIGN_SYSTEMS_DIR,
+        {
+          ...(typeof body.name === 'string' ? { name: body.name } : {}),
+          ...(typeof body.branch === 'string' ? { branch: body.branch } : {}),
+          ...(importMode ? { importMode } : {}),
+          ...(craftApplies ? { craftApplies } : {}),
+          reservedIds: before.map((system) => system.id),
+        },
+      );
+      const systems = await listAllDesignSystems();
+      const designSystem = systems.find((system) => system.id === result.id);
+      if (!designSystem) {
+        return sendApiError(
+          res,
+          500,
+          'INTERNAL_ERROR',
+          `imported GitHub design system was not found in catalog: ${result.dir}`,
+        );
+      }
+      res.status(201).json({ designSystem });
+    } catch (err: any) {
+      if (err instanceof LocalDesignSystemImportError) {
+        return sendApiError(res, err.code === 'BAD_REQUEST' ? 400 : 500, err.code, err.message);
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
+    }
+  });
+
   app.delete('/api/design-systems/:id', async (req, res, next) => {
     if (!requireLocalOrigin(req, res)) return;
     if (req.params.id.startsWith('user:')) {
@@ -599,6 +720,24 @@ export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticRe
     }
   });
 
+}
+
+function normalizeDesignSystemImportMode(value: unknown): 'normalized' | 'hybrid' | 'verbatim' | undefined {
+  return value === 'normalized' || value === 'hybrid' || value === 'verbatim' ? value : undefined;
+}
+
+function normalizeDesignSystemCraftApplies(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const slug = entry.trim().toLowerCase();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push(slug);
+  }
+  return out;
 }
 
 function assembleExample(templateHtml: string, slidesHtml: string, title: string) {
