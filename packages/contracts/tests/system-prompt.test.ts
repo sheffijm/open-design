@@ -36,6 +36,31 @@ describe('composeSystemPrompt', () => {
     expect(prompt).not.toContain('`实时作品`');
   });
 
+  it('preserves canonical default task-type options for zh-TW locale overrides', () => {
+    const prompt = composeSystemPrompt({ locale: 'zh-TW' });
+
+    expect(prompt).toContain('# UI locale override');
+    expect(prompt).toContain('`zh-TW` (Traditional Chinese)');
+    expect(prompt).toContain(
+      'keep the `taskType` option labels as the canonical routing choices',
+    );
+    for (const option of [
+      'Prototype',
+      'Live artifact',
+      'Slide deck',
+      'Image',
+      'Video',
+      'HyperFrames',
+      'Audio',
+      'Other',
+    ]) {
+      expect(prompt).toContain(`"${option}"`);
+    }
+    expect(prompt).not.toContain('快速简报 — 30 秒');
+    expect(prompt).not.toContain('option labels as `原型`');
+    expect(prompt).not.toContain('`实时作品`');
+  });
+
   it('treats an active design system as the visual direction', () => {
     const prompt = composeSystemPrompt({
       designSystemTitle: 'ComfyUI',
