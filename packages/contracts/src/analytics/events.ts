@@ -26,6 +26,7 @@ export type AnalyticsEventName =
   | 'run_created'
   | 'run_finished'
   // Packaged updater lifecycle
+  | 'update_install_result'
   | 'update_apply_observed'
   // File manager
   | 'file_upload_result'
@@ -593,6 +594,15 @@ export interface HomeChatComposerClickProps {
   chip_id?: string;
 }
 
+export interface UpdateIndicatorClickProps {
+  page_name: 'home';
+  area: 'update_indicator' | 'update_prompt';
+  element: 'ready_indicator' | 'later' | 'install_update';
+  action: 'open_prompt' | 'dismiss' | 'install';
+  app_version_before?: string;
+  app_version_after?: string;
+}
+
 export interface NewProjectModalTabClickProps {
   page_name: 'home';
   area: 'new_project_modal';
@@ -1157,6 +1167,7 @@ export type UiClickProps =
   | ExecutionSettingsPopoverClickProps
   | SettingsPopoverClickProps
   | HomeChatComposerClickProps
+  | UpdateIndicatorClickProps
   | NewProjectModalTabClickProps
   | NewProjectModalElementClickProps
   | PluginReplacementModalClickProps
@@ -1244,13 +1255,19 @@ export interface AssistantFeedbackReasonPanelSurfaceViewProps {
   rating: 'positive' | 'negative';
 }
 
-// Home toolbar "Update ready" popover. Fires once per render of the
-// upgrade-available card (see top-right of `EntryShell` /
-// `WorkspaceTabsBar`). `app_version_before` / `app_version_after` ride
-// along so the dashboard can compare adoption rate by version delta.
-export interface UpdatePopoverSurfaceViewProps {
+// Packaged updater UI surfaces. The download pipeline is intentionally
+// silent; these fire only when a verified update is installable and when the
+// user opens the final confirmation prompt.
+export interface UpdateIndicatorSurfaceViewProps {
   page_name: 'home';
-  area: 'update_popover';
+  area: 'update_indicator';
+  app_version_before?: string;
+  app_version_after?: string;
+}
+
+export interface UpdatePromptSurfaceViewProps {
+  page_name: 'home';
+  area: 'update_prompt';
   app_version_before?: string;
   app_version_after?: string;
 }
@@ -1261,7 +1278,8 @@ export type SurfaceViewProps =
   | PluginReplacementModalSurfaceViewProps
   | DesignSystemsTemplatesModalSurfaceViewProps
   | AssistantFeedbackReasonPanelSurfaceViewProps
-  | UpdatePopoverSurfaceViewProps;
+  | UpdateIndicatorSurfaceViewProps
+  | UpdatePromptSurfaceViewProps;
 
 // ---- Result events -------------------------------------------------------
 
@@ -1291,6 +1309,15 @@ export interface PluginReplacementResultProps {
   plugin_before: string;
   plugin_after: string;
   result: TrackingResult;
+  error_code?: string;
+}
+
+export interface UpdateInstallResultProps {
+  page_name: 'home';
+  area: 'update_prompt';
+  result: TrackingResult;
+  app_version_before?: string;
+  app_version_after?: string;
   error_code?: string;
 }
 
@@ -1539,6 +1566,7 @@ export type AnalyticsEventPayload =
   | { event: 'plugin_replacement_result'; props: PluginReplacementResultProps }
   | { event: 'run_created'; props: RunCreatedProps }
   | { event: 'run_finished'; props: RunFinishedProps }
+  | { event: 'update_install_result'; props: UpdateInstallResultProps }
   | { event: 'update_apply_observed'; props: UpdateApplyObservedProps }
   | { event: 'file_upload_result'; props: FileUploadResultProps }
   | { event: 'artifact_export_result'; props: ArtifactExportResultProps }

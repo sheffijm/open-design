@@ -119,11 +119,7 @@ export function deriveUpdaterModel(
           status.downloadPath ?? status.artifactUrl ?? status.artifact?.url ?? 'unknown-artifact',
         ].join(':');
   const canQuitAfterInstallerOpen = hostAvailable && installerOpened;
-  const shouldShowControl = Boolean(
-    hostAvailable &&
-    status?.enabled &&
-    status.supported,
-  );
+  const shouldShowControl = Boolean(canOpenInstaller && hasDownloadedInstaller && !installerOpened);
 
   return {
     availableVersion,

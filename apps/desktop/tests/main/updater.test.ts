@@ -436,6 +436,40 @@ describe("desktop updater", () => {
     }
   });
 
+  it("reuses the same install result for repeated installer open requests", async () => {
+    const root = makeRoot();
+    const fixture = await createUpdaterFixture();
+    const launches: Array<{ appPid: number; installerPath: string; root: string; timeoutMs: number }> = [];
+    try {
+      const updater = createDesktopUpdater(
+        {
+          arch: "arm64",
+          downloadRoot: root,
+          env: {
+            ...updaterEnv(fixture.metadataUrl),
+            [DESKTOP_UPDATE_ENV.OPEN_DRY_RUN]: "0",
+          },
+          source: SIDECAR_SOURCES.TOOLS_PACK,
+        },
+        { launchInstallerAfterQuit: async (input) => {
+          launches.push(input);
+          return "";
+        } },
+      );
+
+      const checked = await updater.checkForUpdates();
+      const first = await updater.installUpdate();
+      const second = await updater.installUpdate();
+
+      expect(first.installResult?.path).toBe(checked.downloadPath);
+      expect(second.installResult).toEqual(first.installResult);
+      expect(launches).toHaveLength(1);
+    } finally {
+      await fixture.close();
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it("writes and detaches the mac helper script that opens the installer after quit", async () => {
     const root = makeRoot();
     const fixture = await createUpdaterFixture();

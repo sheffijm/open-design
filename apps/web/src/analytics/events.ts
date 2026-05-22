@@ -19,6 +19,7 @@ import type {
   ExecutionSettingsPopoverClickProps,
   SettingsPopoverClickProps,
   HomeChatComposerClickProps,
+  UpdateIndicatorClickProps,
   NewProjectModalTabClickProps,
   NewProjectModalElementClickProps,
   PluginReplacementModalClickProps,
@@ -85,7 +86,9 @@ import type {
   OnboardingClickProps,
   OnboardingRuntimeScanResultProps,
   OnboardingCompleteResultProps,
-  UpdatePopoverSurfaceViewProps,
+  UpdateIndicatorSurfaceViewProps,
+  UpdatePromptSurfaceViewProps,
+  UpdateInstallResultProps,
 } from '@open-design/contracts/analytics';
 
 type TrackOptions = { requestId?: string; insertId?: string };
@@ -189,6 +192,13 @@ export function trackSettingsPopoverClick(
 export function trackHomeChatComposerClick(
   track: Track,
   props: HomeChatComposerClickProps,
+): void {
+  send(track, 'ui_click', props);
+}
+
+export function trackUpdateIndicatorClick(
+  track: Track,
+  props: UpdateIndicatorClickProps,
 ): void {
   send(track, 'ui_click', props);
 }
@@ -701,11 +711,25 @@ export function trackOnboardingCompleteResult(
   send(track, 'onboarding_complete_result', props);
 }
 
-// ---- Update popover surface_view ----------------------------------------
+// ---- Update indicator / prompt ------------------------------------------
 
-export function trackUpdatePopoverSurfaceView(
+export function trackUpdateIndicatorSurfaceView(
   track: Track,
-  props: UpdatePopoverSurfaceViewProps,
+  props: UpdateIndicatorSurfaceViewProps,
 ): void {
   send(track, 'surface_view', props);
+}
+
+export function trackUpdatePromptSurfaceView(
+  track: Track,
+  props: UpdatePromptSurfaceViewProps,
+): void {
+  send(track, 'surface_view', props);
+}
+
+export function trackUpdateInstallResult(
+  track: Track,
+  props: UpdateInstallResultProps,
+): void {
+  send(track, 'update_install_result', props);
 }

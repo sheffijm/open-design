@@ -66,7 +66,7 @@ describe('web updater model', () => {
     expect(model.promptKey).toContain('1.2.3-beta.4');
   });
 
-  it('keeps updater control visible while a package update is downloading', () => {
+  it('keeps downloading progress internal without showing the updater control', () => {
     const model = deriveUpdaterModel(
       downloadedStatus({
         progress: {
@@ -78,7 +78,7 @@ describe('web updater model', () => {
       { hostAvailable: true },
     );
     expect(model.busy).toBe(true);
-    expect(model.shouldShowControl).toBe(true);
+    expect(model.shouldShowControl).toBe(false);
     expect(model.downloadProgress).toEqual({
       percent: 25,
       receivedBytes: 25,
@@ -86,7 +86,7 @@ describe('web updater model', () => {
     });
   });
 
-  it('shows a current-version updater control for enabled desktop package launchers', () => {
+  it('keeps current-version package launchers hidden from the updater UI', () => {
     const model = deriveUpdaterModel(
       downloadedStatus({
         availableVersion: undefined,
@@ -97,7 +97,7 @@ describe('web updater model', () => {
     );
 
     expect(model.environment).toBe('desktop');
-    expect(model.shouldShowControl).toBe(true);
+    expect(model.shouldShowControl).toBe(false);
     expect(model.shouldPrompt).toBe(false);
     expect(model.upToDate).toBe(true);
     expect(model.hasDownloadedInstaller).toBe(false);

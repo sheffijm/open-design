@@ -81,14 +81,14 @@ const clickUpdaterRailExpression = `
     return { clicked: true };
   })()
 `;
-const clickUpdaterPrimaryExpression = `
+const startUpdaterDownloadExpression = `
   (() => {
-    const popup = document.querySelector('[data-testid="updater-popup"]');
-    const button = popup?.querySelector('.updater-popup__button--primary');
-    if (!(button instanceof HTMLButtonElement)) return { clicked: false, reason: 'missing-primary-button' };
-    if (button.disabled) return { clicked: false, reason: 'primary-button-disabled' };
-    button.click();
-    return { clicked: true };
+    const updater = window.__od__?.updater;
+    if (updater == null || typeof updater.download !== 'function') {
+      return { started: false, reason: 'missing-host-updater-download' };
+    }
+    void updater.download({ payload: { source: 'packaged-e2e:silent-download' } });
+    return { started: true };
   })()
 `;
 
@@ -328,6 +328,11 @@ type UpdaterClickEvalValue = {
   reason?: string;
 };
 
+type UpdaterStartEvalValue = {
+  reason?: string;
+  started: boolean;
+};
+
 const shouldRunPackagedWinSmoke = process.platform === 'win32' && process.env.OD_PACKAGED_E2E_WIN === '1';
 const winDescribe = shouldRunPackagedWinSmoke ? describe : describe.skip;
 
@@ -444,7 +449,11 @@ winDescribe('packaged windows runtime smoke', () => {
         });
       }
 
-      const popup = await measureSmokeStep(timings, 'wait updater popup', async () => waitForUpdaterPopup());
+      const fixtureInfo = updaterFixture?.info;
+      if (fixtureInfo == null) throw new Error('updater fixture was not initialized');
+      const popup = await measureSmokeStep(timings, 'open ready updater prompt', async () =>
+        openReadyUpdaterPrompt(fixtureInfo.version),
+      );
       expect(popup.visible).toBe(true);
       expect(popup.title).toEqual(expect.any(String));
       expect(popup.title?.trim().length).toBeGreaterThan(0);
@@ -645,10 +654,10 @@ async function runPackagedUpdaterViolentChecks(options: {
   await clearUpdateRoot(options.expectedUpdateRoot);
   const liveLockStart = await options.startDesktop('start live-lock updater pass');
   await waitForHealthyDesktop();
-  await openUpdaterAndWaitAvailable('live-lock updater check', options.fixture.info.version);
+  await checkUpdaterAvailable('live-lock updater check', options.fixture.info.version);
   const liveLockArtifactRequestsBefore = artifactRequests(options.fixture).length;
   await writeManagedDownloadLock(options.expectedUpdateRoot, options.fixture.info.version, liveLockStart.pid);
-  await clickUpdaterPrimaryButton('live-lock updater download');
+  await startUpdaterDownload('live-lock updater silent download');
   const liveLockStatus = await waitForUpdaterStatus(
     (inspect) => inspect.update?.state === 'error',
     'live-lock updater error',
@@ -661,10 +670,10 @@ async function runPackagedUpdaterViolentChecks(options: {
   await clearUpdateRoot(options.expectedUpdateRoot);
   await options.startDesktop('start corrupt-helper updater pass');
   await waitForHealthyDesktop();
-  await openUpdaterAndWaitAvailable('corrupt-helper updater check', options.fixture.info.version);
+  await checkUpdaterAvailable('corrupt-helper updater check', options.fixture.info.version);
   await writeTamperedManagedDownloadState(options.expectedUpdateRoot, options.fixture.info.version);
   const corruptRequestsBefore = artifactRequests(options.fixture).length;
-  await clickUpdaterPrimaryButton('corrupt-helper updater download');
+  await runUpdaterDownload('corrupt-helper updater silent download');
   const corruptHelperStatus = await waitForUpdaterStatus(
     (inspect) => inspect.update?.state === 'downloaded',
     'corrupt-helper updater downloaded',
@@ -678,7 +687,7 @@ async function runPackagedUpdaterViolentChecks(options: {
   await clearUpdateRoot(options.expectedUpdateRoot);
   await options.startDesktop('start updater-root attack seed');
   await waitForHealthyDesktop();
-  await openUpdaterAndWaitAvailable('updater-root attack check', options.fixture.info.version);
+  await checkUpdaterAvailable('updater-root attack check', options.fixture.info.version);
   await writeUnexpectedUpdateRootEntry(options.expectedUpdateRoot);
   await options.stopDesktop('stop after updater-root attack seed');
   await options.startDesktop('start updater-root attack restore');
@@ -700,8 +709,8 @@ async function runPackagedUpdaterViolentChecks(options: {
     await clearUpdateRoot(options.expectedUpdateRoot);
     await options.startDesktop('start checksum-mismatch updater pass');
     await waitForHealthyDesktop();
-    await openUpdaterAndWaitAvailable('checksum-mismatch updater check', badFixture.info.version);
-    await clickUpdaterPrimaryButton('checksum-mismatch updater download');
+    await checkUpdaterAvailable('checksum-mismatch updater check', badFixture.info.version);
+    await runUpdaterDownload('checksum-mismatch updater silent download');
     badChecksumStatus = await waitForUpdaterStatus(
       (inspect) => inspect.update?.state === 'error',
       'checksum-mismatch updater error',
@@ -783,14 +792,13 @@ async function runRealUpdateInstallerAcceptance(options: {
   );
   await options.startDesktop('start real public update installer');
   await waitForHealthyDesktop();
-  await clickUpdaterRailButton('real public update check');
-  const available = await waitForUpdaterStatus(
-    (inspect) => inspect.update?.state === 'available' || inspect.update?.state === 'downloaded',
-    'real public update available',
-    120_000,
-  );
+  const available = await runToolsPackJson<WinInspectResult>('inspect', ['--update-action', 'check']);
+  expect(
+    available.update?.state === 'available' || available.update?.state === 'downloaded',
+    `real public update available: ${formatUnknown(available)}`,
+  ).toBe(true);
   if (available.update?.state !== 'downloaded') {
-    await clickUpdaterPrimaryButton('real public update download');
+    await runUpdaterDownload('real public update silent download');
   }
   const downloaded = await waitForUpdaterStatus(
     (inspect) => inspect.update?.state === 'downloaded',
@@ -829,9 +837,9 @@ async function runInterruptedResumePass(
     startDesktop: (step: string) => Promise<WinStartResult>;
   },
 ): Promise<{ partialBytes: number; range: string | null }> {
-  await openUpdaterAndWaitAvailable(`${label} check`, options.fixture.info.version);
+  await checkUpdaterAvailable(`${label} check`, options.fixture.info.version);
   const requestsBefore = artifactRequests(options.fixture).length;
-  await clickUpdaterPrimaryButton(`${label} start download`);
+  await startUpdaterDownload(`${label} start silent download`);
   const downloading = await waitForUpdaterStatus(
     (inspect) => inspect.update?.state === 'downloading',
     `${label} downloading`,
@@ -850,8 +858,8 @@ async function runInterruptedResumePass(
 
   await options.startDesktop(`${label} restart`);
   await waitForHealthyDesktop();
-  await openUpdaterAndWaitAvailable(`${label} retry check`, options.fixture.info.version);
-  await clickUpdaterPrimaryButton(`${label} retry download`);
+  await checkUpdaterAvailable(`${label} retry check`, options.fixture.info.version);
+  await runUpdaterDownload(`${label} retry silent download`);
   await waitForUpdaterStatus(
     (inspect) => inspect.update?.state === 'downloaded',
     `${label} downloaded after resume`,
@@ -865,26 +873,42 @@ async function runInterruptedResumePass(
 }
 
 async function runUiCheckAndDownloadToReady(label: string, version: string): Promise<WinInspectResult> {
-  await openUpdaterAndWaitAvailable(`${label} check`, version);
-  await clickUpdaterPrimaryButton(`${label} download`);
+  await checkUpdaterAvailable(`${label} check`, version);
+  await runUpdaterDownload(`${label} silent download`);
   const status = await waitForUpdaterStatus(
     (inspect) => inspect.update?.state === 'downloaded',
     `${label} downloaded`,
   );
-  await waitForUpdaterPopup();
   return status;
 }
 
-async function openUpdaterAndWaitAvailable(label: string, version: string): Promise<UpdaterPopupEvalValue> {
-  await clickUpdaterRailButton(label);
-  const status = await waitForUpdaterStatus(
-    (inspect) => inspect.update?.state === 'available',
-    `${label} available`,
-  );
+async function checkUpdaterAvailable(label: string, version: string): Promise<WinInspectResult> {
+  const status = await runToolsPackJson<WinInspectResult>('inspect', ['--update-action', 'check']);
+  expect(status.update?.state, `${label}: expected updater check to find an available update`).toBe('available');
   expect(status.update?.availableVersion).toBe(version);
+  return status;
+}
+
+async function runUpdaterDownload(label: string): Promise<WinInspectResult> {
+  const status = await runToolsPackJson<WinInspectResult>('inspect', ['--update-action', 'download']);
+  expect(
+    status.update?.state === 'downloaded' || status.update?.state === 'error',
+    `${label}: expected updater download to settle`,
+  ).toBe(true);
+  return status;
+}
+
+async function startUpdaterDownload(label: string): Promise<void> {
+  const started = await runToolsPackJson<WinInspectResult>('inspect', ['--expr', startUpdaterDownloadExpression]);
+  const value = assertUpdaterStartEvalValue(started.eval?.value);
+  expect(value.started, `${label}: ${value.reason ?? 'updater download was not started'}`).toBe(true);
+}
+
+async function openReadyUpdaterPrompt(version: string): Promise<UpdaterPopupEvalValue> {
+  await clickUpdaterRailButton('open ready updater prompt');
   return await waitForUpdaterPopupMatching(
-    (popup) => popup.visible && !popup.installButtonVisible && (popup.text ?? '').includes(version),
-    `${label} popup available`,
+    (popup) => popup.visible && popup.installButtonVisible && (popup.text ?? '').includes(version),
+    'ready updater prompt',
   );
 }
 
@@ -892,12 +916,6 @@ async function clickUpdaterRailButton(label: string): Promise<void> {
   const click = await runToolsPackJson<WinInspectResult>('inspect', ['--expr', clickUpdaterRailExpression]);
   const value = assertUpdaterClickEvalValue(click.eval?.value);
   expect(value.clicked, `${label}: ${value.reason ?? 'updater rail not clicked'}`).toBe(true);
-}
-
-async function clickUpdaterPrimaryButton(label: string): Promise<void> {
-  const click = await runToolsPackJson<WinInspectResult>('inspect', ['--expr', clickUpdaterPrimaryExpression]);
-  const value = assertUpdaterClickEvalValue(click.eval?.value);
-  expect(value.clicked, `${label}: ${value.reason ?? 'updater primary not clicked'}`).toBe(true);
 }
 
 async function waitForUpdaterStatus(
@@ -1486,28 +1504,6 @@ async function waitForHealthyDesktop(): Promise<WinInspectResult> {
   throw new Error(`packaged windows runtime did not become healthy: ${formatUnknown(lastResult)}`);
 }
 
-async function waitForUpdaterPopup(): Promise<UpdaterPopupEvalValue> {
-  const timeoutMs = 90_000;
-  const startedAt = Date.now();
-  let lastResult: unknown = null;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const inspect = await runToolsPackJson<WinInspectResult>('inspect', ['--expr', updaterPopupExpression]);
-      lastResult = inspect;
-      if (inspect.status?.state === 'running' && inspect.eval?.ok === true) {
-        const value = asUpdaterPopupEvalValue(inspect.eval.value);
-        if (value?.visible === true && value.installButtonVisible === true) return value;
-      }
-    } catch (error) {
-      lastResult = error;
-    }
-    await delay(1000);
-  }
-
-  throw new Error(`packaged windows updater popup did not appear: ${formatUnknown(lastResult)}`);
-}
-
 async function waitForUpdaterInstallerOpened(): Promise<WinInspectResult> {
   const timeoutMs = 60_000;
   const startedAt = Date.now();
@@ -1584,6 +1580,14 @@ function assertUpdaterClickEvalValue(value: unknown): UpdaterClickEvalValue {
   return normalized;
 }
 
+function assertUpdaterStartEvalValue(value: unknown): UpdaterStartEvalValue {
+  const normalized = asUpdaterStartEvalValue(value);
+  if (normalized == null) {
+    throw new Error(`unexpected updater start eval value: ${formatUnknown(value)}`);
+  }
+  return normalized;
+}
+
 function asHealthEvalValue(value: unknown): HealthEvalValue | null {
   if (!isRecord(value)) return null;
   if (typeof value.href !== 'string' || typeof value.status !== 'number' || typeof value.title !== 'string') return null;
@@ -1605,6 +1609,13 @@ function asUpdaterClickEvalValue(value: unknown): UpdaterClickEvalValue | null {
   if (typeof value.clicked !== 'boolean') return null;
   if (value.reason != null && typeof value.reason !== 'string') return null;
   return value as UpdaterClickEvalValue;
+}
+
+function asUpdaterStartEvalValue(value: unknown): UpdaterStartEvalValue | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.started !== 'boolean') return null;
+  if (value.reason != null && typeof value.reason !== 'string') return null;
+  return value as UpdaterStartEvalValue;
 }
 
 function expectPathInside(filePath: string, expectedRoot: string): void {

@@ -1732,7 +1732,10 @@ export function createDesktopUpdater(
   async function installUpdate(): Promise<DesktopUpdateStatusSnapshot> {
     const unsupported = unsupportedStatus();
     if (unsupported != null) return unsupported;
-    if (installFrozen && installResult != null) return snapshot();
+    if (installResult != null) {
+      installFrozen = true;
+      return snapshot();
+    }
     if (activeRelease == null) {
       const restored = await restoreStoreState();
       if (restored == null || activeRelease == null) {
