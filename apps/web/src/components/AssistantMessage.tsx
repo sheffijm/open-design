@@ -231,6 +231,9 @@ export function AssistantMessage({
                 nextUserContent={nextUserContent}
                 locallySubmitted={locallySubmitted}
                 suppressDirectionForms={suppressDirectionForms}
+                projectId={projectId}
+                projectFiles={projectFiles}
+                onRequestOpenFile={onRequestOpenFile}
                 onSubmitForm={(formId, text) => {
                   setLocallySubmitted((prev) => {
                     const next = new Set(prev);
@@ -1214,6 +1217,9 @@ function ProseBlock({
   nextUserContent,
   locallySubmitted,
   suppressDirectionForms,
+  projectId,
+  projectFiles,
+  onRequestOpenFile,
   onSubmitForm,
 }: {
   text: string;
@@ -1222,10 +1228,17 @@ function ProseBlock({
   nextUserContent?: string;
   locallySubmitted: Set<string>;
   suppressDirectionForms: boolean;
+  projectId: string | null;
+  projectFiles: ProjectFile[];
+  onRequestOpenFile?: (name: string) => void;
   onSubmitForm: (formId: string, text: string) => void;
 }) {
   const cleaned = useMemo(() => stripArtifact(text), [text]);
   const segments = useMemo(() => splitOnQuestionForms(cleaned), [cleaned]);
+  const resolveProjectFileLink = useCallback(
+    (href: string) => resolveAssistantProjectFileLink(href, projectId, projectFiles),
+    [projectFiles, projectId],
+  );
   // Each text segment is further split on `<system-reminder>` blocks so
   // those render as their own collapsible chip instead of raw markup.
   const renderable = segments.flatMap(
@@ -1261,7 +1274,14 @@ function ProseBlock({
           return <SystemReminderBlock key={seg.key} text={seg.text} />;
         }
         if (seg.kind === "text") {
-          return <Fragment key={seg.key}>{renderMarkdown(seg.text)}</Fragment>;
+          return (
+            <Fragment key={seg.key}>
+              {renderMarkdown(seg.text, {
+                resolveProjectFileLink,
+                onOpenProjectFile: onRequestOpenFile,
+              })}
+            </Fragment>
+          );
         }
         if (seg.kind === "suppressed-direction") {
           return (
@@ -1286,6 +1306,76 @@ function ProseBlock({
       })}
     </div>
   );
+}
+
+function resolveAssistantProjectFileLink(
+  href: string,
+  projectId: string | null,
+  projectFiles: ProjectFile[],
+): string | null {
+  if (!href || projectFiles.length === 0) return null;
+  const normalizedHref = normalizeAssistantLinkHref(href);
+  const apiMatch = projectId ? matchProjectApiFileHref(normalizedHref, projectId) : null;
+  if (apiMatch) return apiMatch;
+  const localPath = stripEditorLineSuffix(normalizedHref);
+  if (!localPath.startsWith('/')) return null;
+  const normalizedPath = normalizeSlashPath(localPath);
+  for (const file of projectFiles) {
+    const candidates = [file.name, typeof file.path === 'string' ? file.path : '']
+      .filter(Boolean)
+      .map((entry) => normalizeSlashPath(`/${stripLeadingSlash(String(entry))}`));
+    if (candidates.some((candidate) => normalizedPath === candidate || normalizedPath.endsWith(candidate))) {
+      return file.name;
+    }
+  }
+  return null;
+}
+
+function matchProjectApiFileHref(href: string, projectId: string): string | null {
+  const rawPrefix = `/api/projects/${encodeURIComponent(projectId)}/raw/`;
+  const previewPrefix = `/api/projects/${encodeURIComponent(projectId)}/files/`;
+  if (href.startsWith(rawPrefix)) {
+    return decodeProjectFileHrefSegment(href.slice(rawPrefix.length));
+  }
+  if (href.startsWith(previewPrefix) && href.endsWith('/preview')) {
+    return decodeProjectFileHrefSegment(href.slice(previewPrefix.length, -'/preview'.length));
+  }
+  return null;
+}
+
+function decodeProjectFileHrefSegment(value: string): string | null {
+  const clean = value.split(/[?#]/, 1)[0] ?? '';
+  if (!clean) return null;
+  try {
+    return decodeURIComponent(clean);
+  } catch {
+    return clean;
+  }
+}
+
+function normalizeAssistantLinkHref(href: string): string {
+  const clean = href.trim();
+  try {
+    const parsed = new URL(clean, window.location.origin);
+    if (parsed.origin === window.location.origin) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    // Keep the raw href when it is not URL-parseable.
+  }
+  return clean;
+}
+
+function stripEditorLineSuffix(value: string): string {
+  return value.replace(/:(\d+)$/, '');
+}
+
+function stripLeadingSlash(value: string): string {
+  return value.replace(/^\/+/, '');
+}
+
+function normalizeSlashPath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 
 function isDirectionForm(form: QuestionForm): boolean {

@@ -11,13 +11,18 @@
  * Output is a React fragment of typed elements — no dangerouslySetInnerHTML,
  * so untrusted text can't smuggle markup through.
  */
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, type MouseEvent, type ReactNode } from 'react';
 
-export function renderMarkdown(input: string): ReactNode {
+export interface MarkdownRenderOptions {
+  resolveProjectFileLink?: (href: string) => string | null;
+  onOpenProjectFile?: (name: string) => void;
+}
+
+export function renderMarkdown(input: string, options: MarkdownRenderOptions = {}): ReactNode {
   const blocks = parseBlocks(input);
   return (
     <>
-      {blocks.map((b, i) => renderBlock(b, i))}
+      {blocks.map((b, i) => renderBlock(b, i, options))}
     </>
   );
 }
@@ -194,19 +199,19 @@ function parseBlocks(input: string): Block[] {
   return out;
 }
 
-function renderBlock(block: Block, key: number): ReactNode {
+function renderBlock(block: Block, key: number, options: MarkdownRenderOptions): ReactNode {
   if (block.kind === 'p') {
-    return <p key={key} className="md-p">{renderInline(block.text)}</p>;
+    return <p key={key} className="md-p">{renderInline(block.text, options)}</p>;
   }
   if (block.kind === 'h') {
     const Tag = (`h${block.level}` as 'h1' | 'h2' | 'h3' | 'h4');
-    return <Tag key={key} className={`md-h md-h${block.level}`}>{renderInline(block.text)}</Tag>;
+    return <Tag key={key} className={`md-h md-h${block.level}`}>{renderInline(block.text, options)}</Tag>;
   }
   if (block.kind === 'ul') {
     return (
       <ul key={key} className="md-ul">
         {block.items.map((item, i) => (
-          <li key={i}>{renderInline(item)}</li>
+          <li key={i}>{renderInline(item, options)}</li>
         ))}
       </ul>
     );
@@ -215,7 +220,7 @@ function renderBlock(block: Block, key: number): ReactNode {
     return (
       <ol key={key} className="md-ol">
         {block.items.map((item, i) => (
-          <li key={i}>{renderInline(item)}</li>
+          <li key={i}>{renderInline(item, options)}</li>
         ))}
       </ol>
     );
@@ -239,7 +244,7 @@ function renderBlock(block: Block, key: number): ReactNode {
           <thead>
             <tr>
               {headers.map((cell, idx) => (
-                <th key={idx} style={cellStyle(idx)}>{renderInline(cell)}</th>
+                <th key={idx} style={cellStyle(idx)}>{renderInline(cell, options)}</th>
               ))}
             </tr>
           </thead>
@@ -247,7 +252,7 @@ function renderBlock(block: Block, key: number): ReactNode {
             {rows.map((row, rIdx) => (
               <tr key={rIdx}>
                 {headers.map((_, cIdx) => (
-                  <td key={cIdx} style={cellStyle(cIdx)}>{renderInline(row[cIdx] ?? '')}</td>
+                  <td key={cIdx} style={cellStyle(cIdx)}>{renderInline(row[cIdx] ?? '', options)}</td>
                 ))}
               </tr>
             ))}
@@ -284,7 +289,7 @@ function isSafeMarkdownImageSrc(src: string): boolean {
 // and plain text. We walk the string with a regex that matches whichever
 // delimiter shows up next; everything between delimiters becomes a text
 // span (which itself still gets autolink scanning).
-function renderInline(text: string): ReactNode {
+function renderInline(text: string, options: MarkdownRenderOptions): ReactNode {
   const out: ReactNode[] = [];
   // Order matters:
   //  1. inline code first so its contents are not re-tokenized as bold/italic.
@@ -306,7 +311,7 @@ function renderInline(text: string): ReactNode {
   let key = 0;
   while ((m = re.exec(text))) {
     if (m.index > lastIndex) {
-      pushText(out, text.slice(lastIndex, m.index), key++);
+      pushText(out, text.slice(lastIndex, m.index), key++, options);
     }
     if (m[1]) {
       out.push(
@@ -333,34 +338,16 @@ function renderInline(text: string): ReactNode {
       } else {
         // Unsafe scheme — drop the image tag but keep the alt text so
         // the user sees what the model meant to show.
-        pushText(out, alt, key++);
+        pushText(out, alt, key++, options);
       }
     } else if (m[4] && m[5]) {
-      out.push(
-        <a
-          key={key++}
-          className="md-link"
-          href={m[5]}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {m[4]}
-        </a>,
-      );
+      out.push(renderLinkNode(m[5], m[4], key++, options));
     } else if (m[6]) {
       // Bare URL — autolink with the URL as both href and visible text,
       // matching the Markdown `<https://…>` autolink convention.
-      out.push(
-        <a
-          key={key++}
-          className="md-link md-link-bare"
-          href={m[6]}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {m[6]}
-        </a>,
-      );
+      const [href, suffix] = splitTrailingAutolinkPunctuation(m[6]);
+      out.push(renderLinkNode(href, href, key++, options, 'md-link md-link-bare'));
+      if (suffix) pushText(out, suffix, key++, options);
     } else if (m[7]) {
       out.push(<strong key={key++}>{m[7].slice(2, -2)}</strong>);
     } else if (m[8]) {
@@ -373,7 +360,7 @@ function renderInline(text: string): ReactNode {
     lastIndex = re.lastIndex;
   }
   if (lastIndex < text.length) {
-    pushText(out, text.slice(lastIndex), key++);
+    pushText(out, text.slice(lastIndex), key++, options);
   }
   return <Fragment>{out}</Fragment>;
 }
@@ -382,7 +369,7 @@ function renderInline(text: string): ReactNode {
 // text nodes. Newlines inside a paragraph become explicit <br />s — the
 // upstream parser has already left them in place because chat output
 // often relies on hard line breaks rather than blank-line separation.
-function pushText(out: ReactNode[], text: string, baseKey: number): void {
+function pushText(out: ReactNode[], text: string, baseKey: number, options: MarkdownRenderOptions): void {
   if (!text) return;
   const urlRe = /(https?:\/\/[^\s)]+)/g;
   const segments: ReactNode[] = [];
@@ -393,23 +380,53 @@ function pushText(out: ReactNode[], text: string, baseKey: number): void {
     if (m.index > lastIndex) {
       segments.push(...withBreaks(text.slice(lastIndex, m.index), `${baseKey}-${k++}`));
     }
-    segments.push(
-      <a
-        key={`${baseKey}-${k++}`}
-        className="md-link"
-        href={m[1]}
-        target="_blank"
-        rel="noreferrer noopener"
-      >
-        {m[1]}
-      </a>,
-    );
+    const [url, suffix] = splitTrailingAutolinkPunctuation(m[1]!);
+    segments.push(renderLinkNode(url, url, `${baseKey}-${k++}`, options));
+    if (suffix) {
+      segments.push(...withBreaks(suffix, `${baseKey}-${k++}`));
+    }
     lastIndex = urlRe.lastIndex;
   }
   if (lastIndex < text.length) {
     segments.push(...withBreaks(text.slice(lastIndex), `${baseKey}-${k++}`));
   }
   out.push(<Fragment key={baseKey}>{segments}</Fragment>);
+}
+
+function renderLinkNode(
+  href: string,
+  label: string,
+  key: string | number,
+  options: MarkdownRenderOptions,
+  className = 'md-link',
+): ReactNode {
+  const projectFileName = options.resolveProjectFileLink?.(href) ?? null;
+  const handleClick =
+    projectFileName && options.onOpenProjectFile
+      ? (event: MouseEvent<HTMLAnchorElement>) => {
+          event.preventDefault();
+          options.onOpenProjectFile?.(projectFileName);
+        }
+      : undefined;
+  return (
+    <a
+      key={key}
+      className={className}
+      href={href}
+      target={projectFileName ? undefined : '_blank'}
+      rel={projectFileName ? undefined : 'noreferrer noopener'}
+      onClick={handleClick}
+    >
+      {label}
+    </a>
+  );
+}
+
+function splitTrailingAutolinkPunctuation(url: string): [string, string] {
+  const match = /([.,!?;:，。！？；：、'"」』】》〉）]+)$/.exec(url);
+  if (!match || !match[1]) return [url, ''];
+  const trimmed = url.slice(0, -match[1].length);
+  return trimmed ? [trimmed, match[1]] : [url, ''];
 }
 
 function withBreaks(text: string, baseKey: string): ReactNode[] {
