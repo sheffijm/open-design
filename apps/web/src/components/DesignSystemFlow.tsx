@@ -61,6 +61,7 @@ import { Icon, type IconName } from './Icon';
 import { useAnalytics } from '../analytics/provider';
 import {
   trackDesignSystemCreateResult,
+  trackDesignSystemProjectClick,
   trackDesignSystemReviewResult,
   trackDesignSystemSourceIngestResult,
   trackDesignSystemStatusResult,
@@ -1147,6 +1148,16 @@ export function DesignSystemDetailView({
   }
 
   async function togglePublished(next: boolean) {
+    if (system?.id) {
+      trackDesignSystemProjectClick(analytics.track, {
+        page_name: 'design_system_project',
+        area: 'design_system_status',
+        element: 'publish_toggle',
+        action: 'toggle_publish',
+        design_system_id: system.id,
+        project_id: workspaceProjectId ?? undefined,
+      });
+    }
     const startedAt = performance.now();
     const action: TrackingDesignSystemStatusAction = next ? 'publish' : 'unpublish';
     const statusBefore = mapDsStatusToTracking(system?.status);
@@ -1194,6 +1205,18 @@ export function DesignSystemDetailView({
   ) {
     if (!system) return;
     const slug = designSystemModuleSlug(section.title);
+    // ui_click row in addition to the lifecycle event — gives the
+    // dashboard a click-itself record so the click→result rate is
+    // auditable separately from the result.
+    trackDesignSystemProjectClick(analytics.track, {
+      page_name: 'design_system_project',
+      area: 'design_system_preview',
+      element: reviewAction,
+      action: reviewAction === 'looks_good' ? 'review_good' : 'review_needs_work',
+      design_system_id: system.id,
+      project_id: workspaceProjectId ?? undefined,
+      module_id: slug,
+    });
     trackDesignSystemReviewResult(analytics.track, {
       page_name: 'design_system_project',
       area: 'design_system_preview',
@@ -1706,6 +1729,14 @@ export function DesignSystemDetailView({
                   type="button"
                   className="ghost compact"
                   onClick={() => {
+                    trackDesignSystemProjectClick(analytics.track, {
+                      page_name: 'design_system_project',
+                      area: 'design_system_status',
+                      element: 'make_default',
+                      action: 'set_default',
+                      design_system_id: system.id,
+                      project_id: workspaceProjectId ?? undefined,
+                    });
                     const statusBefore = mapDsStatusToTracking(system.status);
                     onSetDefault(system.id);
                     trackDesignSystemStatusResult(analytics.track, {

@@ -83,4 +83,10 @@ export interface AnalyticsConfigResponse {
   key: string | null;
   host: string | null;
   installationId?: string | null;
+  // The daemon's app version, echoed so the web client can register
+  // it as a PostHog super-property at init time. Otherwise the web
+  // bundle has to fetch `/api/version` separately and races first
+  // captures (page_view / first ui_click) to ship them with the
+  // placeholder `'0.0.0'` until the fetch resolves.
+  appVersion?: string;
 }

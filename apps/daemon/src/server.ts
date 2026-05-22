@@ -4462,9 +4462,17 @@ export async function startServer({
   //   pipeline becomes a no-op.
   app.get('/api/analytics/config', async (_req, res) => {
     const baseline = readPublicConfigResponse();
+    // `app_version` rides on this response so the web bundle can register
+    // it as a PostHog super-property at client-init time (before any
+    // capture fires). Earlier, the web client fetched `/api/version`
+    // separately via `useAppVersion`, which raced page_view + first
+    // ui_click on a fresh page load and shipped them with the
+    // placeholder `'0.0.0'`. Bundling the version here removes the race
+    // entirely.
+    const appVersion = design.getAppVersion();
     if (!baseline.enabled) {
       // No build-time key → nothing to report on, consent or not.
-      res.json(baseline);
+      res.json({ ...baseline, appVersion });
       return;
     }
     try {
@@ -4481,6 +4489,7 @@ export async function startServer({
         key: baseline.key,
         host: baseline.host,
         installationId,
+        appVersion,
       });
     } catch {
       // If the config file is unreadable, fail closed for analytics but
@@ -4491,6 +4500,7 @@ export async function startServer({
         key: baseline.key,
         host: baseline.host,
         installationId: null,
+        appVersion,
       });
     }
   });

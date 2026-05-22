@@ -122,7 +122,10 @@ export function bootstrapExceptionTracking(context: AnalyticsContext): Promise<v
         apiKey: cfg.key,
         host: cfg.host,
         distinctId,
-        appVersion: context.appVersion,
+        // Same daemon-served preference as the main analytics client
+        // init — error reports bound at module load otherwise carry
+        // the placeholder `'0.0.0'` until useAppVersion catches up.
+        appVersion: cfg.appVersion || context.appVersion,
         sessionId: context.sessionId,
       });
     } catch {
@@ -221,10 +224,18 @@ export async function getAnalyticsClient(
         disable_session_recording: true,
 
         loaded: (instance) => {
+          // Prefer the daemon-served version (synchronous, arrives with
+          // this same /api/analytics/config response) over the
+          // useAppVersion fallback (`context.appVersion`) which is the
+          // placeholder `'0.0.0'` until its async /api/version fetch
+          // resolves. Either landing here is fine; both eventually
+          // re-register on the appVersion re-render. The daemon-served
+          // path eliminates the first-capture race.
+          const resolvedAppVersion = cfg.appVersion || context.appVersion;
           lastRegisterPayload = {
             event_schema_version: EVENT_SCHEMA_VERSION,
-            ui_version: context.appVersion,
-            app_version: context.appVersion,
+            ui_version: resolvedAppVersion,
+            app_version: resolvedAppVersion,
             client_type: context.clientType,
             locale: context.locale,
             session_id: context.sessionId,
@@ -243,7 +254,7 @@ export async function getAnalyticsClient(
             apiKey: cfgKey,
             host: cfgHost,
             distinctId,
-            appVersion: context.appVersion,
+            appVersion: resolvedAppVersion,
             sessionId: context.sessionId,
           });
         },

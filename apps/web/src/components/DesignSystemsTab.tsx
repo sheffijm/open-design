@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAnalytics } from '../analytics/provider';
 import {
+  trackDesignSystemsListRowClick,
   trackDesignSystemsTemplateCardClick,
   trackDesignSystemsTopClick,
   trackDesignSystemStatusResult,
@@ -246,6 +247,13 @@ export function DesignSystemsTab({
   }
 
   async function togglePublished(system: DesignSystemSummary) {
+    trackDesignSystemsListRowClick(analytics.track, {
+      page_name: 'design_systems',
+      area: 'design_system_list',
+      element: 'publish_toggle',
+      action: 'toggle_publish',
+      design_system_id: system.id,
+    });
     setBusyId(system.id);
     const startedAt = performance.now();
     const willPublish = system.status !== 'published';
@@ -291,6 +299,13 @@ export function DesignSystemsTab({
   }
 
   async function deleteSystem(system: DesignSystemSummary) {
+    trackDesignSystemsListRowClick(analytics.track, {
+      page_name: 'design_systems',
+      area: 'design_system_list',
+      element: 'delete',
+      action: 'delete',
+      design_system_id: system.id,
+    });
     const ok = window.confirm(`Delete "${system.title}"? This removes the draft design system from this device.`);
     if (!ok) {
       trackDesignSystemStatusResult(analytics.track, {
@@ -351,6 +366,13 @@ export function DesignSystemsTab({
   }
 
   function handleMakeDefaultClick(system: DesignSystemSummary): void {
+    trackDesignSystemsListRowClick(analytics.track, {
+      page_name: 'design_systems',
+      area: 'design_system_list',
+      element: 'make_default',
+      action: 'set_default',
+      design_system_id: system.id,
+    });
     const wasDefault = system.id === selectedId;
     const statusBefore = mapStatusToTracking(system.status);
     onSelect(system.id);
@@ -388,7 +410,19 @@ export function DesignSystemsTab({
         </div>
 
         {onCreate ? (
-          <button type="button" className="ds-create-row" onClick={onCreate}>
+          <button
+            type="button"
+            className="ds-create-row"
+            onClick={() => {
+              trackDesignSystemsListRowClick(analytics.track, {
+                page_name: 'design_systems',
+                area: 'design_system_list',
+                element: 'create_new',
+                action: 'create',
+              });
+              onCreate();
+            }}
+          >
             <span>
               <strong>Create new design system</strong>
               <small>Teach Open Design your brand, product, code, assets, and design references.</small>
@@ -428,7 +462,16 @@ export function DesignSystemsTab({
                       <button
                         type="button"
                         className="ghost compact"
-                        onClick={() => onOpenSystem(system.id)}
+                        onClick={() => {
+                          trackDesignSystemsListRowClick(analytics.track, {
+                            page_name: 'design_systems',
+                            area: 'design_system_list',
+                            element: 'edit',
+                            action: 'edit',
+                            design_system_id: system.id,
+                          });
+                          onOpenSystem(system.id);
+                        }}
                         disabled={busy}
                       >
                         Edit
@@ -459,7 +502,16 @@ export function DesignSystemsTab({
                         type="button"
                         className="icon-btn"
                         aria-label={`Open ${system.title}`}
-                        onClick={() => onOpenSystem(system.id)}
+                        onClick={() => {
+                          trackDesignSystemsListRowClick(analytics.track, {
+                            page_name: 'design_systems',
+                            area: 'design_system_list',
+                            element: 'open_external',
+                            action: 'open',
+                            design_system_id: system.id,
+                          });
+                          onOpenSystem(system.id);
+                        }}
                       >
                         <Icon name="external-link" />
                       </button>

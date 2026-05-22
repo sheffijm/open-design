@@ -16,6 +16,8 @@ import {
 } from '../i18n/content';
 import { fetchDesignSystemPreview } from '../providers/registry';
 import { Icon } from './Icon';
+import { useAnalytics } from '../analytics/provider';
+import { trackStudioDesignSystemPickerClick } from '../analytics/events';
 
 interface PopoverAnchor {
   top: number;
@@ -28,6 +30,10 @@ interface Props {
   selectedId: string | null;
   loading?: boolean;
   onChange: (id: string | null) => void;
+  // Required so the studio-page ui_click rows can stitch back to the
+  // project they came from. The picker lives inside the project chrome
+  // and always has a project id at render time.
+  projectId?: string;
 }
 
 export function ProjectDesignSystemPicker({
@@ -35,7 +41,9 @@ export function ProjectDesignSystemPicker({
   selectedId,
   loading,
   onChange,
+  projectId,
 }: Props) {
+  const analytics = useAnalytics();
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -164,7 +172,19 @@ export function ProjectDesignSystemPicker({
         type="button"
         className={`project-ds-picker-trigger${selected ? ' picked' : ''}`}
         data-testid="project-ds-picker-trigger"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) {
+            trackStudioDesignSystemPickerClick(analytics.track, {
+              page_name: 'studio',
+              area: 'design_system_picker',
+              element: 'picker_trigger',
+              action: 'open_picker',
+              project_id: projectId,
+              design_system_id: selectedId ?? undefined,
+            });
+          }
+          setOpen((v) => !v);
+        }}
         disabled={loading}
         title={selected?.title ?? t('designSystemPicker.select')}
       >
@@ -217,6 +237,13 @@ export function ProjectDesignSystemPicker({
                     onMouseEnter={() => setHovered(null)}
                     onFocus={() => setHovered(null)}
                     onClick={() => {
+                      trackStudioDesignSystemPickerClick(analytics.track, {
+                        page_name: 'studio',
+                        area: 'design_system_picker',
+                        element: 'clear_selection',
+                        action: 'clear_selection',
+                        project_id: projectId,
+                      });
                       onChange(null);
                       setOpen(false);
                     }}
@@ -250,6 +277,14 @@ export function ProjectDesignSystemPicker({
                         onMouseEnter={() => setHovered(d)}
                         onFocus={() => setHovered(d)}
                         onClick={() => {
+                          trackStudioDesignSystemPickerClick(analytics.track, {
+                            page_name: 'studio',
+                            area: 'design_system_picker',
+                            element: 'design_system_option',
+                            action: 'select_design_system',
+                            project_id: projectId,
+                            design_system_id: d.id,
+                          });
                           onChange(d.id);
                           setOpen(false);
                         }}

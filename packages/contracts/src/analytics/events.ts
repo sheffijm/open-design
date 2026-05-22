@@ -1118,6 +1118,72 @@ export interface DesignSystemsTemplatesModalSharePopoverClickProps {
   templates_type?: string;
 }
 
+// User-saved DS rows on the design-systems tab (Edit / Make default /
+// Publish toggle / Delete / Open). Mirrors the lifecycle that
+// `design_system_status_result` reports — this shape covers the click
+// surface separately so the funnel can split clicks-without-outcome
+// (e.g. user cancels the delete confirm) from successful outcomes.
+export interface DesignSystemsListRowClickProps {
+  page_name: 'design_systems';
+  area: 'design_system_list';
+  element:
+    | 'edit'
+    | 'open_external'
+    | 'make_default'
+    | 'publish_toggle'
+    | 'delete'
+    | 'create_new';
+  action:
+    | 'edit'
+    | 'open'
+    | 'set_default'
+    | 'toggle_publish'
+    | 'delete'
+    | 'create';
+  design_system_id?: string;
+}
+
+// DS detail / project surface clicks. `Looks good` / `Needs work`
+// inside the review tab, `Publish` toggle in the publish card,
+// `Make default` in the same card. These also drive the
+// `design_system_review_result` / `design_system_status_result`
+// events; the ui_click is the click-itself record so dashboards can
+// audit click → result rates.
+export interface DesignSystemProjectClickProps {
+  page_name: 'design_system_project';
+  area: 'design_system_preview' | 'design_system_status';
+  element:
+    | 'looks_good'
+    | 'needs_work'
+    | 'publish_toggle'
+    | 'make_default'
+    | 'save_design_md';
+  action:
+    | 'review_good'
+    | 'review_needs_work'
+    | 'toggle_publish'
+    | 'set_default'
+    | 'save';
+  design_system_id?: string;
+  project_id?: string;
+  module_id?: string;
+}
+
+// Studio (in-project) clicks on the DS picker chip in the project
+// header. Open/close + select. `entry_from` is implicit
+// (project_settings) since this picker lives in the project chrome.
+export interface StudioDesignSystemPickerClickProps {
+  page_name: 'studio';
+  area: 'design_system_picker';
+  element:
+    | 'picker_trigger'
+    | 'design_system_option'
+    | 'clear_selection';
+  action: 'open_picker' | 'select_design_system' | 'clear_selection';
+  project_id?: string;
+  design_system_id?: string;
+}
+
 // INTEGRATIONS
 export interface IntegrationsTabClickProps {
   page_name: 'integrations';
@@ -1486,6 +1552,9 @@ export type UiClickProps =
   | DesignSystemsTemplateCardClickProps
   | DesignSystemsTemplatesModalClickProps
   | DesignSystemsTemplatesModalSharePopoverClickProps
+  | DesignSystemsListRowClickProps
+  | DesignSystemProjectClickProps
+  | StudioDesignSystemPickerClickProps
   | IntegrationsTabClickProps
   | IntegrationsMcpTabClickProps
   | IntegrationsConnectorsTabClickProps

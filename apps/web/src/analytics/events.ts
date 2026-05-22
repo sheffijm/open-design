@@ -40,6 +40,9 @@ import type {
   DesignSystemsTemplateCardClickProps,
   DesignSystemsTemplatesModalClickProps,
   DesignSystemsTemplatesModalSharePopoverClickProps,
+  DesignSystemsListRowClickProps,
+  DesignSystemProjectClickProps,
+  StudioDesignSystemPickerClickProps,
   IntegrationsTabClickProps,
   IntegrationsMcpTabClickProps,
   IntegrationsConnectorsTabClickProps,
@@ -349,6 +352,27 @@ export function trackDesignSystemsTemplatesModalClick(
 export function trackDesignSystemsTemplatesModalSharePopoverClick(
   track: Track,
   props: DesignSystemsTemplatesModalSharePopoverClickProps,
+): void {
+  send(track, 'ui_click', props);
+}
+
+export function trackDesignSystemsListRowClick(
+  track: Track,
+  props: DesignSystemsListRowClickProps,
+): void {
+  send(track, 'ui_click', props);
+}
+
+export function trackDesignSystemProjectClick(
+  track: Track,
+  props: DesignSystemProjectClickProps,
+): void {
+  send(track, 'ui_click', props);
+}
+
+export function trackStudioDesignSystemPickerClick(
+  track: Track,
+  props: StudioDesignSystemPickerClickProps,
 ): void {
   send(track, 'ui_click', props);
 }

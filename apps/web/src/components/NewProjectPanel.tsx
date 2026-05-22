@@ -11,6 +11,7 @@ import {
   trackNewProjectModalElementClick,
   trackNewProjectModalSurfaceView,
   trackNewProjectModalTabClick,
+  trackPageView,
 } from '../analytics/events';
 import type { ConnectorDetail } from '@open-design/contracts';
 import type {
@@ -381,6 +382,28 @@ export function NewProjectPanel({
     if (dsSelectionTouched) return;
     setSelectedDsIds(initialDefaultDsSelection);
   }, [dsSelectionTouched, initialDefaultDsSelection]);
+
+  // `home` page_view (v2 spec: `page_name: 'home'` carries an
+  // `area=design_system_picker` view when the DS picker exposure
+  // surfaces inside the home New-project panel). Fires once per
+  // panel-open per tab so the funnel splits picker exposures from
+  // raw home page_views. Refires when the tab switches because the
+  // available_design_system_count and target_project_kind change
+  // with the tab.
+  const homePickerPageViewFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!showDesignSystemPicker) return;
+    const key = `${tab}:${designSystems.length}`;
+    if (homePickerPageViewFiredRef.current === key) return;
+    homePickerPageViewFiredRef.current = key;
+    trackPageView(analytics.track, {
+      page_name: 'home',
+      area: 'design_system_picker',
+      view_type: 'module',
+      entry_from: 'home_card',
+      available_design_system_count: designSystems.length,
+    });
+  }, [analytics.track, showDesignSystemPicker, tab, designSystems.length]);
 
   // Fires `design_system_apply_result` with `auto_select` when the
   // picker mounts/refreshes and pre-selects the user's default DS

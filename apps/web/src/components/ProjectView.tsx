@@ -483,6 +483,26 @@ export function ProjectView({
     if (chatPanelPageViewFiredRef.current === project.id) return;
     chatPanelPageViewFiredRef.current = project.id;
     trackPageView(analytics.track, { page_name: 'chat_panel' });
+    // `studio` page_view (v2 spec: `'studio' is the in-project
+    // workspace that hosts the chat composer and the design system
+    // picker. Reported when a DS picker / module renders inside a
+    // project.`). The `ProjectDesignSystemPicker` always renders in
+    // the project header for non-DS projects, so this fires once
+    // per project entry to record the picker exposure. DS-workspace
+    // projects (metadata.importedFrom === 'design-system') don't
+    // render the picker — the DS itself IS the project — so we skip
+    // the `studio` row for them. Origin / status / available count
+    // mirror what `NewProjectPanel` reports on the home auto_select
+    // event so the funnel join is consistent.
+    if (project.metadata?.importedFrom !== 'design-system') {
+      trackPageView(analytics.track, {
+        page_name: 'studio',
+        area: 'design_system_picker',
+        view_type: 'module',
+        entry_from: 'project_settings',
+        project_id: project.id,
+      });
+    }
     // Onboarding's 4th step ("生成进度页") fires here, not in
     // `DesignSystemDetailView`: the Generate path navigates
     // straight to the project's chat_panel, not to the design
@@ -504,7 +524,7 @@ export function ProjectView({
       });
       clearOnboardingSessionId();
     }
-  }, [analytics.track, project.id]);
+  }, [analytics.track, project.id, project.metadata?.importedFrom]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
     null,
@@ -3845,6 +3865,7 @@ export function ProjectView({
               designSystems={designSystems}
               selectedId={project.designSystemId ?? null}
               onChange={handleChangeDesignSystemId}
+              projectId={project.id}
             />
             {(project.customInstructions ?? '').trim() ? (
               <button
