@@ -135,17 +135,21 @@ pre-agent-steps:
       # the comment will note that landing-page changes were also present
       # and ask for manual review. Two-pass execution is a follow-on spec.
       if [ "$web_touched" = "true" ]; then
-        echo "surface=web" >> "$GITHUB_OUTPUT"
-        echo "base_url=http://127.0.0.1:17573" >> "$GITHUB_OUTPUT"
-        if [ "$lp_touched" = "true" ]; then
-          echo "mixed_pr=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "mixed_pr=false" >> "$GITHUB_OUTPUT"
-        fi
+        {
+          echo "surface=web"
+          echo "base_url=http://127.0.0.1:17573"
+          if [ "$lp_touched" = "true" ]; then
+            echo "mixed_pr=true"
+          else
+            echo "mixed_pr=false"
+          fi
+        } >> "$GITHUB_OUTPUT"
       elif [ "$lp_touched" = "true" ]; then
-        echo "surface=landing-page" >> "$GITHUB_OUTPUT"
-        echo "base_url=http://127.0.0.1:17574" >> "$GITHUB_OUTPUT"
-        echo "mixed_pr=false" >> "$GITHUB_OUTPUT"
+        {
+          echo "surface=landing-page"
+          echo "base_url=http://127.0.0.1:17574"
+          echo "mixed_pr=false"
+        } >> "$GITHUB_OUTPUT"
       else
         echo "surface=none" >> "$GITHUB_OUTPUT"
         echo "::error::PR matched workflow paths but no observable surface detected — refusing to run."
