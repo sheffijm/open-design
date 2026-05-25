@@ -4387,6 +4387,10 @@ export function ProjectView({
           onDesignSystemReviewDecision={persistDesignSystemReviewDecision}
           onConnectRepo={handleConnectRepo}
           githubConnected={githubConnected}
+          manualEditPortalId={manualEditInspectorPortalId}
+          onManualEditModeChange={setManualEditInspectorActive}
+          commentPortalId={commentInspectorPortalId}
+          onCommentModeChange={setCommentInspectorActive}
         />
       </div>
       {projectActionsToast ? (

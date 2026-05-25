@@ -1220,6 +1220,65 @@ a.avatar-item:visited {
   flex: 1 1 auto;
   min-width: 0;
 }
+.split-edit-divider {
+  width: 8px;
+  min-width: 8px;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.manual-edit-left-host,
+.comment-left-host {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.manual-edit-left-host > .manual-edit-right {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  gap: 0;
+}
+.manual-edit-left-host .manual-edit-modal {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.manual-edit-left-host .manual-edit-modal.cc-panel {
+  padding-top: 0;
+  padding-bottom: 32px;
+}
+.comment-left-host > .comment-side-panel {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 20;
+}
+.comment-left-host .comment-side-header {
+  min-height: 40px;
+}
+.comment-left-host .comment-side-list {
+  padding: 16px 12px;
+}
+.comment-side-composer {
+  flex: 0 0 auto;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
 .pane {
   display: flex;
   flex-direction: column;
