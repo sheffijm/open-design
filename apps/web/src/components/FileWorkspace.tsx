@@ -103,6 +103,10 @@ interface Props {
     details?: DesignSystemReviewDetails,
   ) => void;
   onUseDesignSystem?: (id: string, title: string) => void;
+  manualEditPortalId?: string;
+  onManualEditModeChange?: (active: boolean) => void;
+  commentPortalId?: string;
+  onCommentModeChange?: (active: boolean) => void;
 }
 
 interface SketchState {
@@ -215,6 +219,10 @@ export function FileWorkspace({
   designSystemReview,
   onDesignSystemReviewDecision,
   onUseDesignSystem,
+  manualEditPortalId,
+  onManualEditModeChange,
+  commentPortalId,
+  onCommentModeChange,
 }: Props) {
   const t = useT();
   const analytics = useAnalytics();
@@ -1056,6 +1064,10 @@ export function FileWorkspace({
             onRemovePreviewComment={onRemovePreviewComment}
             onSendBoardCommentAttachments={onSendBoardCommentAttachments}
             onFileSaved={onRefreshFiles}
+            manualEditPortalId={manualEditPortalId}
+            onManualEditModeChange={onManualEditModeChange}
+            commentPortalId={commentPortalId}
+            onCommentModeChange={onCommentModeChange}
           />
         ) : (
           <div className="viewer-empty">
