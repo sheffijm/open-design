@@ -65,7 +65,12 @@ const clickUpdaterInstallExpression = `
   })()
 `;
 const clickUpdaterRailExpression = `
-  (() => {
+  (async () => {
+    const updater = window.__od__?.updater;
+    if (updater != null && typeof updater.status === 'function') {
+      await updater.status({ payload: { source: 'packaged-e2e:refresh-updater-rail' } }).catch(() => null);
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    }
     const button = document.querySelector('[data-testid="entry-nav-updater"]');
     if (!(button instanceof HTMLButtonElement)) return { clicked: false, reason: 'missing-updater-rail' };
     if (button.getAttribute('aria-disabled') === 'true') return { clicked: false, reason: 'updater-rail-disabled' };
