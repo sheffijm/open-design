@@ -1,6 +1,8 @@
 name: blog-indexing-on-deploy
 
-# Runs after every successful `landing-page-deploy` on main. The job is
+# Runs after every successful `landing-page-production` promotion. Staging
+# deploys (`landing-page-staging`) intentionally do NOT trigger indexing, so
+# the test environment is never submitted to search engines. The job is
 # idempotent and follows the blog-indexing-automation skill:
 #
 #   1. Detect blog URLs added/modified in the deploy
@@ -16,7 +18,7 @@ name: blog-indexing-on-deploy
 
 on:
   workflow_run:
-    workflows: ['landing-page-deploy']
+    workflows: ['landing-page-production']
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -29,7 +31,10 @@ on:
         required: false
 
 permissions:
-  contents: read
+  # `contents: write` lets the job advance the `blog-indexed-prod` tag after a
+  # successful run so the next promotion diffs from exactly where this one
+  # stopped. The status PR uses a separate GitHub App token (below).
+  contents: write
 
 concurrency:
   group: blog-indexing-on-deploy
@@ -147,8 +152,21 @@ jobs:
           mkdir -p .blog-indexing
           BASE="${{ github.event.inputs.base_sha || '' }}"
           if [ -z "$BASE" ]; then
-            BASE="$(git rev-parse HEAD^)"
+            # Diff from the last production deploy we already indexed, tracked
+            # by the `blog-indexed-prod` tag. Production is a manual promotion
+            # that may bundle several merged posts, so a HEAD^ diff would miss
+            # all but the last commit. The tag is advanced at the end of a
+            # successful run (see "Advance indexed-production pointer").
+            git fetch --no-tags origin "+refs/tags/blog-indexed-prod:refs/tags/blog-indexed-prod" 2>/dev/null || true
+            BASE="$(git rev-parse --verify --quiet 'refs/tags/blog-indexed-prod^{commit}' || true)"
+            if [ -n "$BASE" ]; then
+              echo "Diffing from last indexed production commit (blog-indexed-prod): $BASE"
+            else
+              BASE="$(git rev-parse HEAD^)"
+              echo "No blog-indexed-prod tag yet; bootstrapping from HEAD^: $BASE"
+            fi
           fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
           pnpm --filter @open-design/landing-page exec tsx scripts/blog-indexing/detect-changed-urls.ts \
             --base "$BASE" \
             --head HEAD \
@@ -182,6 +200,19 @@ jobs:
           GSC_SERVICE_ACCOUNT_KEY: ${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}
         run: |
           pnpm --filter @open-design/landing-page exec tsx scripts/blog-indexing/submit-sitemap.ts
+
+      # Advance the pointer only after the detect + submission steps above
+      # succeeded, so a failed run retries the same range next time instead of
+      # silently skipping posts. Runs even when count == 0 (an empty range is
+      # still "indexed up to here"). Restricted to the real production-deploy
+      # trigger; an ad-hoc manual dispatch must not move the production pointer.
+      - name: Advance indexed-production pointer
+        if: success() && github.event_name == 'workflow_run'
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          git tag -f blog-indexed-prod "$HEAD_SHA"
+          git push -f origin "refs/tags/blog-indexed-prod"
+          echo "Advanced blog-indexed-prod -> $HEAD_SHA"
 
       - name: Inspect new URLs (baseline)
         if: steps.detect.outputs.count != '0' && steps.config.outputs.gsc == 'true'
