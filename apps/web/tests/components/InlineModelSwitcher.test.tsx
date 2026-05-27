@@ -49,19 +49,21 @@ function renderSwitcher(
   config: Partial<AppConfig> = {},
   agents: AgentInfo[] = [amrAgent],
 ) {
-  return render(
+  const onAgentModelChange = vi.fn();
+  const view = render(
     <InlineModelSwitcher
       config={{ ...baseConfig, ...config }}
       agents={agents}
       daemonLive={true}
       onModeChange={vi.fn()}
       onAgentChange={vi.fn()}
-      onAgentModelChange={vi.fn()}
+      onAgentModelChange={onAgentModelChange}
       onApiProtocolChange={vi.fn()}
       onApiModelChange={vi.fn()}
       onOpenSettings={vi.fn()}
     />,
   );
+  return { ...view, onAgentModelChange };
 }
 
 describe('InlineModelSwitcher AMR row', () => {
@@ -172,6 +174,42 @@ describe('InlineModelSwitcher AMR row', () => {
       'default',
       'amr-cloud-latest',
     ]);
+  });
+
+  it('persists the live AMR fallback when the saved AMR model is stale', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          loggedIn: true,
+          profile: 'default',
+          user: null,
+          configPath: '/Users/test/.vela/config.json',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    ));
+
+    const { onAgentModelChange } = renderSwitcher({
+      agentModels: { amr: { model: 'gpt-5.4-mini', reasoning: 'default' } },
+    });
+
+    fireEvent.click(screen.getByTestId('inline-model-switcher-chip'));
+
+    const popover = screen.getByTestId('inline-model-switcher-popover');
+    const modelSelect = within(popover).getByTestId(
+      'inline-model-switcher-agent-model',
+    ) as HTMLSelectElement;
+    expect(modelSelect.value).toBe('default');
+    expect(Array.from(modelSelect.options).map((option) => option.value)).toEqual([
+      'default',
+      'amr-cloud-latest',
+    ]);
+    await waitFor(() => {
+      expect(onAgentModelChange).toHaveBeenCalledWith('amr', {
+        model: 'default',
+        reasoning: 'default',
+      });
+    });
   });
 
   it('shows icon-only signed-in status instead of account information in the AMR button', async () => {

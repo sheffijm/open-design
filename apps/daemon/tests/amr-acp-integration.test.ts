@@ -212,6 +212,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
       });
 
       await waitForExit(child);
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(session.hasFatalError()).toBe(true);
     } finally {
       if (child.exitCode === null) child.kill('SIGTERM');
@@ -329,6 +330,98 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
       (errors[0]?.payload as { message?: unknown })?.message ?? '',
     );
     expect(message).toContain('forced session/prompt failure');
+  });
+
+  it('maps ACP model-not-found prompt errors to AMR_MODEL_UNAVAILABLE', async () => {
+    const child = spawnFakeVela({
+      FAKE_VELA_PROMPT_ERROR: 'Model not found: vela/gpt-5.4-mini.',
+    });
+    const errors: Array<{ event: string; payload: unknown }> = [];
+    try {
+      const session = attachAcpSession({
+        child: child as never,
+        prompt: 'Say hello',
+        cwd: process.cwd(),
+        model: 'gpt-5.4-mini',
+        mcpServers: [],
+        modelUnavailableErrorCode: 'AMR_MODEL_UNAVAILABLE',
+        send: (event, payload) => {
+          if (event === 'error') errors.push({ event, payload });
+        },
+      });
+
+      await waitForExit(child);
+      expect(session.hasFatalError()).toBe(true);
+      expect(session.completedSuccessfully()).toBe(false);
+    } finally {
+      if (child.exitCode === null) child.kill('SIGTERM');
+    }
+
+    const payload = errors[0]?.payload as {
+      message?: unknown;
+      error?: { code?: unknown };
+    };
+    expect(String(payload?.message ?? '')).toContain('Model not found');
+    expect(payload?.error?.code).toBe('AMR_MODEL_UNAVAILABLE');
+  });
+
+  it('allows non-AMR ACP completions that produce no assistant text', async () => {
+    const child = spawnFakeVela({ FAKE_VELA_TEXT: '' });
+    const errors: Array<{ event: string; payload: unknown }> = [];
+    try {
+      const session = attachAcpSession({
+        child: child as never,
+        prompt: 'Say hello',
+        cwd: process.cwd(),
+        model: 'glm-5',
+        mcpServers: [],
+        send: (event, payload) => {
+          if (event === 'error') errors.push({ event, payload });
+        },
+      });
+
+      await waitForExit(child);
+      expect(session.hasFatalError()).toBe(false);
+      expect(session.completedSuccessfully()).toBe(true);
+    } finally {
+      if (child.exitCode === null) child.kill('SIGTERM');
+    }
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('maps AMR empty-text completions to AMR_MODEL_UNAVAILABLE', async () => {
+    const child = spawnFakeVela({ FAKE_VELA_TEXT: '' });
+    const errors: Array<{ event: string; payload: unknown }> = [];
+    try {
+      const session = attachAcpSession({
+        child: child as never,
+        prompt: 'Say hello',
+        cwd: process.cwd(),
+        model: 'glm-5',
+        mcpServers: [],
+        modelUnavailableErrorCode: 'AMR_MODEL_UNAVAILABLE',
+        send: (event, payload) => {
+          if (event === 'error') errors.push({ event, payload });
+        },
+      });
+
+      await waitForExit(child);
+      expect(session.hasFatalError()).toBe(true);
+      expect(session.completedSuccessfully()).toBe(false);
+    } finally {
+      if (child.exitCode === null) child.kill('SIGTERM');
+    }
+
+    const payload = errors[0]?.payload as {
+      message?: unknown;
+      error?: { code?: unknown };
+    };
+    const message = String(
+      payload?.message ?? '',
+    );
+    expect(message).toContain('without producing any assistant text');
+    expect(payload?.error?.code).toBe('AMR_MODEL_UNAVAILABLE');
   });
 
   it('surfaces an actionable error when the ACP child exits before initialize completes', async () => {

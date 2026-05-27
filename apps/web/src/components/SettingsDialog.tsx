@@ -1973,6 +1973,12 @@ export function SettingsDialog({
       selected.reasoningOptions.length > 0;
     if (!hasModels && !hasReasoning) return null;
     const choice = cfg.agentModels?.[selected.id] ?? {};
+    const knownModelIds = selected.models?.map((m) => m.id) ?? [];
+    const allowCustomModel = selected.id !== 'amr';
+    const configuredModel =
+      typeof choice.model === 'string' && choice.model
+        ? choice.model
+        : null;
     const setChoice = (
       next: { model?: string; reasoning?: string },
     ) => {
@@ -1988,15 +1994,20 @@ export function SettingsDialog({
       });
     };
     const modelValue =
-      choice.model ?? selected.models?.[0]?.id ?? '';
+      selected.id === 'amr' &&
+      configuredModel &&
+      !knownModelIds.includes(configuredModel)
+        ? selected.models?.[0]?.id ?? ''
+        : configuredModel ?? selected.models?.[0]?.id ?? '';
     const reasoningValue =
       choice.reasoning ??
       selected.reasoningOptions?.[0]?.id ?? '';
     const customActive =
+      allowCustomModel &&
       hasModels &&
       shouldShowCustomModelInput(
         modelValue,
-        selected.models!.map((m) => m.id),
+        knownModelIds,
         agentCustomModelIds.has(selected.id),
       );
     const selectValue = customActive
@@ -2048,9 +2059,11 @@ export function SettingsDialog({
                   }}
                 >
                   {renderModelOptions(selected.models!)}
-                  <option value={CUSTOM_MODEL_SENTINEL}>
-                    {t('settings.modelCustom')}
-                  </option>
+                  {allowCustomModel ? (
+                    <option value={CUSTOM_MODEL_SENTINEL}>
+                      {t('settings.modelCustom')}
+                    </option>
+                  ) : null}
                 </select>
                 <Icon
                   name="chevron-down"
@@ -2862,8 +2875,17 @@ export function SettingsDialog({
                 const hasModels =
                   Array.isArray(selected.models) && selected.models.length > 0;
                 const choice = cfg.agentModels?.[selected.id] ?? {};
+                const knownModelIds = selected.models?.map((m) => m.id) ?? [];
+                const configuredModel =
+                  typeof choice.model === 'string' && choice.model
+                    ? choice.model
+                    : null;
                 const modelValue =
-                  choice.model ?? selected.models?.[0]?.id ?? '';
+                  selected.id === 'amr' &&
+                  configuredModel &&
+                  !knownModelIds.includes(configuredModel)
+                    ? selected.models?.[0]?.id ?? ''
+                    : configuredModel ?? selected.models?.[0]?.id ?? '';
                 return (
                   <details className="agent-cli-env settings-memory-advanced">
                     <summary className="agent-cli-env-summary">
