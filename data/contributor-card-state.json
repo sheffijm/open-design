@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-27T14:47:17.139Z",
+  "generatedAt": "2026-05-27T14:52:01.179Z",
   "contributors": {
     "1115052994": {
       "lastAnnouncedTier": "spark",
@@ -655,8 +655,8 @@
     },
     "derrick-xn": {
       "lastAnnouncedTier": "signal",
-      "lastKnownScore": 91,
-      "lastCheckedAt": "2026-05-19T10:11:36.301Z",
+      "lastKnownScore": 105,
+      "lastCheckedAt": "2026-05-27T14:52:01.179Z",
       "scoreVersion": "weighted-v1",
       "lastAnnouncedAt": "2026-05-15T11:54:59.701Z"
     },
