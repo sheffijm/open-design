@@ -11,7 +11,7 @@ import { resolveWinInstallIdentity } from "./identity.js";
 import { readPackagedVersion } from "./manifest.js";
 import { ensureNsisPersianLanguageAlias } from "./nsis.js";
 import { sanitizeNamespace } from "./paths.js";
-import type { WinBuiltAppManifest, WinPaths } from "./types.js";
+import type { WinBuiltAppManifest, WinPackTiming, WinPaths } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -706,35 +706,57 @@ export async function buildCustomWinNsisInstaller(
   config: ToolPackConfig,
   paths: WinPaths,
   builtApp: WinBuiltAppManifest,
-): Promise<void> {
+): Promise<WinPackTiming[]> {
   if (process.platform !== "win32") throw new Error("Windows installer build must run on Windows");
-  const makensisCommand = await resolveMakensisCommand(config);
-  const packagedVersion = await readPackagedVersion(config);
-  await ensureNsisPersianLanguageAlias(config);
+  const timings: WinPackTiming[] = [];
+  const runSegment = async <T>(phase: string, task: () => Promise<T>): Promise<T> => {
+    const startedAt = Date.now();
+    try {
+      return await task();
+    } finally {
+      timings.push({ durationMs: Date.now() - startedAt, phase });
+    }
+  };
+  const makensisCommand = await runSegment("nsis:resolve-makensis", async () => resolveMakensisCommand(config));
+  const packagedVersion = await runSegment("nsis:read-version", async () => readPackagedVersion(config));
+  await runSegment("nsis:ensure-persian-language", async () => {
+    await ensureNsisPersianLanguageAlias(config);
+  });
 
-  await mkdir(dirname(paths.installerPayloadPath), { recursive: true });
-  await mkdir(dirname(paths.setupPath), { recursive: true });
-  await rm(paths.installerPayloadPath, { force: true });
-  await rm(paths.setupPath, { force: true });
-  await execFileAsync(winResources.sevenZipExe, ["a", "-t7z", "-mx=1", "-ms=off", paths.installerPayloadPath, ".\\*"], {
-    cwd: builtApp.unpackedRoot,
-    windowsHide: true,
+  await runSegment("nsis:prepare", async () => {
+    await mkdir(dirname(paths.installerPayloadPath), { recursive: true });
+    await mkdir(dirname(paths.setupPath), { recursive: true });
+    await rm(paths.installerPayloadPath, { force: true });
+    await rm(paths.setupPath, { force: true });
   });
-  await stat(paths.installerPayloadPath);
-  await writeInstallerScript(config, paths);
-  await execFileAsync(makensisCommand, [
-    "/V2",
-    `/DAPP_VERSION=${packagedVersion}`,
-    `/DOUTPUT_EXE=${paths.setupPath}`,
-    `/DPAYLOAD_7Z=${paths.installerPayloadPath}`,
-    `/DSEVEN_Z_EXE=${winResources.sevenZipExe}`,
-    `/DSEVEN_Z_DLL=${winResources.sevenZipDll}`,
-    `/DAPP_ICON=${paths.winIconPath}`,
-    `/DRUNNING_INSTANCES_PS1=${join(dirname(paths.installerScriptPath), "running-instances.ps1")}`,
-    paths.installerScriptPath,
-  ], {
-    cwd: dirname(paths.installerScriptPath),
-    windowsHide: true,
+  await runSegment("nsis:payload-7z", async () => {
+    await execFileAsync(winResources.sevenZipExe, ["a", "-t7z", "-mx=1", "-ms=off", paths.installerPayloadPath, ".\\*"], {
+      cwd: builtApp.unpackedRoot,
+      windowsHide: true,
+    });
+    await stat(paths.installerPayloadPath);
   });
-  await stat(paths.setupPath);
+  await runSegment("nsis:write-script", async () => {
+    await writeInstallerScript(config, paths);
+  });
+  await runSegment("nsis:makensis", async () => {
+    await execFileAsync(makensisCommand, [
+      "/V2",
+      `/DAPP_VERSION=${packagedVersion}`,
+      `/DOUTPUT_EXE=${paths.setupPath}`,
+      `/DPAYLOAD_7Z=${paths.installerPayloadPath}`,
+      `/DSEVEN_Z_EXE=${winResources.sevenZipExe}`,
+      `/DSEVEN_Z_DLL=${winResources.sevenZipDll}`,
+      `/DAPP_ICON=${paths.winIconPath}`,
+      `/DRUNNING_INSTANCES_PS1=${join(dirname(paths.installerScriptPath), "running-instances.ps1")}`,
+      paths.installerScriptPath,
+    ], {
+      cwd: dirname(paths.installerScriptPath),
+      windowsHide: true,
+    });
+  });
+  await runSegment("nsis:stat", async () => {
+    await stat(paths.setupPath);
+  });
+  return timings;
 }

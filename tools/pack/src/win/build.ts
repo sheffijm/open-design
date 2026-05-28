@@ -50,6 +50,7 @@ export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
   const paths = resolveWinPaths(config);
   const cache = new ToolPackCache(config.roots.cacheRoot);
   const timings: WinPackTiming[] = [];
+  const segments: WinPackTiming[] = [];
   const runPhase = async <T>(phase: string, task: () => Promise<T>): Promise<T> => {
     const startedAt = Date.now();
     try {
@@ -72,12 +73,13 @@ export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
   const packagedAppKey = await createWinPackagedAppCacheKey(config, tarballs.key, tarballs.tarballs);
   let packagedAppRoot: string | null = null;
   await runPhase("electron-builder", async () => {
-    await runElectronBuilder(config, paths, cache, packagedAppKey, async () => {
+    const builderSegments = await runElectronBuilder(config, paths, cache, packagedAppKey, async () => {
       if (packagedAppRoot != null) return packagedAppRoot;
       const packagedApp = await prepareWinPackagedApp(config, paths, tarballs, cache);
       packagedAppRoot = packagedApp.appRoot;
       return packagedAppRoot;
     }, resourceTree);
+    segments.push(...builderSegments);
   });
   await runPhase("latest-yml", async () => {
     await writeLocalLatestYml(config, paths);
@@ -93,6 +95,7 @@ export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
     resourceRoot: builtApp == null ? paths.resourceRoot : join(builtApp.unpackedRoot, "resources", "open-design"),
     runtimeNamespaceRoot: config.roots.runtime.namespaceRoot,
     cacheReport: cache.report(),
+    segments,
     sizeReport,
     timings,
     to: config.to,

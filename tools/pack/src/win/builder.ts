@@ -43,6 +43,7 @@ import { buildWinPortableZip } from "./zip.js";
 import type {
   ElectronBuilderDirCacheMetadata,
   WinBuiltAppManifest,
+  WinPackTiming,
   WinPaths,
 } from "./types.js";
 
@@ -258,7 +259,16 @@ export async function runElectronBuilder(
   packagedAppKey: string,
   getPackagedAppRoot: () => Promise<string>,
   resourceTree: ResourceTreeResult,
-): Promise<void> {
+): Promise<WinPackTiming[]> {
+  const segments: WinPackTiming[] = [];
+  const runSegment = async <T>(phase: string, task: () => Promise<T>): Promise<T> => {
+    const startedAt = Date.now();
+    try {
+      return await task();
+    } finally {
+      segments.push({ durationMs: Date.now() - startedAt, phase });
+    }
+  };
   const packagedVersion = await readPackagedVersion(config);
   const usePrebundle = shouldUseWinStandalonePrebundle(config.webOutputMode);
   const packagedConfigEntrypoints = usePrebundle
@@ -305,50 +315,65 @@ export async function runElectronBuilder(
       return { packagedAppKey, packagedVersion };
     },
   };
-  let manifest = await cache.readHit({
-    materialize: [],
-    node,
-  });
-  if (manifest == null) {
-    const packagedAppRoot = await getPackagedAppRoot();
-    manifest = await cache.acquire({
+  let manifest = await runSegment("electron-builder-dir:read-hit", async () =>
+    cache.readHit({
       materialize: [],
-      node: {
-        ...node,
-        build: async ({ entryRoot }: { entryRoot: string }): Promise<ElectronBuilderDirCacheMetadata> => {
-          await runElectronBuilderRaw(
-            { ...config, to: "dir" },
-            { ...createCacheLocalWinPaths(paths, entryRoot), resourceRoot: resourceTree.resourceRoot },
-            packagedAppRoot,
-          );
-          return { packagedAppKey, packagedVersion };
+      node,
+    })
+  );
+  if (manifest == null) {
+    const packagedAppRoot = await runSegment("packaged-app:prepare", async () => getPackagedAppRoot());
+    manifest = await runSegment("electron-builder-dir:acquire", async () =>
+      cache.acquire({
+        materialize: [],
+        node: {
+          ...node,
+          build: async ({ entryRoot }: { entryRoot: string }): Promise<ElectronBuilderDirCacheMetadata> => {
+            await runSegment("electron-builder-dir:build-raw", async () => {
+              await runElectronBuilderRaw(
+                { ...config, to: "dir" },
+                { ...createCacheLocalWinPaths(paths, entryRoot), resourceRoot: resourceTree.resourceRoot },
+                packagedAppRoot,
+              );
+            });
+            return { packagedAppKey, packagedVersion };
+          },
         },
-      },
-    });
+      })
+    );
   }
 
   const cachedBuilderRoot = join(manifest.entryPath, "builder");
   const cachedUnpackedRoot = join(cachedBuilderRoot, "win-unpacked");
   const cachedExecutablePath = join(cachedUnpackedRoot, `${PRODUCT_NAME}.exe`);
-  await removeTree(paths.appBuilderOutputRoot);
-  await writePackagedConfig(config, paths, packagedVersion, packagedConfigEntrypoints);
-  await materializeCachedElectronBuilderAudit(manifest.entryPath, paths);
-  await writeBuiltAppManifest(paths, {
-    appBuilderOutputRoot: cachedBuilderRoot,
-    cacheEntryPath: manifest.entryPath,
-    configPath: paths.packagedConfigPath,
-    executablePath: cachedExecutablePath,
-    source: "cache",
-    unpackedRoot: cachedUnpackedRoot,
-    webStandaloneHookAuditPath: (await pathExists(paths.webStandaloneHookAuditPath)) ? paths.webStandaloneHookAuditPath : null,
+  await runSegment("electron-builder-dir:prepare-namespace", async () => {
+    await removeTree(paths.appBuilderOutputRoot);
+    await writePackagedConfig(config, paths, packagedVersion, packagedConfigEntrypoints);
+  });
+  await runSegment("electron-builder-dir:materialize-audit", async () => {
+    await materializeCachedElectronBuilderAudit(manifest.entryPath, paths);
+  });
+  await runSegment("electron-builder-dir:write-manifest", async () => {
+    await writeBuiltAppManifest(paths, {
+      appBuilderOutputRoot: cachedBuilderRoot,
+      cacheEntryPath: manifest.entryPath,
+      configPath: paths.packagedConfigPath,
+      executablePath: cachedExecutablePath,
+      source: "cache",
+      unpackedRoot: cachedUnpackedRoot,
+      webStandaloneHookAuditPath: (await pathExists(paths.webStandaloneHookAuditPath)) ? paths.webStandaloneHookAuditPath : null,
+    });
   });
   if (shouldBuildWinNsisInstaller(config.to) || shouldBuildWinPortableZip(config.to)) {
-    const materialized = await materializeCachedUnpackedForInstaller(cachedUnpackedRoot, paths, packagedVersion);
+    const materialized = await runSegment("installer:materialize-unpacked", async () =>
+      materializeCachedUnpackedForInstaller(cachedUnpackedRoot, paths, packagedVersion)
+    );
     if (shouldBuildWinNsisInstaller(config.to)) {
-      await buildCustomWinNsisInstaller(config, paths, materialized);
+      segments.push(...await buildCustomWinNsisInstaller(config, paths, materialized));
     }
     if (shouldBuildWinPortableZip(config.to)) {
-      await buildWinPortableZip(config, paths, materialized);
+      segments.push(...await buildWinPortableZip(config, paths, materialized));
     }
   }
+  return segments;
 }

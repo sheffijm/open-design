@@ -175,10 +175,24 @@ function Get-CacheSummary {
   })
 }
 
+function Get-BuildSegments {
+  $build = Read-BuildJson
+  if ($build -eq $null -or $build.segments -eq $null) {
+    return @()
+  }
+  return @($build.segments | ForEach-Object {
+    [ordered]@{
+      phase = $_.phase
+      durationMs = $_.durationMs
+    }
+  })
+}
+
 function Write-IndexAndSummary([string]$Status) {
   $durationMs = [int64]((Get-Date) - $scriptStartedAt).TotalMilliseconds
   $artifactSummary = Get-ArtifactSummary
   $cacheSummary = Get-CacheSummary
+  $buildSegments = Get-BuildSegments
   $index = [ordered]@{
     channel = "beta"
     lane = $Lane
@@ -196,6 +210,7 @@ function Write-IndexAndSummary([string]$Status) {
     reportDir = $env:OD_PACKAGED_E2E_REPORT_DIR
     artifacts = $artifactSummary
     cache = $cacheSummary
+    buildSegments = $buildSegments
     timings = $script:timings
     durationMs = $durationMs
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -246,6 +261,14 @@ function Write-IndexAndSummary([string]$Status) {
         $mode = if ($materialized.skipped) { "reuse" } else { "copy" }
         $summary += "  - materialize $($materialized.from): ``$(Format-Duration $materialized.durationMs)`` $mode"
       }
+    }
+  }
+
+  if ($buildSegments.Count -gt 0) {
+    $summary += ""
+    $summary += "### Build Segments"
+    foreach ($segment in @($buildSegments | Sort-Object durationMs -Descending | Select-Object -First 12)) {
+      $summary += "- $($segment.phase): ``$(Format-Duration $segment.durationMs)``"
     }
   }
 

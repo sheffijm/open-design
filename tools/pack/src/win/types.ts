@@ -101,6 +101,7 @@ export type WinPackResult = {
   resourceRoot: string;
   runtimeNamespaceRoot: string;
   cacheReport: CacheReport;
+  segments: WinPackTiming[];
   sizeReport: WinSizeReport;
   timings: WinPackTiming[];
   to: ToolPackConfig["to"];
