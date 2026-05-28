@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -231,14 +231,13 @@ async function rewriteUnpackedAppPackageVersion(unpackedRoot: string, packagedVe
 }
 
 export async function materializeCachedUnpackedForInstaller(
-  cachedUnpackedRoot: string,
   paths: WinPaths,
   packagedVersion?: string,
 ): Promise<WinBuiltAppManifest> {
-  await removeTree(paths.unpackedRoot);
-  await mkdir(dirname(paths.unpackedRoot), { recursive: true });
-  await cp(cachedUnpackedRoot, paths.unpackedRoot, { recursive: true });
-  await cp(paths.packagedConfigPath, join(paths.unpackedRoot, "resources", "open-design-config.json"));
+  await writeFile(
+    join(paths.unpackedRoot, "resources", "open-design-config.json"),
+    await readFile(paths.packagedConfigPath),
+  );
   if (packagedVersion != null) await rewriteUnpackedAppPackageVersion(paths.unpackedRoot, packagedVersion);
   return {
     appBuilderOutputRoot: paths.appBuilderOutputRoot,
@@ -365,9 +364,29 @@ export async function runElectronBuilder(
     });
   });
   if (shouldBuildWinNsisInstaller(config.to) || shouldBuildWinPortableZip(config.to)) {
-    const materialized = await runSegment("installer:materialize-unpacked", async () =>
-      materializeCachedUnpackedForInstaller(cachedUnpackedRoot, paths, packagedVersion)
-    );
+    const materialized = await runSegment("installer:materialize-unpacked", async () => {
+      const materializedManifest = await cache.readHit({
+        materialize: [{
+          from: "builder/win-unpacked",
+          reuse: true,
+          reuseRequiredPaths: [
+            [`${PRODUCT_NAME}.exe`],
+            ["resources/app/package.json"],
+            ["resources/open-design-config.json"],
+            [
+              "resources/open-design-web-standalone/apps/web/server.js",
+              "resources/open-design-web-standalone/server.js",
+            ],
+          ],
+          to: paths.unpackedRoot,
+        }],
+        node,
+      });
+      if (materializedManifest == null) {
+        throw new Error("electron builder cache entry disappeared before installer materialization");
+      }
+      return materializeCachedUnpackedForInstaller(paths, packagedVersion);
+    });
     if (shouldBuildWinNsisInstaller(config.to)) {
       segments.push(...await buildCustomWinNsisInstaller(config, paths, materialized));
     }
