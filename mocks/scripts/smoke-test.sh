@@ -95,12 +95,15 @@ else
   fail "vela models printed only $vela_models_out lines (expected ≥10)"
 fi
 
-tmp_amr_dir="$(mktemp -d)"
-rm -rf "$HOME/.amr-smoke-backup" 2>/dev/null
-test -d "$HOME/.amr" && mv "$HOME/.amr" "$HOME/.amr-smoke-backup"
-if FAKE_VELA_LOGIN_USER_EMAIL=smoke@od.local vela login >/dev/null 2>&1 \
-   && [ -f "$HOME/.amr/config.json" ]; then
-  email=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(`${process.env.HOME}/.amr/config.json`,"utf-8")).profiles.prod.user.email)' 2>/dev/null || echo "")
+# Sandbox vela login into a temp HOME so we never touch the caller's real
+# ~/.amr config (which holds the production vela login state for anyone
+# using the real CLI). vela's login subcommand resolves ~/.amr from $HOME,
+# so override just for this one invocation.
+amr_sandbox="$(mktemp -d -t od-mocks-amr.XXXXXX)"
+trap 'rm -rf "$amr_sandbox"' EXIT
+if HOME="$amr_sandbox" FAKE_VELA_LOGIN_USER_EMAIL=smoke@od.local vela login >/dev/null 2>&1 \
+   && [ -f "$amr_sandbox/.amr/config.json" ]; then
+  email=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$amr_sandbox/.amr/config.json','utf-8')).profiles.prod.user.email)" 2>/dev/null || echo "")
   if [ "$email" = "smoke@od.local" ]; then
     pass "vela login wrote ~/.amr/config.json with profile.prod.user.email"
   else
@@ -109,9 +112,6 @@ if FAKE_VELA_LOGIN_USER_EMAIL=smoke@od.local vela login >/dev/null 2>&1 \
 else
   fail "vela login did not produce ~/.amr/config.json"
 fi
-# Restore (or leave clean) — never trample a real config.
-rm -rf "$HOME/.amr"
-test -d "$HOME/.amr-smoke-backup" && mv "$HOME/.amr-smoke-backup" "$HOME/.amr"
 
 # vela ACP roundtrip (strict set_model gate enforced).
 vela_acp_out=$(cat <<EOF | vela agent run --runtime opencode 2>/dev/null

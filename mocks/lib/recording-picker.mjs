@@ -53,11 +53,18 @@ export async function pickRecording({ prompt } = {}) {
   const all = await listRecordings(dir);
   if (all.length === 0) return null;
 
-  // 1. fixed
+  // 1. fixed — if the env is set, refuse to fall through to random / pool /
+  //    hash selection. A typo in `OD_MOCKS_TRACE` should surface loudly,
+  //    not silently produce a different trace and silently poison a test.
   const fixed = process.env.OD_MOCKS_TRACE;
   if (fixed) {
     const hit = all.find(id => id === fixed) ?? all.find(id => id.startsWith(fixed));
     if (hit) return { traceId: hit, path: join(dir, `${hit}.jsonl`), method: 'fixed' };
+    throw new Error(
+      `OD_MOCKS_TRACE="${fixed}" set but no matching recording in ${dir}. ` +
+      `8-char id prefix is supported; check spelling and that the corpus has been fetched ` +
+      `(\`bash mocks/scripts/fetch-recordings.sh\`).`
+    );
   }
 
   // 2. prompt-hash
