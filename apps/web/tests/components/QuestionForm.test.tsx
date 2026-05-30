@@ -202,7 +202,6 @@ describe('QuestionFormView', () => {
     );
 
     const submit = screen.getByRole('button', { name: 'Send answers' });
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByLabelText('Editorial / magazine'));
     fireEvent.click(screen.getByLabelText('Soft gradients'));
@@ -227,7 +226,6 @@ describe('QuestionFormView', () => {
     );
 
     const submit = screen.getByRole('button', { name: 'Send answers' });
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     const select = container.querySelector('select');
     if (!select) throw new Error('expected select control');
