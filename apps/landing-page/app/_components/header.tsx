@@ -229,15 +229,6 @@ export function Header({
                     <span className='dropdown-name'>{headerCopy.nav.systems}</span>
                   </a>
                 </li>
-                <li role='none'>
-                  <a
-                    role='menuitem'
-                    href={href('/plugins/craft/')}
-                    className={linkClass('craft')}
-                  >
-                    <span className='dropdown-name'>{headerCopy.nav.craft}</span>
-                  </a>
-                </li>
               </ul>
             </li>
             <li>
