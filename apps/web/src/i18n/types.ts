@@ -1279,6 +1279,7 @@ export interface Dict {
   'routines.status.canceled': string;
   'routines.confirmDelete': string;
   'routines.errorPickProject': string;
+  'routines.errorAgentEmptyOutput': string;
   // Bottom-of-rail help menu
   'entry.helpAria': string;
   'entry.helpMenuAria': string;
@@ -1808,6 +1809,16 @@ export interface Dict {
   'chat.importFolder': string;
   'chat.importSkills': string;
   'chat.importProject': string;
+  'chat.importDesignSystemHeader': string;
+  'chat.importDesignSystemBack': string;
+  'chat.importDesignSystemSearch': string;
+  'chat.importDesignSystemEmpty': string;
+  'chat.importDesignSystemNone': string;
+  'chat.importDesignSystemNoneSub': string;
+  'chat.importDesignSystemActive': string;
+  'chat.importDesignSystemSwitched': string;
+  'chat.importDesignSystemFailed': string;
+  'chat.importDesignSystemLoadFailed': string;
   'chat.mentionTabsAria': string;
   'chat.mentionTabAll': string;
   'chat.mentionTabPlugins': string;

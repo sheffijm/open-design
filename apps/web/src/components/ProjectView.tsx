@@ -4516,6 +4516,13 @@ export function ProjectView({
                 onProjectChange({ ...project, skillId });
               }}
               activePluginSnapshot={activePluginSnapshot}
+              currentDesignSystemId={project.designSystemId}
+              onActiveDesignSystemChange={(updatedProject) => {
+                onProjectChange(updatedProject);
+              }}
+              onShowToast={(message) => {
+                setProjectActionsToast({ message, details: null });
+              }}
               onCollapse={() => setWorkspaceFocused(true)}
             />
           ) : (
