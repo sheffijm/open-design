@@ -51,6 +51,7 @@ import {
   cancelVelaLogin,
   forgetVelaLogin,
   mergeVelaEnv,
+  readVelaCredentialRevision,
   readVelaLoginStatus,
   spawnVelaLogin,
 } from './integrations/vela.js';
@@ -6096,6 +6097,7 @@ export async function startServer({
       ),
       agentLaunch,
     );
+    const credentialRevision = readVelaCredentialRevision(process.env, configuredEnv);
     const cacheKey = JSON.stringify({
       launchPath,
       home: env.HOME ?? env.USERPROFILE ?? '',
@@ -6104,6 +6106,7 @@ export async function startServer({
       velaLinkUrl: env.VELA_LINK_URL ?? '',
       velaRuntimeKey: env.VELA_RUNTIME_KEY ?? '',
       velaOpencodeBin: env.VELA_OPENCODE_BIN ?? '',
+      credentialRevision,
     });
     return { launchPath, env, configuredEnv, cacheKey };
   }
