@@ -257,8 +257,12 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     expect(trace.metadata.eventsSummary.errors).toBe(0);
     expect(trace.metadata.tokens).toEqual({
       input: 100,
+      inputProvider: 100,
+      inputEffective: 100,
       output: 200,
       total: 300,
+      estimatedContext: 93,
+      cacheTokenSource: 'unavailable',
     });
     expect(trace.metadata.artifacts).toEqual([
       { slug: 'index.html', type: 'html', sizeBytes: 4096 },
@@ -375,8 +379,12 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     // tokens + eventsSummary are still in metadata since they're metrics
     expect(trace.metadata.tokens).toEqual({
       input: 100,
+      inputProvider: 100,
+      inputEffective: 100,
       output: 200,
       total: 300,
+      estimatedContext: 93,
+      cacheTokenSource: 'unavailable',
     });
   });
 

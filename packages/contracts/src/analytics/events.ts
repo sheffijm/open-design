@@ -216,6 +216,22 @@ export type TrackingRunFailureUserAction =
   | 'reduce_context'
   | 'install_cli'
   | 'none';
+export type TrackingLangfuseDeliveryStatus =
+  | 'not_expected'
+  | 'queued'
+  | 'accepted'
+  | 'failed';
+export type TrackingLangfuseDropReason =
+  | 'metrics_consent_off'
+  | 'content_consent_off'
+  | 'missing_sink_config'
+  | 'payload_too_large'
+  | 'relay_429'
+  | 'relay_413'
+  | 'relay_5xx'
+  | 'langfuse_4xx'
+  | 'langfuse_5xx'
+  | 'network_error';
 
 export type TrackingFeedbackRating = 'positive' | 'negative';
 // Click events emit `none` when the user clears a previously-set rating, so
@@ -1793,6 +1809,9 @@ export interface RunFinishedProps extends Omit<RunCreatedProps, 'area'> {
   retryable?: boolean;
   user_action?: TrackingRunFailureUserAction;
   langfuse_trace_id?: string;
+  langfuse_expected?: boolean;
+  langfuse_drop_reason?: TrackingLangfuseDropReason;
+  langfuse_delivery_status?: TrackingLangfuseDeliveryStatus;
   artifact_count: number;
   input_tokens?: number;
   input_tokens_provider?: number;

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildFeedbackPayload,
   buildTracePayload,
+  deriveLangfuseDeliveryState,
   readLangfuseConfig,
   readTelemetrySinkConfig,
   reportRunCompleted,
@@ -192,6 +193,59 @@ describe('readTelemetrySinkConfig', () => {
     expect(cfg).toMatchObject({
       kind: 'langfuse',
       baseUrl: 'https://us.cloud.langfuse.com',
+    });
+  });
+});
+
+describe('deriveLangfuseDeliveryState', () => {
+  it('marks traces not expected when metrics consent is off', () => {
+    expect(
+      deriveLangfuseDeliveryState(
+        { metrics: false, content: true, artifactManifest: true },
+        { kind: 'langfuse', ...TEST_CONFIG },
+      ),
+    ).toEqual({
+      langfuse_expected: false,
+      langfuse_delivery_status: 'not_expected',
+      langfuse_drop_reason: 'metrics_consent_off',
+    });
+  });
+
+  it('marks traces not expected when content consent is off', () => {
+    expect(
+      deriveLangfuseDeliveryState(
+        { metrics: true, content: false, artifactManifest: true },
+        { kind: 'langfuse', ...TEST_CONFIG },
+      ),
+    ).toEqual({
+      langfuse_expected: false,
+      langfuse_delivery_status: 'not_expected',
+      langfuse_drop_reason: 'content_consent_off',
+    });
+  });
+
+  it('marks traces not expected when no sink is configured', () => {
+    expect(
+      deriveLangfuseDeliveryState(
+        { metrics: true, content: true, artifactManifest: true },
+        null,
+      ),
+    ).toEqual({
+      langfuse_expected: false,
+      langfuse_delivery_status: 'not_expected',
+      langfuse_drop_reason: 'missing_sink_config',
+    });
+  });
+
+  it('marks eligible traces as queued at run-finished time', () => {
+    expect(
+      deriveLangfuseDeliveryState(
+        { metrics: true, content: true, artifactManifest: true },
+        { kind: 'langfuse', ...TEST_CONFIG },
+      ),
+    ).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'queued',
     });
   });
 });
@@ -510,6 +564,9 @@ describe('buildTracePayload', () => {
     const metadata = (batch[0] as any).body.metadata;
     expect(metadata.error_code).toBe('RATE_LIMITED');
     expect(metadata.langfuse_trace_id).toBe('run-rate-limit');
+    expect(metadata.langfuse_expected).toBe(false);
+    expect(metadata.langfuse_delivery_status).toBe('not_expected');
+    expect(metadata.langfuse_drop_reason).toBe('content_consent_off');
     expect(metadata.failure_category).toBe('rate_limit');
     expect(metadata.failure_stage).toBe('session_init');
     expect(metadata.retryable).toBe(false);
@@ -567,29 +624,39 @@ describe('reportRunCompleted', () => {
 
   it('does nothing when metrics gate is off', async () => {
     const fetchSpy = vi.fn();
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: false, content: true, artifactManifest: true },
       }),
       { config: TEST_CONFIG, fetchImpl: fetchSpy as any },
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      langfuse_expected: false,
+      langfuse_delivery_status: 'not_expected',
+      langfuse_drop_reason: 'metrics_consent_off',
+    });
   });
 
   it('does nothing when content gate is off', async () => {
     const fetchSpy = vi.fn();
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: false, artifactManifest: true },
       }),
       { config: TEST_CONFIG, fetchImpl: fetchSpy as any },
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      langfuse_expected: false,
+      langfuse_delivery_status: 'not_expected',
+      langfuse_drop_reason: 'content_consent_off',
+    });
   });
 
   it('does nothing when no Langfuse config is available', async () => {
     const fetchSpy = vi.fn();
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -599,13 +666,18 @@ describe('reportRunCompleted', () => {
       },
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      langfuse_expected: false,
+      langfuse_delivery_status: 'not_expected',
+      langfuse_drop_reason: 'missing_sink_config',
+    });
   });
 
   it('POSTs to /api/public/ingestion with Basic auth and a JSON batch body', async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response('{}', { status: 200 }),
     );
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -631,6 +703,10 @@ describe('reportRunCompleted', () => {
       'span-create',
       'span-create',
     ]);
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'accepted',
+    });
   });
 
   it('POSTs serialized ingestion batches to the Open Design telemetry relay', async () => {
@@ -643,7 +719,7 @@ describe('reportRunCompleted', () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response('{}', { status: 200 }),
     );
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -663,6 +739,10 @@ describe('reportRunCompleted', () => {
     expect(init.headers['X-Open-Design-Telemetry']).toBe('langfuse-ingestion-v1');
     const body = JSON.parse(init.body as string);
     expect(Array.isArray(body.batch)).toBe(true);
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'accepted',
+    });
   });
 
   it('warns when the relay returns per-event errors', async () => {
@@ -678,7 +758,7 @@ describe('reportRunCompleted', () => {
         { status: 207 },
       ),
     );
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -690,6 +770,11 @@ describe('reportRunCompleted', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Relay per-event errors (1)'),
     );
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'failed',
+      langfuse_drop_reason: 'langfuse_4xx',
+    });
   });
 
   it('warns and drops when serialized batch exceeds the hard cap', async () => {
@@ -702,7 +787,7 @@ describe('reportRunCompleted', () => {
       type: 'html',
       sizeBytes: 1,
     }));
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         artifacts: fatArtifacts,
         prefs: { metrics: true, content: true, artifactManifest: true },
@@ -713,6 +798,11 @@ describe('reportRunCompleted', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Batch too large'),
     );
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'failed',
+      langfuse_drop_reason: 'payload_too_large',
+    });
   });
 
   it('only warns (does not throw) when fetch rejects', async () => {
@@ -727,7 +817,11 @@ describe('reportRunCompleted', () => {
           fetchImpl: fetchSpy as any,
         },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'failed',
+      langfuse_drop_reason: 'network_error',
+    });
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Fetch error'),
     );
@@ -738,7 +832,7 @@ describe('reportRunCompleted', () => {
       .fn()
       .mockRejectedValueOnce(new Error('timeout'))
       .mockResolvedValueOnce(new Response('{}', { status: 207 }));
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -749,13 +843,17 @@ describe('reportRunCompleted', () => {
     );
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(warnSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'accepted',
+    });
   });
 
   it('only warns (does not throw) when ingestion responds non-2xx', async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response('rate limited', { status: 429 }),
     );
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -767,6 +865,11 @@ describe('reportRunCompleted', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Ingestion failed 429'),
     );
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'failed',
+      langfuse_drop_reason: 'langfuse_4xx',
+    });
   });
 
   it('warns when 207 Multi-Status body lists per-event errors', async () => {
@@ -788,7 +891,7 @@ describe('reportRunCompleted', () => {
         { status: 207 },
       ),
     );
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -800,6 +903,11 @@ describe('reportRunCompleted', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Per-event errors (1)'),
     );
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'failed',
+      langfuse_drop_reason: 'langfuse_4xx',
+    });
   });
 
   it('does not warn when 207 body has empty errors array', async () => {
@@ -815,7 +923,7 @@ describe('reportRunCompleted', () => {
         { status: 207 },
       ),
     );
-    await reportRunCompleted(
+    const result = await reportRunCompleted(
       makeCtx({
         prefs: { metrics: true, content: true, artifactManifest: false },
       }),
@@ -825,6 +933,10 @@ describe('reportRunCompleted', () => {
       },
     );
     expect(warnSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      langfuse_expected: true,
+      langfuse_delivery_status: 'accepted',
+    });
   });
 });
 

@@ -252,6 +252,10 @@ import {
   reportRunFeedbackFromDaemon,
 } from './langfuse-bridge.js';
 import {
+  deriveLangfuseDeliveryState,
+  readTelemetrySinkConfig,
+} from './langfuse-trace.js';
+import {
   createAnalyticsService,
   newInsertId,
   readAnalyticsContext,
@@ -13339,6 +13343,10 @@ export async function startServer({
       const appCfgForAnalytics = await readAppConfig(RUNTIME_DATA_DIR).catch(
         () => ({} as Record<string, unknown>),
       );
+      const langfuseDeliveryForAnalytics = deriveLangfuseDeliveryState(
+        (appCfgForAnalytics as { telemetry?: Record<string, unknown> }).telemetry ?? {},
+        readTelemetrySinkConfig(),
+      );
       const detectedAgentsForAnalytics = await detectAgents(
         (appCfgForAnalytics as { agentCliEnv?: Record<string, unknown> }).agentCliEnv ?? {},
       ).catch(() => [] as Array<{ id: string; available: boolean }>);
@@ -13572,6 +13580,7 @@ export async function startServer({
             } : {}),
             ...timingAnalytics,
             langfuse_trace_id: run.id,
+            ...langfuseDeliveryForAnalytics,
             ...(errorCode ? { error_code: errorCode } : {}),
             ...(failure ?? {}),
             ...(usageAnalytics.input_tokens !== undefined
