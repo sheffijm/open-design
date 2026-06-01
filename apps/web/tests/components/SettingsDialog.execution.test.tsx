@@ -1932,6 +1932,73 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
     expect(screen.getByText('amr@example.com')).toBeTruthy();
   });
 
+  // Error-recovery regression: the in-pill poll gives up early on the
+  // `loginInFlight:false` "stopped" path (vela's redirect/wallet flow hands the
+  // browser off and the spawned child exits before the credential lands),
+  // leaving the pill holding an internal `errorMessage`. Because the pill ranks
+  // `errorMessage` above `loggedIn`, simply pushing a fresh signed-in status
+  // into the card is NOT enough — focus must drive the pill through its own
+  // reconcile listener so the stale error clears and the card flips from
+  // Authorize back to Sign out. A failed launch reproduces the same stuck
+  // error state without waiting on the poll timers.
+  it('reconciles the AMR card to Signed in on focus even after the pill showed a login error', async () => {
+    let loggedIn = false;
+    let startCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/memory') {
+        return new Response(
+          JSON.stringify({ enabled: true, memories: [], extraction: null }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url === '/api/integrations/vela/status') {
+        return new Response(
+          JSON.stringify({
+            loggedIn,
+            loginInFlight: false,
+            profile: 'local',
+            user: loggedIn ? { id: 'u1', email: 'amr@example.com' } : null,
+            configPath: '/Users/test/.amr/config.json',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url === '/api/integrations/vela/login' && init?.method === 'POST') {
+        startCalls += 1;
+        // Launch fails -> the pill surfaces its compact error state.
+        return new Response(JSON.stringify({ error: 'spawn failed' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderSettingsDialog(
+      { mode: 'daemon', agentId: 'amr' },
+      { agents: [amrAgent] },
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: /Local CLI.*1 installed/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Authorize' }));
+
+    // The failed launch leaves the pill in its error state: still Authorize,
+    // no Sign out.
+    await waitFor(() => expect(startCalls).toBe(1));
+    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
+
+    // Login is finished out-of-band; returning focus must reconcile the card
+    // despite the lingering pill error.
+    loggedIn = true;
+    window.dispatchEvent(new Event('focus'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+    });
+  });
+
   // First-install repro: the agent list is last detected while signed out, so
   // AMR comes back with an empty (fail-closed) model list. The live `vela
   // models` catalog only becomes fetchable AFTER the credential lands, so when
