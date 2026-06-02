@@ -144,12 +144,15 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("RELEASE_PLATFORM: mac");
     expect(workflow).toContain("RELEASE_SIGNED: ${{ inputs.mac_sign_mode == 'on' && 'true' || 'false' }}");
     expect(workflow).toContain("name: Publish beta metadata to Nexu S3");
+    expect(workflow).toContain("path: _release-publish");
+    expect(workflow).toContain("working-directory: _release-publish");
     expect(workflow).toContain("node --experimental-strip-types .github/scripts/release/r2/publish-beta-metadata.ts");
     expect(workflow).toContain("ASSET_VERSION_SUFFIX: auto");
     expect(workflow).toContain("actions/download-artifact@v8");
     expect(workflow).toContain('STATE_SOURCE: ${{ needs.metadata.outputs.state_source }}');
     expect(workflow).toContain("Verify beta metadata");
     expect(workflow).toContain("node --experimental-strip-types .github/scripts/release/r2/verify-beta-metadata.ts");
+    expect(workflow).not.toContain("actions/setup-node@v6");
     expect(workflow).not.toContain("publish-beta-metadata.ps1");
     expect(workflow).not.toContain("probe-beta-public-read.ps1");
     expect(workflow).not.toContain("publish-beta.ps1 -IndexPath");

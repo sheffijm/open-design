@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { uploadS3Object } from "./s3-upload.ts";
 
 type PlatformManifest = {
   artifacts?: Record<string, { url?: string }>;
@@ -29,28 +29,19 @@ function enabled(name) {
   return process.env[name] === "true";
 }
 
-function upload(filePath, objectKey, contentType, cacheControl) {
-  execFileSync(
-    "aws",
-    [
-      "--endpoint-url",
-      endpointUrl,
-      "s3api",
-      "put-object",
-      "--bucket",
-      bucket,
-      "--key",
-      objectKey,
-      "--body",
-      filePath,
-      "--content-type",
-      contentType,
-      "--cache-control",
-      cacheControl,
-      "--no-cli-pager",
-    ],
-    { stdio: "inherit" },
-  );
+async function upload(filePath, objectKey, contentType, cacheControl) {
+  await uploadS3Object({
+    accessKeyId,
+    bodyPath: filePath,
+    bucket,
+    cacheControl,
+    contentType,
+    endpointUrl,
+    objectKey,
+    region,
+    secretAccessKey,
+    sessionToken,
+  });
 }
 
 function publicUrl(prefix, name) {
@@ -70,9 +61,13 @@ function readManifest(key): PlatformManifest | null {
 }
 
 const bucket = required("CLOUDFLARE_R2_RELEASES_BUCKET");
+const accessKeyId = required("AWS_ACCESS_KEY_ID");
 const endpointUrl = required("CLOUDFLARE_R2_RELEASES_URL").replace(/\/+$/, "");
 const publicOrigin = required("CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN").replace(/\/+$/, "");
+const region = required("AWS_DEFAULT_REGION");
 const runnerTemp = required("RUNNER_TEMP");
+const secretAccessKey = required("AWS_SECRET_ACCESS_KEY");
+const sessionToken = optional("AWS_SESSION_TOKEN");
 const releaseChannel = required("RELEASE_CHANNEL");
 if (releaseChannel !== "beta") {
   throw new Error(`publish-beta-metadata only supports beta, got ${releaseChannel}`);
@@ -176,9 +171,9 @@ const metadata = {
 
 const metadataPath = join(runnerTemp, "release-beta-metadata.json");
 writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
-upload(metadataPath, `${versionPrefix}/metadata.json`, "application/json; charset=utf-8", "public, max-age=31536000, immutable");
+await upload(metadataPath, `${versionPrefix}/metadata.json`, "application/json; charset=utf-8", "public, max-age=31536000, immutable");
 if (latestMetadataUpdated) {
-  upload(metadataPath, `${latestPrefix}/metadata.json`, "application/json; charset=utf-8", "public, max-age=60, must-revalidate");
+  await upload(metadataPath, `${latestPrefix}/metadata.json`, "application/json; charset=utf-8", "public, max-age=60, must-revalidate");
 } else {
   console.log(`left ${metadata.r2.latestMetadataUrl} unchanged because releaseState=${releaseState}`);
 }

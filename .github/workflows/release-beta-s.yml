@@ -327,13 +327,16 @@ jobs:
         (inputs.enable_win || inputs.enable_mac) &&
         inputs.publish
       }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64, nexu-mac, release-beta]
     timeout-minutes: 10
+    env:
+      OPEN_DESIGN_RELEASE_PROFILE: /Users/runner/.profile
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 1
+          path: _release-publish
 
       - name: Download windows publish manifest
         if: ${{ inputs.enable_win && needs.build_win.result == 'success' }}
@@ -356,13 +359,9 @@ jobs:
           name: open-design-beta-mac-e2e-report
           path: ${{ runner.temp }}/release-report/mac
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
       - name: Publish beta mac assets to Nexu S3
         if: ${{ inputs.enable_mac && needs.build_mac.result == 'success' }}
+        working-directory: _release-publish
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NEXU_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NEXU_S3_SECRET_ACCESS_KEY }}
@@ -379,10 +378,18 @@ jobs:
           RELEASE_SIGNED: ${{ inputs.mac_sign_mode == 'on' && 'true' || 'false' }}
           RELEASE_VERSION: ${{ inputs.release_version || needs.metadata.outputs.beta_version }}
           REPORT_ROOT: ${{ runner.temp }}/release-report/mac
-        run: node --experimental-strip-types .github/scripts/release/r2/publish-platform.ts
+        run: |
+          set -euo pipefail
+          if ! command -v rehash >/dev/null 2>&1; then
+            rehash() { hash -r; }
+          fi
+          # shellcheck disable=SC1090
+          source "$OPEN_DESIGN_RELEASE_PROFILE"
+          node --experimental-strip-types .github/scripts/release/r2/publish-platform.ts
 
       - name: Publish beta metadata to Nexu S3
         id: publish_metadata
+        working-directory: _release-publish
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NEXU_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NEXU_S3_SECRET_ACCESS_KEY }}
@@ -405,9 +412,17 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version || needs.metadata.outputs.beta_version }}
           STATE_SOURCE: ${{ needs.metadata.outputs.state_source }}
           WIN_RESULT: ${{ needs.build_win.result }}
-        run: node --experimental-strip-types .github/scripts/release/r2/publish-beta-metadata.ts
+        run: |
+          set -euo pipefail
+          if ! command -v rehash >/dev/null 2>&1; then
+            rehash() { hash -r; }
+          fi
+          # shellcheck disable=SC1090
+          source "$OPEN_DESIGN_RELEASE_PROFILE"
+          node --experimental-strip-types .github/scripts/release/r2/publish-beta-metadata.ts
 
       - name: Verify beta metadata
+        working-directory: _release-publish
         env:
           ENABLE_MAC: ${{ inputs.enable_mac }}
           ENABLE_MAC_INTEL: "false"
@@ -417,4 +432,11 @@ jobs:
           R2_METADATA_URL: ${{ steps.publish_metadata.outputs.version_metadata_url }}
           RELEASE_VERSION: ${{ inputs.release_version || needs.metadata.outputs.beta_version }}
           WIN_RESULT: ${{ needs.build_win.result }}
-        run: node --experimental-strip-types .github/scripts/release/r2/verify-beta-metadata.ts
+        run: |
+          set -euo pipefail
+          if ! command -v rehash >/dev/null 2>&1; then
+            rehash() { hash -r; }
+          fi
+          # shellcheck disable=SC1090
+          source "$OPEN_DESIGN_RELEASE_PROFILE"
+          node --experimental-strip-types .github/scripts/release/r2/verify-beta-metadata.ts
