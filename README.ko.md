@@ -737,7 +737,7 @@ Open Design을 앞으로 나아가게 도와준 모든 분께 감사드립니다
   <img alt="Open Design — 저장소 지표" src="docs/assets/github-metrics.svg" />
 </picture>
 
-위의 SVG는 [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml)이 [`lowlighter/metrics`](https://github.com/lowlighter/metrics)를 사용해 매일 자동으로 다시 생성합니다. 즉시 새로 고치려면 **Actions** 탭에서 수동 트리거하세요; 더 풍부한 플러그인(traffic, follow-up time 등)을 켜려면 저장소 secrets에 fine-grained PAT를 `METRICS_TOKEN`이라는 이름으로 추가하세요.
+위의 SVG는 **Actions** 탭에서 [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml)을 수동으로 트리거할 때만 [`lowlighter/metrics`](https://github.com/lowlighter/metrics)를 사용해 갱신됩니다. 더 풍부한 플러그인(traffic, follow-up time 등)을 켜려면 저장소 secrets에 fine-grained PAT를 `METRICS_TOKEN`이라는 이름으로 추가하세요.
 
 ## Star History
 

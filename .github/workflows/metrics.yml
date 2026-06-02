@@ -1,15 +1,8 @@
 name: github-metrics
 
 on:
-  schedule:
-    # Runs daily at 00:15 UTC; output is committed to docs/assets/github-metrics.svg.
-    - cron: '15 0 * * *'
+  # Manual-only: avoid recurring bot PRs for docs/assets/github-metrics.svg.
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/metrics.yml
 
 permissions:
   contents: read
@@ -36,7 +29,7 @@ jobs:
       - name: Generate GitHub repository metrics
         uses: lowlighter/metrics@latest
         with:
-          # Output path; the action opens/updates a PR when this file changes.
+          # Output path; manual runs open/update a PR when this file changes.
           # Requires manual review to merge. If metrics unchanged, no PR is created.
           filename: docs/assets/github-metrics.svg
 

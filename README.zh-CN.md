@@ -733,7 +733,7 @@ Daemon 启动时从 `PATH` 自动检测，无需配置。流式分发逻辑在 [
   <img alt="Open Design 仓库指标" src="docs/assets/github-metrics.svg" />
 </picture>
 
-上面的 SVG 由 [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) 借助 [`lowlighter/metrics`](https://github.com/lowlighter/metrics) 每天自动重新生成。想要立刻刷新可以去 **Actions** 选项卡手动触发；想开启更丰富的插件（traffic、follow-up time 等）可在仓库 secrets 里加一个细粒度 PAT 命名为 `METRICS_TOKEN`。
+上面的 SVG 只会在 **Actions** 选项卡手动触发 [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) 时，借助 [`lowlighter/metrics`](https://github.com/lowlighter/metrics) 刷新。想开启更丰富的插件（traffic、follow-up time 等）可在仓库 secrets 里加一个细粒度 PAT 命名为 `METRICS_TOKEN`。
 
 ## Star History
 

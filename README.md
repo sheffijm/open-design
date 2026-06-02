@@ -1051,7 +1051,7 @@ If you've shipped your first PR — welcome. The [`good-first-issue`/`help-wante
   <img alt="Open Design — repository metrics" src="docs/assets/github-metrics.svg" />
 </picture>
 
-The SVG above is regenerated daily by [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) using [`lowlighter/metrics`](https://github.com/lowlighter/metrics). Trigger a manual refresh from the **Actions** tab if you want it sooner; for richer plugins (traffic, follow-up time), add a `METRICS_TOKEN` repository secret with a fine-grained PAT.
+The SVG above is refreshed only when [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) is manually triggered from the **Actions** tab using [`lowlighter/metrics`](https://github.com/lowlighter/metrics). For richer plugins (traffic, follow-up time), add a `METRICS_TOKEN` repository secret with a fine-grained PAT.
 
 ## Star History
 

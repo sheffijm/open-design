@@ -741,7 +741,7 @@ Se você acabou de mandar seu primeiro PR — bem-vindo. A label [`good-first-is
   <img alt="Open Design — métricas do repositório" src="docs/assets/github-metrics.svg" />
 </picture>
 
-O SVG acima é regenerado diariamente por [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) usando [`lowlighter/metrics`](https://github.com/lowlighter/metrics). Dispare um refresh manual pela aba **Actions** se quiser antes; para plugins mais ricos (tráfego, follow-up time), adicione um secret de repositório `METRICS_TOKEN` com um PAT fine-grained.
+O SVG acima só é atualizado quando [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) é disparado manualmente pela aba **Actions** usando [`lowlighter/metrics`](https://github.com/lowlighter/metrics). Para plugins mais ricos (tráfego, follow-up time), adicione um secret de repositório `METRICS_TOKEN` com um PAT fine-grained.
 
 ## Star History
 

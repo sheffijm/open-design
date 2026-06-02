@@ -1017,7 +1017,7 @@ Daemon 啟動時從 `PATH` 自動檢測，無需配置。流式分發邏輯在 [
   <img alt="Open Design 倉庫指標" src="docs/assets/github-metrics.svg" />
 </picture>
 
-上面的 SVG 由 [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) 藉助 [`lowlighter/metrics`](https://github.com/lowlighter/metrics) 每天自動重新生成。想要立刻重新整理可以去 **Actions** 選項卡手動觸發；想開啟更豐富的外掛（traffic、follow-up time 等）可在倉庫 secrets 里加一個細粒度 PAT 命名為 `METRICS_TOKEN`。
+上面的 SVG 只會在 **Actions** 選項卡手動觸發 [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) 時，藉助 [`lowlighter/metrics`](https://github.com/lowlighter/metrics) 重新整理。想開啟更豐富的外掛（traffic、follow-up time 等）可在倉庫 secrets 里加一個細粒度 PAT 命名為 `METRICS_TOKEN`。
 
 ## Star History
 

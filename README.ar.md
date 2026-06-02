@@ -811,7 +811,7 @@ Issues و PRs و skills جديدة وأنظمة تصميم جديدة، كلّه
   <img alt="Open Design — repository metrics" src="docs/assets/github-metrics.svg" />
 </picture>
 
-يُعاد توليد SVG أعلاه يومياً عبر [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) باستخدام [`lowlighter/metrics`](https://github.com/lowlighter/metrics). أطلق تحديثاً يدوياً من تبويب **Actions** إن أردته أسرع؛ لإضافات أغنى (traffic، follow-up time)، أضف سرّ مستودع `METRICS_TOKEN` بـ PAT دقيق التحكّم.
+لا يُحدَّث SVG أعلاه إلا عند تشغيل [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) يدوياً من تبويب **Actions** باستخدام [`lowlighter/metrics`](https://github.com/lowlighter/metrics). لإضافات أغنى (traffic، follow-up time)، أضف سرّ مستودع `METRICS_TOKEN` بـ PAT دقيق التحكّم.
 
 ## تاريخ النجوم
 

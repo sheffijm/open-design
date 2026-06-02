@@ -744,7 +744,7 @@ Si vous avez livré votre première PR, bienvenue. Le label [`good-first-issue`/
   <img alt="Open Design : métriques du dépôt" src="docs/assets/github-metrics.svg" />
 </picture>
 
-Le SVG ci-dessus est régénéré chaque jour par [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) avec [`lowlighter/metrics`](https://github.com/lowlighter/metrics). Lancez un refresh manuel depuis l’onglet **Actions** si vous le voulez plus tôt ; pour des plugins plus riches, ajoutez un secret `METRICS_TOKEN` avec un PAT fine-grained.
+Le SVG ci-dessus n’est actualisé que lorsque [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) est déclenché manuellement depuis l’onglet **Actions** avec [`lowlighter/metrics`](https://github.com/lowlighter/metrics). Pour des plugins plus riches, ajoutez un secret `METRICS_TOKEN` avec un PAT fine-grained.
 
 ## Star History
 

@@ -898,7 +898,7 @@ Open Design'ı kod, doküman, feedback, yeni skill, yeni design system veya kesk
   <img alt="Open Design — repository metrics" src="docs/assets/github-metrics.svg" />
 </picture>
 
-Yukarıdaki SVG [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) tarafından [`lowlighter/metrics`](https://github.com/lowlighter/metrics) kullanılarak günlük yenilenir. Daha erken istiyorsan **Actions** tab'inden manuel refresh tetikle; daha zengin plugin'ler (traffic, follow-up time) için fine-grained PAT ile `METRICS_TOKEN` repository secret ekle.
+Yukarıdaki SVG yalnızca [`.github/workflows/metrics.yml`](.github/workflows/metrics.yml) **Actions** tab'inden manuel tetiklendiğinde [`lowlighter/metrics`](https://github.com/lowlighter/metrics) kullanılarak yenilenir. Daha zengin plugin'ler (traffic, follow-up time) için fine-grained PAT ile `METRICS_TOKEN` repository secret ekle.
 
 ## Star History
 
