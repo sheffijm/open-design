@@ -75,6 +75,7 @@ import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
 import { DesignSystemsTab } from './DesignSystemsTab';
 import { EntryNavRail, type EntryView as EntryViewKind } from './EntryNavRail';
 import { UpdaterPopup } from './UpdaterPopup';
+import { NewsletterPopup } from './NewsletterPopup';
 import { GithubStarBadge } from './GithubStarBadge';
 import { HomeView } from './HomeView';
 import {
@@ -775,6 +776,7 @@ export function EntryShell({
         }}
         onClose={() => setNewProjectOpen(false)}
       />
+      <NewsletterPopup />
     </div>
   );
 }

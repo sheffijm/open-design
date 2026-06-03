@@ -833,3 +833,30 @@ export function trackUpdateInstallResult(
 ): void {
   send(track, 'update_install_result', props);
 }
+
+// ---- newsletter ----------------------------------------------------------
+// Props typed locally (not in @open-design/contracts) since the newsletter
+// popup is a client-only surface posting cross-origin to the marketing site.
+type NewsletterSurfaceViewProps = {
+  page_name: string;
+  area: 'newsletter_popup';
+};
+type NewsletterResultProps = {
+  page_name: string;
+  area: 'newsletter_popup';
+  result: 'success' | 'error';
+};
+
+export function trackNewsletterSurfaceView(
+  track: Track,
+  props: NewsletterSurfaceViewProps,
+): void {
+  send(track, 'surface_view', props);
+}
+
+export function trackNewsletterResult(
+  track: Track,
+  props: NewsletterResultProps,
+): void {
+  send(track, 'newsletter_signup', props);
+}

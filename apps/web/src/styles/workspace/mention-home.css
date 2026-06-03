@@ -2250,3 +2250,118 @@
     justify-content: flex-start;
   }
 }
+
+/* ====== Newsletter popup (bottom-right, mirrors updater-popup tokens) ====== */
+.newsletter-popup {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 80;
+  width: min(360px, calc(100vw - 48px));
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  -webkit-app-region: no-drag;
+}
+
+[dir='rtl'] .newsletter-popup {
+  right: auto;
+  left: 24px;
+}
+
+.newsletter-popup__close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+[dir='rtl'] .newsletter-popup__close {
+  right: auto;
+  left: 10px;
+}
+
+.newsletter-popup__close:hover {
+  color: var(--text);
+}
+
+.newsletter-popup__title {
+  margin: 0 24px 0 0;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 650;
+}
+
+.newsletter-popup__lead {
+  margin: 8px 0 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.newsletter-popup__success {
+  margin: 8px 24px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.newsletter-popup__form {
+  display: grid;
+  gap: 8px;
+}
+
+.newsletter-popup__input {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.newsletter-popup__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.newsletter-popup__button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.newsletter-popup__button:hover {
+  filter: brightness(1.05);
+}
+
+.newsletter-popup__button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.newsletter-popup__error {
+  margin: 2px 0 0;
+  color: var(--red);
+  font-size: 12.5px;
+  line-height: 1.4;
+}

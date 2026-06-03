@@ -762,6 +762,16 @@ export interface Dict {
   'updater.readyVersion': string;
   'updater.upToDate': string;
 
+  // Newsletter signup popup.
+  'newsletter.title': string;
+  'newsletter.lead': string;
+  'newsletter.placeholder': string;
+  'newsletter.subscribe': string;
+  'newsletter.subscribing': string;
+  'newsletter.success': string;
+  'newsletter.error': string;
+  'newsletter.dismiss': string;
+
   // Entry view / tabs
   'entry.tabDesigns': string;
   'entry.tabTemplates': string;
