@@ -33,7 +33,6 @@ import { AgentDiagnosticRow } from './AgentDiagnosticRow';
 import { AmrLoginPill } from './AmrLoginPill';
 import {
   fetchVelaLoginStatus,
-  launchAntigravityOauth,
   type VelaLoginStatus,
 } from '../providers/daemon';
 import { ExportDiagnosticsRow } from './ExportDiagnosticsButton';
@@ -1339,14 +1338,6 @@ export function SettingsDialog({
     markAgentInstallIntent();
     void openExternalUrl(href);
   };
-  const handleLaunchAgentOAuth = (agentId: string) => {
-    if (agentId !== 'antigravity') return;
-    pendingAgentInstallRescanRef.current = true;
-    void launchAntigravityOauth().then((result) => {
-      if (result.ok) return;
-      console.warn('[agent-diagnostic] oauth launch failed:', result.error);
-    });
-  };
   const diagnosticHandlersForAgent = (agent: AgentInfo) => {
     const docsUrl = sanitizeHttpsUrl(agent.docsUrl);
     const installUrl = sanitizeHttpsUrl(agent.installUrl);
@@ -1354,9 +1345,6 @@ export function SettingsDialog({
       onRescan: () => void handleRefreshAgents(),
       ...(docsUrl ? { onOpenDocs: () => openAgentFixUrl(docsUrl) } : {}),
       ...(installUrl ? { onOpenInstall: () => openAgentFixUrl(installUrl) } : {}),
-      ...(agent.id === 'antigravity'
-        ? { onLaunchOAuth: (agentId: string) => handleLaunchAgentOAuth(agentId) }
-        : {}),
     };
   };
   useEffect(() => {

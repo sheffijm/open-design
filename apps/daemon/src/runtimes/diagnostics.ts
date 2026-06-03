@@ -81,18 +81,15 @@ export function buildNotInvocableDiagnostic(
 }
 
 // The agent is installed and invocable but its auth probe reported a
-// missing / unverifiable credential. `launchOAuth` is only offered for
-// adapters whose interactive sign-in the daemon can drive (today antigravity
-// via the system-terminal endpoint); everyone else points at docs.
+// missing / unverifiable credential. Detection only reaches this helper for
+// adapters that declare a cheap, side-effect-free authProbe; until an adapter
+// also declares a daemon-safe OAuth producer, diagnostics point at docs.
 export function buildAuthDiagnostic(
   def: Pick<RuntimeAgentDef, 'id' | 'name'>,
   auth: AgentAuthProbeResult,
 ): AgentDiagnostic | null {
   if (auth.status === 'ok') return null;
-  const signInIntent: AgentFixIntent =
-    def.id === 'antigravity'
-      ? { kind: 'launchOAuth', agentId: def.id }
-      : { kind: 'openDocs' };
+  const signInIntent: AgentFixIntent = { kind: 'openDocs' };
   if (auth.status === 'missing') {
     return {
       reason: 'auth-missing',

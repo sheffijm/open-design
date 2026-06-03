@@ -19,7 +19,6 @@ const {
   importGitHubDesignSystemMock,
   fetchProviderModelsMock,
   fetchLatestGithubReleaseInfoMock,
-  launchAntigravityOauthMock,
   openExternalUrlMock,
   analyticsTrackMock,
 } = vi.hoisted(() => ({
@@ -37,7 +36,6 @@ const {
   importGitHubDesignSystemMock: vi.fn(),
   fetchProviderModelsMock: vi.fn(),
   fetchLatestGithubReleaseInfoMock: vi.fn(),
-  launchAntigravityOauthMock: vi.fn(),
   openExternalUrlMock: vi.fn(),
   analyticsTrackMock: vi.fn(),
 }));
@@ -72,16 +70,6 @@ vi.mock('../../src/providers/registry', async () => {
     fetchLatestGithubReleaseInfo: fetchLatestGithubReleaseInfoMock,
     openExternalUrl: openExternalUrlMock,
     codexPetSpritesheetUrl: (pet: { spritesheetUrl: string }) => pet.spritesheetUrl,
-  };
-});
-
-vi.mock('../../src/providers/daemon', async () => {
-  const actual = await vi.importActual<typeof import('../../src/providers/daemon')>(
-    '../../src/providers/daemon',
-  );
-  return {
-    ...actual,
-    launchAntigravityOauth: launchAntigravityOauthMock,
   };
 });
 
@@ -335,7 +323,6 @@ beforeEach(() => {
   importLocalDesignSystemMock.mockReset();
   importGitHubDesignSystemMock.mockReset();
   fetchProviderModelsMock.mockReset();
-  launchAntigravityOauthMock.mockReset();
   openExternalUrlMock.mockReset();
   analyticsTrackMock.mockReset();
   notificationPermissionMock.mockReturnValue('default');
@@ -365,7 +352,6 @@ beforeEach(() => {
   }));
   fetchLatestGithubReleaseInfoMock.mockReset();
   fetchLatestGithubReleaseInfoMock.mockResolvedValue(null);
-  launchAntigravityOauthMock.mockResolvedValue({ ok: true });
   openExternalUrlMock.mockResolvedValue(true);
   importLocalDesignSystemMock.mockResolvedValue({
     designSystem: {
@@ -2050,45 +2036,6 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
         throwOnError: true,
         agentCliEnv: {},
       });
-    });
-  });
-
-  it('wires the installed Antigravity OAuth diagnostic action', async () => {
-    const antigravityAgent: AgentInfo = {
-      id: 'antigravity',
-      name: 'Antigravity',
-      bin: 'agy',
-      available: true,
-      version: '1.0.0',
-      models: [{ id: 'default', label: 'Default' }],
-      diagnostics: [
-        {
-          reason: 'auth-missing',
-          severity: 'error',
-          message: 'Antigravity is installed but not authenticated.',
-          fixActions: [
-            { kind: 'launchOAuth', agentId: 'antigravity' },
-            { kind: 'rescan' },
-          ],
-        },
-      ],
-    };
-
-    renderSettingsDialog(
-      { mode: 'daemon', agentId: 'antigravity' },
-      { agents: [antigravityAgent] },
-    );
-
-    fireEvent.click(screen.getByRole('tab', { name: /Local CLI.*1 installed/i }));
-    const antigravityCard = screen.getByRole('button', { name: /Antigravity/i })
-      .closest('.agent-card') as HTMLElement;
-
-    fireEvent.click(within(antigravityCard).getByRole('button', {
-      name: en['chat.antigravityError.launchTerminalCta'],
-    }));
-
-    await waitFor(() => {
-      expect(launchAntigravityOauthMock).toHaveBeenCalledTimes(1);
     });
   });
 

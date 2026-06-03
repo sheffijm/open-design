@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from './helpers/test-helpers.js';
 import { detectAgentsStream } from '../../src/runtimes/detection.js';
+import { buildAuthDiagnostic } from '../../src/runtimes/diagnostics.js';
 
 const posixTest = process.platform === 'win32' ? test.skip : test;
 
@@ -124,6 +125,19 @@ posixTest('detectAgents emits an auth-missing diagnostic when the auth probe rep
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('auth diagnostics do not offer daemon OAuth without an active producer', () => {
+  const diagnostic = buildAuthDiagnostic(
+    { id: 'antigravity', name: 'Antigravity' },
+    {
+      status: 'missing',
+      message: 'Antigravity is installed but not authenticated.',
+    },
+  );
+
+  const intents = (diagnostic?.fixActions ?? []).map((a) => a.kind);
+  assert.deepEqual(intents, ['openDocs', 'rescan']);
 });
 
 posixTest('detectAgentsStream yields the same agent set as detectAgents', async () => {
