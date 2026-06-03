@@ -248,6 +248,177 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.home-hero__plus-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+/* Anchored bottom-left and opening upward: the "+" trigger sits at the
+   bottom-left of the composer, so the menu grows toward the heading rather
+   than off the bottom edge. The panel runs its own refined rhythm (roomy
+   rows, hairline icons, regular-weight labels) rather than inheriting the
+   denser .home-hero__shortcut-menu-panel look. */
+.home-hero__plus-menu-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 90;
+  min-width: 170px;
+  display: grid;
+  gap: 0;
+  padding: 4px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 10px 28px -10px rgba(0, 0, 0, 0.18);
+  /* No overflow:hidden — the Connectors row needs to fly a submenu out past
+     the right edge. Item hover backgrounds stay contained via their own
+     border-radius instead. */
+}
+/* Scoped overrides — keep these off the shared ShortcutsMenu items. */
+.home-hero__plus-menu-panel .home-hero__shortcut-menu-item {
+  min-height: 30px;
+  gap: 10px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1;
+  color: var(--text-strong);
+}
+.home-hero__plus-menu-panel .home-hero__shortcut-menu-item:hover:not(:disabled),
+.home-hero__plus-menu-panel .home-hero__shortcut-menu-item:focus-visible {
+  border-color: transparent;
+  background: var(--bg-subtle);
+}
+.home-hero__plus-menu-panel .home-hero__shortcut-menu-icon {
+  width: 17px;
+  height: 17px;
+  opacity: 0.85;
+}
+/* Connectors row anchors the right-side flyout. */
+.home-hero__connectors-menu-row {
+  position: relative;
+}
+.home-hero__connectors-parent {
+  width: 100%;
+}
+.home-hero__connectors-chevron {
+  margin-left: auto;
+  opacity: 0.6;
+}
+.home-hero__connectors-submenu {
+  position: absolute;
+  /* Overlap the parent row by a hair so moving the cursor rightward never
+     crosses an empty gap that would fire the row's mouseleave and snap the
+     flyout shut. The visual separation comes from the panel border + shadow. */
+  left: calc(100% + 2px);
+  top: -5px;
+  z-index: 91;
+  min-width: 200px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 4px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 10px 28px -10px rgba(0, 0, 0, 0.18);
+}
+.home-hero__connectors-submenu-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+.home-hero__connectors-submenu-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.home-hero__connectors-submenu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+/* Invisible bridge spanning the gap between the row and the flyout so the
+   cursor never leaves the hoverable region mid-transit. */
+.home-hero__connectors-submenu::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  width: 8px;
+}
+.home-hero__connectors-submenu .home-hero__shortcut-menu-item {
+  min-height: 30px;
+  gap: 10px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1;
+  color: var(--text-strong);
+}
+.home-hero__connectors-submenu .home-hero__shortcut-menu-item:hover:not(:disabled),
+.home-hero__connectors-submenu .home-hero__shortcut-menu-item:focus-visible {
+  border-color: transparent;
+  background: var(--bg-subtle);
+}
+.home-hero__connectors-submenu .home-hero__shortcut-menu-icon {
+  width: 17px;
+  height: 17px;
+  opacity: 0.85;
+}
+.home-hero__connectors-submenu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+.home-hero__connectors-submenu-empty {
+  padding: 8px 9px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.home-hero__connectors-row-logo {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.home-hero__connectors-row-logo .connector-logo {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 5px;
+  box-shadow: none;
+}
+.home-hero__connectors-row-logo .connector-logo-img {
+  padding: 1px;
+}
 
 .home-hero__input-card {
   position: relative;
@@ -513,15 +684,19 @@
   align-items: center;
   max-width: none;
   min-height: 24px;
-  margin: -2px 1px;
-  padding: 1px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
+  /* Keep the chip's box close to the underlying plain-text width so the
+     textarea caret (positioned against the raw text) stays aligned with the
+     highlighted overlay. Extra horizontal padding/border/heavier weight all
+     widen the chip past its text and drift the caret — so we trim them. */
+  margin: -2px 0;
+  padding: 1px 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-panel));
   color: color-mix(in srgb, var(--accent) 68%, var(--text));
   font: inherit;
   font-size: inherit;
-  font-weight: 650;
+  font-weight: inherit;
   line-height: inherit;
   letter-spacing: inherit;
   vertical-align: baseline;
@@ -542,6 +717,39 @@
 .home-hero__prompt-mention--static {
   pointer-events: none;
   cursor: default;
+}
+/* Connector chips: inline logo + bold + brand-colored name, no pill bg. The
+   logo consumes layout width the raw textarea text lacks, so the caret drifts
+   slightly — an accepted tradeoff (arrow keys skip the mention atomically). */
+.home-hero__prompt-mention[data-mention-kind='connector'],
+.home-hero__prompt-mention[data-mention-kind='connector']:hover,
+.home-hero__prompt-mention[data-mention-kind='connector']:focus-visible {
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  font-weight: 700;
+  color: var(--mention-color);
+}
+.home-hero__prompt-mention[data-mention-kind='connector'] .connector-logo {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: none;
+}
+.home-hero__prompt-mention[data-mention-kind='connector'] .connector-logo-img {
+  padding: 1px;
+}
+/* Mention chip label: clamp long names with an ellipsis so a verbose
+   plugin/connector title doesn't stretch the chip across the composer. */
+.home-hero__prompt-mention-label {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 .home-hero__input {
   position: relative;
@@ -1269,11 +1477,13 @@
   max-width: 460px;
   max-height: min(280px, calc(100vh - 220px));
   overflow: auto;
-  padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--bg-panel) 98%, var(--bg-subtle) 2%);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16), 0 1px 2px rgba(15, 23, 42, 0.08);
+  padding: 5px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 10px 28px -10px rgba(0, 0, 0, 0.18);
   isolation: isolate;
 }
 .home-hero__footer-select-menu--searchable {
@@ -1286,13 +1496,13 @@
   width: min(340px, calc(100vw - 32px));
   max-width: min(340px, calc(100vw - 32px));
   max-height: min(280px, calc(100vh - 240px));
-  padding: 7px;
-  border-color: color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--bg-panel) 98%, white);
+  padding: 5px;
+  border-color: var(--border-strong, var(--border));
+  border-radius: 12px;
+  background: var(--bg-panel);
   box-shadow:
-    0 16px 38px rgba(15, 23, 42, 0.14),
-    0 2px 6px rgba(15, 23, 42, 0.08);
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 10px 28px -10px rgba(0, 0, 0, 0.18);
 }
 .home-hero__footer-select-search {
   position: sticky;
@@ -1308,17 +1518,17 @@
 }
 .home-hero__footer-select-search input {
   width: 100%;
-  height: 42px;
-  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
-  border-radius: 10px;
+  height: 36px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 9px;
   background: var(--bg-panel);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 450;
   letter-spacing: 0;
   outline: none;
-  padding: 0 12px;
+  padding: 0 11px;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-search input {
   height: 34px;
@@ -1344,10 +1554,10 @@
     inset 0 1px 0 color-mix(in srgb, white 70%, transparent);
 }
 .home-hero__footer-select-count {
-  padding: 12px 4px 4px;
+  padding: 8px 4px 4px;
   color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 550;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-count {
   padding: 7px 3px 0;
@@ -1391,11 +1601,11 @@
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
-  min-height: 42px;
-  padding: 7px 9px;
+  min-height: 38px;
+  padding: 6px 9px;
   font: inherit;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
   letter-spacing: 0;
   text-align: left;
   transition:
@@ -1424,8 +1634,8 @@
   gap: 2px;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-copy > .home-hero__footer-select-label {
-  font-size: 12.5px;
-  font-weight: 760;
+  font-size: 13px;
+  font-weight: 550;
   color: currentColor;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-description {
@@ -1434,20 +1644,20 @@
   line-height: 1.15;
 }
 .home-hero__footer-select-menu--searchable .home-hero__footer-select-item {
-  min-height: 58px;
-  padding: 9px 10px;
-  font-size: 14px;
-  font-weight: 600;
+  min-height: 50px;
+  padding: 7px 9px;
+  font-size: 13px;
+  font-weight: 500;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-item {
   grid-template-columns: 32px minmax(0, 1fr) minmax(54px, auto) 16px;
   gap: 8px;
   min-height: 42px;
   padding: 5px 8px;
-  border-radius: 9px;
+  border-radius: 8px;
   color: var(--text);
-  font-size: 12.5px;
-  font-weight: 720;
+  font-size: 13px;
+  font-weight: 500;
 }
 .home-hero__footer-select-meta {
   max-width: 92px;
@@ -1697,11 +1907,11 @@
   background: color-mix(in srgb, #eaf0f5 78%, var(--bg-panel));
 }
 .home-hero__footer-select-item.is-selected {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-subtle));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-subtle));
   color: var(--accent);
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-item.is-selected {
-  background: color-mix(in srgb, var(--accent) 10%, #e7e1e3);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-subtle));
   color: var(--accent);
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-item.is-selected .home-hero__footer-select-description,

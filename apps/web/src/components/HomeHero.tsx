@@ -33,6 +33,8 @@ import type {
 } from '@open-design/contracts';
 import type { SkillSummary } from '../types';
 import { isImeComposing } from '../utils/imeComposing';
+import { ConnectorLogo, useResolvedTheme } from './ConnectorLogo';
+import { connectorBrandColor } from '../utils/connectorBrandColor';
 import { Icon, type IconName } from './Icon';
 import { PluginInputsForm } from './PluginInputsForm';
 import { useAnalytics } from '../analytics/provider';
@@ -44,6 +46,7 @@ import {
 } from './home-hero/chips';
 import {
   buildInlineMentionParts,
+  connectorMentionPresent,
   inlineMentionToken,
   type InlineMentionEntity,
 } from '../utils/inlineMentions';
@@ -103,6 +106,9 @@ interface Props {
   onPickSkill?: (skill: SkillSummary, nextPrompt: string | null) => void;
   onPickMcp?: (server: McpServerConfig, nextPrompt: string) => void;
   onPickConnector?: (connector: ConnectorDetail, nextPrompt: string) => void;
+  onOpenIntegrations?: () => void;
+  onOpenPlugins?: () => void;
+  onOpenMcp?: () => void;
   onPickChip: (chip: HomeHeroChip) => void;
   contextItemCount: number;
   error: string | null;
@@ -188,6 +194,9 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
     onPickSkill = () => undefined,
     onPickMcp = () => undefined,
     onPickConnector = () => undefined,
+    onOpenIntegrations = () => undefined,
+    onOpenPlugins = () => undefined,
+    onOpenMcp = () => undefined,
     onPickChip,
     contextItemCount,
     error,
@@ -204,11 +213,18 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
   const [dragActive, setDragActive] = useState(false);
   const [openInlineInputName, setOpenInlineInputName] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [connectorsSubmenuOpen, setConnectorsSubmenuOpen] = useState(false);
+  const [pluginsSubmenuOpen, setPluginsSubmenuOpen] = useState(false);
+  const [mcpSubmenuOpen, setMcpSubmenuOpen] = useState(false);
+  const [submenuQuery, setSubmenuQuery] = useState('');
   const [selectedPromptExample, setSelectedPromptExample] = useState<SelectedPromptExample | null>(null);
+  const resolvedTheme = useResolvedTheme();
   const composingRef = useRef(false);
   const inputElementRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const shortcutsMenuRef = useRef<HTMLDivElement>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
   const canSubmit = (prompt.trim().length > 0 || stagedFiles.length > 0) && !submitDisabled;
   const placeholder = activePluginTitle || activeSkillTitle
     ? t('homeHero.placeholderActive')
@@ -244,7 +260,12 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
         : [],
     [connectorOptions, mentionActive, mentionQuery],
   );
-  const pickerOpen = mentionActive;
+  // The inline `@`-mention picker panel has been retired — typing `@` no
+  // longer pops a floating list. Context is now driven through the "+" menu
+  // (and its Connectors submenu). Forcing this false keeps the surrounding
+  // mention machinery (highlight rendering, boundary helpers) intact while the
+  // panel and its keyboard navigation stay dormant.
+  const pickerOpen = false;
   const tabs: Array<{ id: HomeMentionTab; label: string; count: number }> = [
     { id: 'all', label: t('common.all'), count: pluginMatches.length + skillMatches.length + mcpMatches.length + connectorMatches.length },
     { id: 'plugins', label: t('entry.navPlugins'), count: pluginMatches.length },
@@ -352,6 +373,24 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
     if (activePluginRecord) map.set(activePluginRecord.id, activePluginRecord);
     return map;
   }, [activePluginRecord, pluginOptions, selectedPluginContexts]);
+  const connectorByMentionId = useMemo(() => {
+    const map = new Map<string, ConnectorDetail>();
+    for (const connector of connectorOptions ?? []) map.set(connector.id, connector);
+    return map;
+  }, [connectorOptions]);
+  const submenuNeedle = submenuQuery.trim().toLocaleLowerCase();
+  const filteredPluginOptions = useMemo(() => {
+    if (!submenuNeedle) return pluginOptions;
+    return pluginOptions.filter((p) =>
+      `${p.title} ${p.id}`.toLocaleLowerCase().includes(submenuNeedle),
+    );
+  }, [pluginOptions, submenuNeedle]);
+  const filteredMcpOptions = useMemo(() => {
+    if (!submenuNeedle) return mcpOptions;
+    return mcpOptions.filter((s) =>
+      `${s.label ?? ''} ${s.id}`.toLocaleLowerCase().includes(submenuNeedle),
+    );
+  }, [mcpOptions, submenuNeedle]);
   const promptOverlayParts = useMemo(
     () => buildPromptOverlayParts(
       pluginInputTemplate,
@@ -464,6 +503,30 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
   }, [shortcutsOpen]);
 
   useEffect(() => {
+    if (!plusMenuOpen) {
+      setConnectorsSubmenuOpen(false);
+      setPluginsSubmenuOpen(false);
+      setMcpSubmenuOpen(false);
+      setSubmenuQuery('');
+      return;
+    }
+    const closeOnPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && plusMenuRef.current?.contains(target)) return;
+      setPlusMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPlusMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnPointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [plusMenuOpen]);
+
+  useEffect(() => {
     setPromptScrollTop(inputElementRef.current?.scrollTop ?? 0);
   }, [prompt, promptOverlayParts]);
 
@@ -527,6 +590,66 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
         )
       : prompt;
     onPickConnector(connector, nextPrompt);
+  }
+
+
+  // Clicking a connector row drops its `@name` mention straight into the
+  // composer (and records the context via onPickConnector). No-op if it's
+  // already present so repeated clicks don't stack duplicate tokens.
+  function insertConnector(connector: ConnectorDetail) {
+    setPlusMenuOpen(false);
+    if (connectorMentionPresent(prompt, connector.name)) return;
+    const needsSpace = prompt.length > 0 && !/\s$/.test(prompt);
+    // Trailing space so the caret lands after the chip (visible + ready to
+    // keep typing) instead of butting up against the highlighted token.
+    const next = `${prompt}${needsSpace ? ' ' : ''}${inlineMentionToken(connector.name)} `;
+    onPickConnector(connector, next);
+    // Focus came from the menu button, not the textarea — explicitly move it
+    // back so the caret shows. Mirrors openMentionCategory's focus dance.
+    requestAnimationFrame(() => {
+      const input = inputElementRef.current;
+      if (!input) return;
+      input.focus();
+      const position = next.length;
+      input.setSelectionRange(position, position);
+      input.scrollTop = input.scrollHeight;
+    });
+  }
+
+  // Clicking a plugin row drops its `@Title` mention into the composer (mirrors
+  // insertConnector). No-op if already present; trailing space + focus dance.
+  function insertPlugin(record: InstalledPluginRecord) {
+    setPlusMenuOpen(false);
+    if (connectorMentionPresent(prompt, record.title)) return;
+    const needsSpace = prompt.length > 0 && !/\s$/.test(prompt);
+    const next = `${prompt}${needsSpace ? ' ' : ''}${pluginMentionText(record)} `;
+    onPickPlugin(record, next);
+    requestAnimationFrame(() => {
+      const input = inputElementRef.current;
+      if (!input) return;
+      input.focus();
+      const position = next.length;
+      input.setSelectionRange(position, position);
+      input.scrollTop = input.scrollHeight;
+    });
+  }
+
+  // Clicking an MCP row drops its `@label` mention into the composer.
+  function insertMcp(server: McpServerConfig) {
+    setPlusMenuOpen(false);
+    const label = server.label || server.id;
+    if (connectorMentionPresent(prompt, label)) return;
+    const needsSpace = prompt.length > 0 && !/\s$/.test(prompt);
+    const next = `${prompt}${needsSpace ? ' ' : ''}${inlineMentionToken(label)} `;
+    onPickMcp(server, next);
+    requestAnimationFrame(() => {
+      const input = inputElementRef.current;
+      if (!input) return;
+      input.focus();
+      const position = next.length;
+      input.setSelectionRange(position, position);
+      input.scrollTop = input.scrollHeight;
+    });
   }
 
   function updatePluginInput(name: string, value: unknown) {
@@ -613,6 +736,45 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
     return true;
   }
 
+  // Treat a mention as one atomic unit for caret motion: a plain Left/Right
+  // arrow at a mention boundary jumps the caret across the whole `@token`
+  // instead of landing inside it. Without this, onSelect's mentionSafeSelection
+  // keeps snapping the caret back to the nearer edge, so it can never cross.
+  function skipMentionWithArrow(event: ReactKeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false;
+    if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+    const input = event.currentTarget;
+    if (input.selectionStart !== input.selectionEnd) return false;
+    const caret = input.selectionStart;
+    const range = promptMentionRanges.find((item) =>
+      event.key === 'ArrowRight' ? caret === item.start : caret === item.end,
+    );
+    if (!range) return false;
+    event.preventDefault();
+    if (event.key === 'ArrowLeft') {
+      input.setSelectionRange(range.start, range.start);
+      return true;
+    }
+    // ArrowRight: jump past the mention. If it isn't already followed by
+    // whitespace, insert one space so the caret lands clear of the chip ready
+    // for the next word instead of butting against it.
+    const followedBySpace = /\s/.test(prompt[range.end] ?? '');
+    if (followedBySpace) {
+      input.setSelectionRange(range.end, range.end);
+      return true;
+    }
+    const nextPrompt = `${prompt.slice(0, range.end)} ${prompt.slice(range.end)}`;
+    onPromptChange(nextPrompt);
+    requestAnimationFrame(() => {
+      const nextInput = inputElementRef.current;
+      if (!nextInput) return;
+      nextInput.focus();
+      const caretAfter = range.end + 1;
+      nextInput.setSelectionRange(caretAfter, caretAfter);
+    });
+    return true;
+  }
+
   function handleDrop(event: ReactDragEvent<HTMLDivElement>) {
     const files = Array.from(event.dataTransfer.files ?? []);
     if (files.length === 0) return;
@@ -668,32 +830,9 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
       >
         {showActiveContextRow ? (
           <div className="home-hero__active">
-            {selectedPluginContexts.map((plugin) => (
-              <span
-                key={plugin.id}
-                className="home-hero__active-chip home-hero__active-chip--context"
-                data-testid={`home-hero-context-plugin-${plugin.id}`}
-              >
-                <button
-                  type="button"
-                  className="home-hero__active-chip-body"
-                  onClick={() => onOpenPluginDetails(plugin)}
-                  title={t('homeHero.pluginTitle', { title: plugin.title })}
-                >
-                  <span className="home-hero__active-dot" aria-hidden />
-                  <span>{plugin.title}</span>
-                </button>
-                <button
-                  type="button"
-                  className="home-hero__active-clear"
-                  onClick={() => onRemovePluginContext(plugin.id)}
-                  aria-label={t('homeHero.removePluginAria', { title: plugin.title })}
-                  title={t('homeHero.removePlugin')}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
+            {/* Plugin/connector mentions inserted from the "+" menu render
+                inline in the composer (the @chip), so we no longer duplicate
+                them as a top context-pill row. */}
             {showActivePluginChip && activePluginTitle ? (
               <span className="home-hero__active-chip" data-testid="home-hero-active-plugin">
                 <button
@@ -803,6 +942,7 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
                           key={`${part.entity.kind}-${part.entity.id}-${index}`}
                           entity={part.entity}
                           pluginRecord={pluginByMentionId.get(part.entity.id) ?? null}
+                          connector={connectorByMentionId.get(part.entity.id) ?? null}
                           text={part.text}
                           onOpenPluginDetails={onOpenPluginDetails}
                         />
@@ -845,6 +985,7 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
               onKeyDown={(e) => {
                 if (isImeComposing(e, composingRef.current)) return;
                 if (deleteMentionTokenFromKey(e)) return;
+                if (skipMentionWithArrow(e)) return;
                 if (pickerOpen && visiblePickerOptions.length > 0) {
                   if (e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -1061,23 +1202,279 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
             }}
           />
           <div className="home-hero__foot-left">
-            <button
-              type="button"
-              className="home-hero__attach"
-              data-testid="home-hero-attach"
-              onClick={() => {
-                trackHomeChatComposerClick(analytics.track, {
-                  page_name: 'home',
-                  area: 'chat_composer',
-                  element: 'attachment',
-                });
-                fileInputRef.current?.click();
-              }}
-              title={t('chat.attachAria')}
-              aria-label={t('chat.attachAria')}
-            >
-              <Icon name="attach" size={15} />
-            </button>
+            <div ref={plusMenuRef} className="home-hero__plus-menu">
+              <button
+                type="button"
+                className="home-hero__attach"
+                data-testid="home-hero-plus"
+                aria-haspopup="menu"
+                aria-expanded={plusMenuOpen}
+                title={t('homeHero.addMenu')}
+                aria-label={t('homeHero.addMenu')}
+                onClick={() => setPlusMenuOpen((open) => !open)}
+              >
+                <Icon name="plus" size={16} />
+              </button>
+              {plusMenuOpen ? (
+                <div
+                  className="home-hero__plus-menu-panel"
+                  role="menu"
+                  aria-label={t('homeHero.addMenu')}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="home-hero__shortcut-menu-item"
+                    data-testid="home-hero-plus-upload"
+                    onClick={() => {
+                      setPlusMenuOpen(false);
+                      trackHomeChatComposerClick(analytics.track, {
+                        page_name: 'home',
+                        area: 'chat_composer',
+                        element: 'attachment',
+                      });
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    <Icon name="attach" size={16} className="home-hero__shortcut-menu-icon" />
+                    <span>{t('chat.attachAria')}</span>
+                  </button>
+                  <div
+                    className="home-hero__connectors-menu-row"
+                    onMouseEnter={() => setConnectorsSubmenuOpen(true)}
+                    onMouseLeave={() => setConnectorsSubmenuOpen(false)}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="home-hero__shortcut-menu-item home-hero__connectors-parent"
+                      aria-haspopup="menu"
+                      aria-expanded={connectorsSubmenuOpen}
+                      onClick={() => setConnectorsSubmenuOpen((open) => !open)}
+                    >
+                      <Icon name="link" size={16} className="home-hero__shortcut-menu-icon" />
+                      <span>{t('connectors.title')}</span>
+                      <Icon
+                        name="chevron-right"
+                        size={14}
+                        className="home-hero__connectors-chevron"
+                      />
+                    </button>
+                    {connectorsSubmenuOpen ? (
+                      <div className="home-hero__connectors-submenu" role="menu">
+                        <div className="home-hero__connectors-submenu-list">
+                          {connectorOptions.length === 0 ? (
+                            <div className="home-hero__connectors-submenu-empty">
+                              {t('homeHero.noConnectors')}
+                            </div>
+                          ) : (
+                            connectorOptions.map((connector) => (
+                              <button
+                                key={connector.id}
+                                type="button"
+                                role="menuitem"
+                                className="home-hero__shortcut-menu-item"
+                                onClick={() => insertConnector(connector)}
+                              >
+                                <span className="home-hero__connectors-row-logo">
+                                  <ConnectorLogo
+                                    connector={connector}
+                                    theme={resolvedTheme}
+                                    size="sm"
+                                  />
+                                </span>
+                                <span>{connector.name}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                        <div className="home-hero__connectors-submenu-divider" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="home-hero__shortcut-menu-item"
+                          onClick={() => {
+                            setPlusMenuOpen(false);
+                            onOpenIntegrations();
+                          }}
+                        >
+                          <Icon
+                            name="plus"
+                            size={16}
+                            className="home-hero__shortcut-menu-icon"
+                          />
+                          <span>{t('homeHero.addConnectors')}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div
+                    className="home-hero__connectors-menu-row"
+                    onMouseEnter={() => setPluginsSubmenuOpen(true)}
+                    onMouseLeave={() => setPluginsSubmenuOpen(false)}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="home-hero__shortcut-menu-item home-hero__connectors-parent"
+                      aria-haspopup="menu"
+                      aria-expanded={pluginsSubmenuOpen}
+                      onClick={() => setPluginsSubmenuOpen((open) => !open)}
+                    >
+                      <Icon name="sparkles" size={16} className="home-hero__shortcut-menu-icon" />
+                      <span>{t('entry.navPlugins')}</span>
+                      <Icon
+                        name="chevron-right"
+                        size={14}
+                        className="home-hero__connectors-chevron"
+                      />
+                    </button>
+                    {pluginsSubmenuOpen ? (
+                      <div className="home-hero__connectors-submenu" role="menu">
+                        {pluginOptions.length > 0 ? (
+                          <div className="home-hero__connectors-submenu-search">
+                            <Icon name="search" size={13} />
+                            <input
+                              value={submenuQuery}
+                              onChange={(event) => setSubmenuQuery(event.target.value)}
+                              placeholder={t('entry.navPlugins')}
+                              aria-label={t('entry.navPlugins')}
+                            />
+                          </div>
+                        ) : null}
+                        <div className="home-hero__connectors-submenu-list">
+                          {pluginOptions.length === 0 ? (
+                            <div className="home-hero__connectors-submenu-empty">
+                              {t('homeHero.noPlugins')}
+                            </div>
+                          ) : filteredPluginOptions.length === 0 ? (
+                            <div className="home-hero__connectors-submenu-empty">
+                              {t('homeHero.noResults', { query: submenuQuery })}
+                            </div>
+                          ) : (
+                            filteredPluginOptions.map((plugin) => (
+                              <button
+                                key={plugin.id}
+                                type="button"
+                                role="menuitem"
+                                className="home-hero__shortcut-menu-item"
+                                onClick={() => insertPlugin(plugin)}
+                              >
+                                <Icon
+                                  name="sparkles"
+                                  size={16}
+                                  className="home-hero__shortcut-menu-icon"
+                                />
+                                <span>{plugin.title}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                        <div className="home-hero__connectors-submenu-divider" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="home-hero__shortcut-menu-item"
+                          onClick={() => {
+                            setPlusMenuOpen(false);
+                            onOpenPlugins();
+                          }}
+                        >
+                          <Icon
+                            name="plus"
+                            size={16}
+                            className="home-hero__shortcut-menu-icon"
+                          />
+                          <span>{t('homeHero.addPlugin')}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div
+                    className="home-hero__connectors-menu-row"
+                    onMouseEnter={() => setMcpSubmenuOpen(true)}
+                    onMouseLeave={() => setMcpSubmenuOpen(false)}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="home-hero__shortcut-menu-item home-hero__connectors-parent"
+                      aria-haspopup="menu"
+                      aria-expanded={mcpSubmenuOpen}
+                      onClick={() => setMcpSubmenuOpen((open) => !open)}
+                    >
+                      <Icon name="link" size={16} className="home-hero__shortcut-menu-icon" />
+                      <span>MCP</span>
+                      <Icon
+                        name="chevron-right"
+                        size={14}
+                        className="home-hero__connectors-chevron"
+                      />
+                    </button>
+                    {mcpSubmenuOpen ? (
+                      <div className="home-hero__connectors-submenu" role="menu">
+                        {mcpOptions.length > 0 ? (
+                          <div className="home-hero__connectors-submenu-search">
+                            <Icon name="search" size={13} />
+                            <input
+                              value={submenuQuery}
+                              onChange={(event) => setSubmenuQuery(event.target.value)}
+                              placeholder="MCP"
+                              aria-label="MCP"
+                            />
+                          </div>
+                        ) : null}
+                        <div className="home-hero__connectors-submenu-list">
+                          {mcpOptions.length === 0 ? (
+                            <div className="home-hero__connectors-submenu-empty">
+                              {t('homeHero.noMcp')}
+                            </div>
+                          ) : filteredMcpOptions.length === 0 ? (
+                            <div className="home-hero__connectors-submenu-empty">
+                              {t('homeHero.noResults', { query: submenuQuery })}
+                            </div>
+                          ) : (
+                            filteredMcpOptions.map((server) => (
+                              <button
+                                key={server.id}
+                                type="button"
+                                role="menuitem"
+                                className="home-hero__shortcut-menu-item"
+                                onClick={() => insertMcp(server)}
+                              >
+                                <Icon
+                                  name="link"
+                                  size={16}
+                                  className="home-hero__shortcut-menu-icon"
+                                />
+                                <span>{server.label || server.id}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                        <div className="home-hero__connectors-submenu-divider" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="home-hero__shortcut-menu-item"
+                          onClick={() => {
+                            setPlusMenuOpen(false);
+                            onOpenMcp();
+                          }}
+                        >
+                          <Icon
+                            name="plus"
+                            size={16}
+                            className="home-hero__shortcut-menu-icon"
+                          />
+                          <span>{t('homeHero.addMcp')}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             {activeCreateChip ? (
               <ActiveTypeChip chip={activeCreateChip} onClear={onClearActiveChip} />
             ) : null}
@@ -1518,6 +1915,28 @@ function buildHomeMentionEntities({
   skillOptions: SkillSummary[];
 }): InlineMentionEntity[] {
   const entities: InlineMentionEntity[] = [];
+  // Connectors are registered FIRST so that when a connector and a plugin share
+  // a name (e.g. both "Notion"), the `@Notion` token resolves to the connector
+  // — matching the user's intent when they pick it from the Connectors submenu,
+  // and giving it the richer logo + brand-color chip.
+  for (const connector of connectorOptions) {
+    entities.push({
+      id: connector.id,
+      kind: 'connector',
+      label: connector.name,
+      token: inlineMentionToken(connector.name),
+      title: `Connector: ${connector.name}`,
+    });
+    if (connector.id !== connector.name) {
+      entities.push({
+        id: connector.id,
+        kind: 'connector',
+        label: connector.id,
+        token: inlineMentionToken(connector.id),
+        title: `Connector: ${connector.name}`,
+      });
+    }
+  }
   const pluginSeen = new Set<string>();
   for (const plugin of [...selectedPluginContexts, ...pluginOptions]) {
     if (pluginSeen.has(plugin.id)) continue;
@@ -1588,51 +2007,72 @@ function buildHomeMentionEntities({
       });
     }
   }
-  for (const connector of connectorOptions) {
-    entities.push({
-      id: connector.id,
-      kind: 'connector',
-      label: connector.name,
-      token: inlineMentionToken(connector.name),
-      title: `Connector: ${connector.name}`,
-    });
-    if (connector.id !== connector.name) {
-      entities.push({
-        id: connector.id,
-        kind: 'connector',
-        label: connector.id,
-        token: inlineMentionToken(connector.id),
-        title: `Connector: ${connector.name}`,
-      });
-    }
-  }
   return entities;
 }
 
 function InlineMentionToken({
   entity,
   pluginRecord,
+  connector,
   text,
   onOpenPluginDetails,
 }: {
   entity: InlineMentionEntity;
   pluginRecord: InstalledPluginRecord | null;
+  connector: ConnectorDetail | null;
   text: string;
   onOpenPluginDetails: (record: InstalledPluginRecord) => void;
 }) {
+  const mentionTheme = useResolvedTheme();
   if (entity.kind === 'plugin' && pluginRecord) {
     return (
       <button
         type="button"
-        className="home-hero__prompt-mention"
+        className="home-hero__prompt-mention home-hero__prompt-mention--connector"
+        data-mention-kind="connector"
         data-plugin-id={pluginRecord.id}
         data-testid={`home-hero-prompt-plugin-${pluginRecord.id}`}
+        style={{ ['--mention-color' as string]: connectorBrandColor({ id: pluginRecord.id, name: pluginRecord.title }) }}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => onOpenPluginDetails(pluginRecord)}
         title={entity.title ?? `Plugin: ${pluginRecord.title}`}
       >
-        {text}
+        <span className="home-hero__prompt-mention-label">{text}</span>
       </button>
+    );
+  }
+  if (entity.kind === 'connector' && connector) {
+    // Inline logo + bold + brand color. The logo adds layout width the raw
+    // textarea text doesn't have, so the caret drifts slightly — an accepted
+    // tradeoff (arrow keys still skip the whole mention atomically). The `@`
+    // is dropped; the logo stands in for it.
+    return (
+      <span
+        className="home-hero__prompt-mention home-hero__prompt-mention--static home-hero__prompt-mention--connector"
+        data-mention-kind="connector"
+        style={{ ['--mention-color' as string]: connectorBrandColor(connector) }}
+        title={entity.title ?? text}
+      >
+        <ConnectorLogo connector={connector} theme={mentionTheme} size="sm" />
+        <span className="home-hero__prompt-mention-label">
+          {text.startsWith('@') ? text.slice(1) : text}
+        </span>
+      </span>
+    );
+  }
+  if (entity.kind === 'mcp') {
+    // MCP servers have no logo image — just bold brand-colored text (with the
+    // leading @), matching the plugin treatment.
+    const label = entity.label || text.replace(/^@/, '');
+    return (
+      <span
+        className="home-hero__prompt-mention home-hero__prompt-mention--static home-hero__prompt-mention--connector"
+        data-mention-kind="connector"
+        style={{ ['--mention-color' as string]: connectorBrandColor({ id: entity.id, name: label }) }}
+        title={entity.title ?? text}
+      >
+        <span className="home-hero__prompt-mention-label">{text}</span>
+      </span>
     );
   }
   return (

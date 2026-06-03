@@ -96,7 +96,10 @@ function tabFromRoute(route: Route, timestamp = Date.now()): WorkspaceChromeTab 
       lastActiveAt: timestamp,
     };
   }
-  return createEntryTab(route.kind === 'home' ? route.view : 'design-systems', timestamp);
+  // Every home-kind route (home, projects, plugins, integrations, …) resolves
+  // to the single Home tab. The active sub-section is driven by the route and
+  // the left nav rail, not by spawning a tab per section.
+  return createEntryTab('home', timestamp);
 }
 
 function routeForTab(tab: WorkspaceChromeTab): Route {
@@ -124,17 +127,10 @@ function reviveTab(value: unknown): WorkspaceChromeTab | null {
   const lastActiveAt = typeof record.lastActiveAt === 'number' ? record.lastActiveAt : createdAt;
   if (!id) return null;
   if (record.kind === 'entry') {
-    const view = record.view;
-    if (
-      view === 'home'
-      || view === 'projects'
-      || view === 'tasks'
-      || view === 'plugins'
-      || view === 'design-systems'
-      || view === 'integrations'
-    ) {
-      return { id, kind: 'entry', view, createdAt, lastActiveAt };
-    }
+    // Sub-sections are no longer their own tabs. Any persisted entry tab
+    // (including legacy projects/tasks/plugins/design-systems/integrations
+    // tabs) revives as the single Home tab; normalizeTabsState then dedupes.
+    return { id, kind: 'entry', view: 'home', createdAt, lastActiveAt };
   }
   if (record.kind === 'project' && typeof record.projectId === 'string') {
     return {
@@ -204,10 +200,21 @@ function normalizeTabsState(state: WorkspaceTabsState): WorkspaceTabsState {
     if (wasActive) activeTabId = id;
     return id === tab.id ? tab : { ...tab, id };
   });
+  // Home is the application root: pin it to the front while preserving the
+  // open order of every other tab. Sorting here (not just at render) keeps the
+  // persisted order aligned with what the user sees.
+  const orderedTabs = [
+    ...tabs.filter(isHomeTab),
+    ...tabs.filter((tab) => !isHomeTab(tab)),
+  ];
   return {
-    tabs,
-    activeTabId: activeTabId || tabs[0]!.id,
+    tabs: orderedTabs,
+    activeTabId: activeTabId || orderedTabs[0]!.id,
   };
+}
+
+function isHomeTab(tab: WorkspaceChromeTab): boolean {
+  return tab.kind === 'entry' && tab.view === 'home';
 }
 
 function initialTabsState(route: Route): WorkspaceTabsState {
@@ -241,28 +248,40 @@ function syncStateToRoute(state: WorkspaceTabsState, route: Route): WorkspaceTab
   const current = normalizeTabsState(state);
   const currentActive = current.tabs.find((tab) => tab.id === current.activeTabId) ?? null;
 
-  // 1. If we are navigating to Home:
-  if (route.kind === 'home' && route.view === 'home') {
-    const existingHomeTab = current.tabs.find(
-      (tab) => tab.kind === 'entry' && tab.view === 'home',
-    );
+  // 1. Any home-kind route (home, projects, plugins, integrations, …) resolves
+  // to the single Home tab. Sub-sections are driven by the route + left nav
+  // rail inside the Home shell, never by a tab per section.
+  if (route.kind === 'home' && route.view !== 'onboarding') {
+    const existingHomeTab = current.tabs.find(isHomeTab);
     if (existingHomeTab) {
+      // Finishing onboarding lands on Home: drop the transient onboarding tab
+      // instead of leaving it beside the Home tab it resolves into.
+      const tabs = current.tabs
+        .filter((tab) => !(tab.kind === 'entry' && tab.view === 'onboarding'))
+        .map((tab) =>
+          tab.id === existingHomeTab.id ? { ...tab, lastActiveAt: timestamp } : tab,
+        );
+      return normalizeTabsState({ tabs, activeTabId: existingHomeTab.id });
+    }
+    // No Home tab yet. If the active tab is the transient onboarding tab,
+    // reuse its slot so onboarding resolves into Home in place rather than
+    // spawning a second tab.
+    if (currentActive && currentActive.kind === 'entry' && currentActive.view === 'onboarding') {
+      const replacement = {
+        ...tabFromRoute(route, currentActive.createdAt),
+        id: currentActive.id,
+        lastActiveAt: timestamp,
+      };
       return normalizeTabsState({
-        ...current,
-        tabs: current.tabs.map((tab) =>
-          tab.id === existingHomeTab.id
-            ? { ...tab, lastActiveAt: timestamp }
-            : tab,
-        ),
-        activeTabId: existingHomeTab.id,
-      });
-    } else {
-      const nextTab = tabFromRoute(route, timestamp);
-      return normalizeTabsState({
-        tabs: [...current.tabs, nextTab],
-        activeTabId: nextTab.id,
+        tabs: current.tabs.map((tab) => (tab.id === currentActive.id ? replacement : tab)),
+        activeTabId: replacement.id,
       });
     }
+    const nextTab = tabFromRoute(route, timestamp);
+    return normalizeTabsState({
+      tabs: [...current.tabs, nextTab],
+      activeTabId: nextTab.id,
+    });
   }
 
   // 2. If we are navigating to a project, and that project tab already exists:
@@ -287,10 +306,9 @@ function syncStateToRoute(state: WorkspaceTabsState, route: Route): WorkspaceTab
       });
     }
 
-    // 3. If we are navigating to a project, and the project tab does NOT exist,
-    // but the current active tab is the Home tab, we should NOT replace the Home tab.
-    // Instead, we should append a new project tab!
-    if (currentActive && currentActive.kind === 'entry' && currentActive.view === 'home') {
+    // 3. Project tab does NOT exist yet and the active tab is the Home tab:
+    // never replace Home — append a new project tab beside it.
+    if (currentActive && isHomeTab(currentActive)) {
       const nextTab = tabFromRoute(route, timestamp);
       return normalizeTabsState({
         tabs: [...current.tabs, nextTab],
@@ -383,19 +401,26 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
     () => new Map(displayTabs.map((tab) => [tab.id, tab])),
     [displayTabs],
   );
+  // Home is pinned, singleton, and uncloseable — searching for it or counting
+  // it as an "open tab" is noise. The search popover only lists the closeable
+  // project/marketplace tabs the user actually needs to jump between.
+  const searchableTabs = useMemo(
+    () => displayTabs.filter((tab) => !isHomeTab(tab.tab)),
+    [displayTabs],
+  );
   const filteredTabs = useMemo(() => {
     const needle = normalizeSearch(query);
     const source = needle
-      ? displayTabs.filter((tab) => {
+      ? searchableTabs.filter((tab) => {
           const haystack = `${tab.title} ${tab.meta}`.toLocaleLowerCase();
           return haystack.includes(needle);
         })
-      : displayTabs;
+      : searchableTabs;
     return source
       .slice()
       .sort((a, b) => b.tab.lastActiveAt - a.tab.lastActiveAt)
       .slice(0, MAX_SEARCH_RESULTS);
-  }, [displayTabs, query]);
+  }, [searchableTabs, query]);
 
   useEffect(() => {
     setState((current) => syncStateToRoute(current, route));
@@ -520,6 +545,8 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
     const normalized = normalizeTabsState(state);
     const closingIndex = normalized.tabs.findIndex((tab) => tab.id === tabId);
     if (closingIndex < 0) return;
+    // Home is the application root and cannot be closed.
+    if (isHomeTab(normalized.tabs[closingIndex]!)) return;
     let nextRoute: Route | null = null;
     const nextTabs = normalized.tabs.filter((tab) => tab.id !== tabId);
     let nextState: WorkspaceTabsState;
@@ -579,14 +606,16 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
                 </span>
                 <span className="workspace-tab__label">{display.title}</span>
               </button>
-              <button
-                type="button"
-                className="workspace-tab__close"
-                aria-label={t('common.close')}
-                onClick={() => closeTab(tab.id)}
-              >
-                <Icon name="close" size={10} />
-              </button>
+              {isHomeTab(tab) ? null : (
+                <button
+                  type="button"
+                  className="workspace-tab__close"
+                  aria-label={t('common.close')}
+                  onClick={() => closeTab(tab.id)}
+                >
+                  <Icon name="close" size={10} />
+                </button>
+              )}
             </div>
           );
         })}
@@ -632,7 +661,7 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
                 </div>
                 <div className="workspace-tabs-popover__section">
                   <span>Open tabs</span>
-                  <span>{state.tabs.length}</span>
+                  <span>{searchableTabs.length}</span>
                 </div>
                 <div className="workspace-tabs-list" role="listbox" aria-label="Open tabs">
                   {filteredTabs.length > 0 ? (
@@ -658,15 +687,17 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
                               <span className="workspace-tabs-list__meta">{display.meta}</span>
                             </span>
                           </button>
-                          <button
-                            type="button"
-                            className="workspace-tabs-list__close"
-                            onClick={() => closeTab(display.id)}
-                            title={t('common.close')}
-                            aria-label={t('common.close')}
-                          >
-                            <Icon name="close" size={11} />
-                          </button>
+                          {isHomeTab(display.tab) ? null : (
+                            <button
+                              type="button"
+                              className="workspace-tabs-list__close"
+                              onClick={() => closeTab(display.id)}
+                              title={t('common.close')}
+                              aria-label={t('common.close')}
+                            >
+                              <Icon name="close" size={11} />
+                            </button>
+                          )}
                         </div>
                       );
                     })

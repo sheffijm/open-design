@@ -109,7 +109,12 @@ function findNextKnownMention(
 }
 
 function findNextUnknownMention(text: string, from: number): MentionMatch | null {
-  const mentionPattern = /@[^\s@]+/g;
+  // Stop the token at whitespace, another `@`, OR any CJK character. Without the
+  // CJK exclusion the greedy run swallows trailing Chinese/Japanese prose (which
+  // has no spaces) into the mention — e.g. typing after `@Editorial` would make
+  // `@Editorial里把阿波` one highlighted token. CJK marks a natural word break.
+  const mentionPattern =
+    /@[^\s@　-〿぀-ヿ㐀-䶿一-鿿＀-￯]+/g;
   mentionPattern.lastIndex = from;
   let match: RegExpExecArray | null;
   while ((match = mentionPattern.exec(text)) !== null) {
@@ -139,7 +144,13 @@ function pickEarlierMention(
   if (!unknown) return known;
   if (known.start < unknown.start) return known;
   if (unknown.start < known.start) return unknown;
-  return known.token.length >= unknown.token.length ? known : unknown;
+  // Same start: prefer the KNOWN mention even when the unknown regex matched a
+  // longer run. The unknown pattern `/@[^\s@]+/` greedily swallows trailing
+  // CJK text (which has no spaces), so `@Editorial里把阿波` would otherwise win
+  // over the real `@Editorial` chip and absorb the user's prose into the chip.
+  // A known token is an exact, user-chosen entity — treat it as the atomic
+  // chip and let the following characters be plain text.
+  return known;
 }
 
 /**
@@ -190,4 +201,43 @@ interface MentionMatch {
   start: number;
   token: string;
   entity: InlineMentionEntity;
+}
+
+/** Index of the first standalone `@name` mention in `text`, or -1. */
+function findStandaloneMentionIndex(text: string, token: string): number {
+  if (!token || token === '@') return -1;
+  let from = 0;
+  let start = text.indexOf(token, from);
+  while (start !== -1) {
+    if (
+      isMentionBoundary(text, start) &&
+      isMentionRightBoundary(text, start + token.length)
+    ) {
+      return start;
+    }
+    from = start + 1;
+    start = text.indexOf(token, from);
+  }
+  return -1;
+}
+
+/**
+ * Whether `prompt` already carries `name` as a standalone inline mention.
+ * Used by the composer's connector submenu to drive each toggle's on/off
+ * state purely from the prompt text — no separate selection store.
+ */
+export function connectorMentionPresent(prompt: string, name: string): boolean {
+  return findStandaloneMentionIndex(prompt, inlineMentionToken(name)) !== -1;
+}
+
+/**
+ * Remove the first standalone `@name` mention from `prompt`, collapsing the
+ * whitespace it leaves behind. Returns the prompt unchanged when absent.
+ */
+export function removeConnectorMention(prompt: string, name: string): string {
+  const token = inlineMentionToken(name);
+  const start = findStandaloneMentionIndex(prompt, token);
+  if (start === -1) return prompt;
+  const next = `${prompt.slice(0, start)}${prompt.slice(start + token.length)}`;
+  return next.replace(/ {2,}/g, ' ').replace(/\s+$/, '').trimStart();
 }

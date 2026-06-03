@@ -472,6 +472,10 @@
   height: min(720px, calc(100vh - 64px));
   padding: 0;
   gap: 0;
+  /* Clip the square-cornered body grid (sidebar + scrolling content) to the
+     dialog's rounded corners. Without this the children paint their
+     backgrounds into the corners and the dialog reads as a sharp rectangle. */
+  overflow: hidden;
   /* Anchor for the absolutely-positioned `.settings-chrome` strip
      (close button + autosave indicator). Without this the chrome
      would escape to the viewport on long-scrolling sections. */

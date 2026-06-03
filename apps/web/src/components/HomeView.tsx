@@ -50,7 +50,7 @@ import type {
   PromptTemplateSummary,
   SkillSummary,
 } from '../types';
-import { inlineMentionToken } from '../utils/inlineMentions';
+import { connectorMentionPresent, inlineMentionToken } from '../utils/inlineMentions';
 import { HomeHero } from './HomeHero';
 import { findChip, HOME_HERO_CHIPS, type HomeHeroChip } from './home-hero/chips';
 import {
@@ -173,6 +173,8 @@ interface Props {
   onSubmit: (payload: PluginLoopSubmit) => void;
   onOpenProject: (id: string) => void;
   onViewAllProjects: () => void;
+  onOpenIntegrations?: () => void;
+  onOpenMcp?: () => void;
   onBrowseRegistry?: () => void;
   // Stage B: optional callbacks the rail's migration chips need.
   // HomeView itself never imports them; EntryShell threads them
@@ -198,6 +200,8 @@ export function HomeView({
   onSubmit,
   onOpenProject,
   onViewAllProjects,
+  onOpenIntegrations = () => undefined,
+  onOpenMcp = () => undefined,
   onBrowseRegistry,
   onOpenNewProject,
   promptHandoff,
@@ -1222,28 +1226,38 @@ export function HomeView({
       submittedActive = { ...submittedActive, result, inputs: submittedPluginInputs };
       setActive(submittedActive);
     }
-    const contextPlugins = selectedPluginContexts.map((item) => ({
-      id: item.record.id,
-      title: item.record.title,
-      ...(item.record.manifest?.description
-        ? { description: item.record.manifest.description }
-        : {}),
-    }));
-    const contextMcpServers = selectedMcpContexts.map((item) => ({
-      id: item.server.id,
-      ...(item.server.label ? { label: item.server.label } : {}),
-      ...(item.server.transport ? { transport: item.server.transport } : {}),
-      ...(item.server.url ? { url: item.server.url } : {}),
-      ...(item.server.command ? { command: item.server.command } : {}),
-    }));
-    const contextConnectors = selectedConnectorContexts.map((item) => ({
-      id: item.connector.id,
-      name: item.connector.name,
-      provider: item.connector.provider,
-      category: item.connector.category,
-      status: item.connector.status,
-      ...(item.connector.accountLabel ? { accountLabel: item.connector.accountLabel } : {}),
-    }));
+    // Only forward a context whose `@mention` still exists in the prompt text.
+    // Deleting the inline chip removes the mention, which must also drop the
+    // context — otherwise a connector/plugin the user removed would silently
+    // keep getting sent to the agent.
+    const contextPlugins = selectedPluginContexts
+      .filter((item) => connectorMentionPresent(trimmed, item.record.title))
+      .map((item) => ({
+        id: item.record.id,
+        title: item.record.title,
+        ...(item.record.manifest?.description
+          ? { description: item.record.manifest.description }
+          : {}),
+      }));
+    const contextMcpServers = selectedMcpContexts
+      .filter((item) => connectorMentionPresent(trimmed, item.server.label || item.server.id))
+      .map((item) => ({
+        id: item.server.id,
+        ...(item.server.label ? { label: item.server.label } : {}),
+        ...(item.server.transport ? { transport: item.server.transport } : {}),
+        ...(item.server.url ? { url: item.server.url } : {}),
+        ...(item.server.command ? { command: item.server.command } : {}),
+      }));
+    const contextConnectors = selectedConnectorContexts
+      .filter((item) => connectorMentionPresent(trimmed, item.connector.name))
+      .map((item) => ({
+        id: item.connector.id,
+        name: item.connector.name,
+        provider: item.connector.provider,
+        category: item.connector.category,
+        status: item.connector.status,
+        ...(item.connector.accountLabel ? { accountLabel: item.connector.accountLabel } : {}),
+      }));
     const submittedProjectKind =
       submittedActive?.projectKind ?? fallbackProjectKind ?? projectKindForSkill(activeSkill) ?? 'other';
     const submittedProjectMetadata = submittedActive?.mediaSurface
@@ -1327,6 +1341,9 @@ export function HomeView({
         onPickSkill={useSkill}
         onPickMcp={useMcpServer}
         onPickConnector={useConnector}
+        onOpenIntegrations={onOpenIntegrations}
+        onOpenPlugins={onBrowseRegistry}
+        onOpenMcp={onOpenMcp}
         onPickChip={pickChip}
         contextItemCount={contextItemCount}
         error={error}

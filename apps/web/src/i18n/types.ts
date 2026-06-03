@@ -790,6 +790,13 @@ export interface Dict {
   'homeHero.placeholder': string;
   'homeHero.placeholderActive': string;
   'homeHero.skills': string;
+  'homeHero.addMenu': string;
+  'homeHero.addConnectors': string;
+  'homeHero.noConnectors': string;
+  'homeHero.addPlugin': string;
+  'homeHero.noPlugins': string;
+  'homeHero.addMcp': string;
+  'homeHero.noMcp': string;
   'homeHero.applying': string;
   'homeHero.pluginTitle': string;
   'homeHero.pluginPrefix': string;
