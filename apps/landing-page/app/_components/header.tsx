@@ -44,7 +44,7 @@ const ext = {
 
 // Solution → Use cases. Placeholder hrefs until the dedicated pages ship.
 const SOLUTION_USE_CASES: ReadonlyArray<{ name: string; href: string }> = [
-  { name: 'Prototype', href: '/compare/' },
+  { name: 'Prototype', href: '/solutions/prototype/' },
   { name: 'Dashboard', href: '/compare/' },
   { name: 'Slides', href: '/compare/' },
   { name: 'Image', href: '/compare/' },

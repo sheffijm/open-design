@@ -2134,3 +2134,70 @@ dialog.tpl-share-popover .detail-share-dialog-text {
   font-size: 12.5px;
   line-height: 1.55;
 }
+
+/* ===========================================================================
+ * Solution use-case / role pages (`/solutions/<slug>/`, `/for/<slug>/`).
+ * Image + text + table layout shared by all 11 pages. Reuses .info-page,
+ * .info-section, .compare-table, .tldr-card, .faq-list; the rules below only
+ * cover the new image + stepped-how-to blocks.
+ * ======================================================================== */
+.solution-hero {
+  margin: 0 0 40px;
+}
+.solution-hero img,
+.solution-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-warm);
+}
+.solution-figure {
+  margin: 28px 0 8px;
+}
+.solution-figure figcaption {
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+/* Stepped how-to list: numbered, generous, reads as a recipe. */
+.solution-steps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  counter-reset: none;
+}
+.solution-step {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+.solution-step:first-child {
+  border-top: 0;
+}
+.solution-step-index {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--coral);
+  padding-top: 4px;
+  min-width: 28px;
+}
+.solution-step-text h3 {
+  margin: 0 0 6px;
+}
+.solution-step-text p {
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .solution-step {
+    gap: 12px;
+  }
+}
