@@ -1,17 +1,11 @@
 ---
 /*
- * /solutions/prototype/ — Use-case page: prototyping with Open Design.
- *
- * Image + text + table surface explaining how a coding agent uses Open
- * Design to turn a prompt into a clickable, multi-screen prototype. First of
- * the Solution use-case pages; the layout here is the template the other ten
- * (5 use cases + 5 roles) copy. Copy lives in `solution-pages-i18n.ts`
- * (English + Simplified Chinese; other locales fall back to English).
- *
- * Illustrations are AI-generated, warm-paper editorial style, hosted on the
- * marketing R2 bucket (static.open-design.ai) under
- * `landing/assets/solutions/prototype/` and served through the same
- * `cdn-cgi/image` pipeline as the homepage hero.
+ * /solutions/design-system/ — Solution use-case page.
+ * Structure mirrors /solutions/prototype/ (the template); copy lives in
+ * solution-pages-i18n.ts under the 'designSystem' key (English + Simplified Chinese,
+ * other locales fall back to English). Hero illustration is warm-paper
+ * editorial, on the marketing R2 bucket under landing/assets/solutions/design-system/.
+ * The gallery uses real example thumbnails that ship in public/previews/plugins.
  */
 import Layout from '../../../_components/sub-page-layout.astro';
 import LazyImg from '../../../_components/lazy-img.astro';
@@ -26,17 +20,13 @@ const REPO_RELEASES = `${REPO}/releases`;
 const locale = localeFromPath(Astro.url.pathname);
 const href = (path: string) => localizedHref(path, locale);
 const common = getInfoPageCopy(locale).common;
-const page = getSolutionPageCopy(locale, 'prototype');
+const page = getSolutionPageCopy(locale, 'designSystem');
 
 const title = page.title;
 const description = page.description;
 
-// Illustrations (warm-paper editorial). hero is the LCP element; the rest
-// lazy-load. Names are relative to the `landing/assets/` R2 prefix.
-const heroImg = imageAsset('solutions/prototype/hero.png', { width: 1536, quality: 82 });
-const heroSrcset = imageAssetSrcset('solutions/prototype/hero.png', [768, 1280, 1536]);
-const flowImg = imageAsset('solutions/prototype/flow.png', { width: 1536, quality: 82 });
-const flowSrcset = imageAssetSrcset('solutions/prototype/flow.png', [768, 1280, 1536]);
+const heroImg = imageAsset('solutions/design-system/hero.png', { width: 1536, quality: 82 });
+const heroSrcset = imageAssetSrcset('solutions/design-system/hero.png', [768, 1280, 1536]);
 
 const faq = page.faq;
 
@@ -46,7 +36,7 @@ const jsonLd = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Open Design', item: SITE },
-      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: `${SITE}solutions/prototype/` },
+      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: `${SITE}solutions/design-system/` },
     ],
   },
   {
@@ -54,7 +44,7 @@ const jsonLd = [
     '@type': 'WebPage',
     name: title,
     description,
-    url: `${SITE}solutions/prototype/`,
+    url: `${SITE}solutions/design-system/`,
     isPartOf: { '@id': `${SITE}#website` },
   },
   {
@@ -113,16 +103,6 @@ const jsonLd = [
           </li>
         ))}
       </ol>
-      <figure class="solution-figure">
-        <LazyImg
-          src={flowImg}
-          srcset={flowSrcset}
-          sizes="(max-width: 920px) 100vw, 920px"
-          alt={page.steps.map((s) => s.imageAlt).join('. ')}
-          width={1536}
-          height={1024}
-        />
-      </figure>
     </section>
 
     <section class="info-section" id="compare">

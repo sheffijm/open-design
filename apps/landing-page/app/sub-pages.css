@@ -2201,3 +2201,40 @@ dialog.tpl-share-popover .detail-share-dialog-text {
     gap: 12px;
   }
 }
+
+/* Template gallery — real example thumbnails, 2-col grid linking to /plugins. */
+.solution-gallery {
+  list-style: none;
+  margin: 18px 0 16px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+}
+@media (max-width: 600px) {
+  .solution-gallery { grid-template-columns: 1fr; }
+}
+.solution-gallery-item a {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.solution-gallery-item img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-warm);
+  transition: border-color 160ms, transform 160ms;
+}
+.solution-gallery-item a:hover img {
+  border-color: var(--coral);
+  transform: translateY(-2px);
+}
+.solution-gallery-caption {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}

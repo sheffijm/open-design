@@ -45,11 +45,11 @@ const ext = {
 // Solution → Use cases. Placeholder hrefs until the dedicated pages ship.
 const SOLUTION_USE_CASES: ReadonlyArray<{ name: string; href: string }> = [
   { name: 'Prototype', href: '/solutions/prototype/' },
-  { name: 'Dashboard', href: '/compare/' },
-  { name: 'Slides', href: '/compare/' },
-  { name: 'Image', href: '/compare/' },
-  { name: 'Video', href: '/compare/' },
-  { name: 'Design System', href: '/compare/' },
+  { name: 'Dashboard', href: '/solutions/dashboard/' },
+  { name: 'Slides', href: '/solutions/slides/' },
+  { name: 'Image', href: '/solutions/image/' },
+  { name: 'Video', href: '/solutions/video/' },
+  { name: 'Design System', href: '/solutions/design-system/' },
 ];
 
 // Solution → Roles. Placeholder hrefs until the dedicated pages ship.
