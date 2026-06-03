@@ -317,9 +317,9 @@ async function setupAmrWorkspace(
   const root = join(tmpdir(), `open-design-amr-ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const homeDir = join(root, 'home');
   const velaBin = await writeFakeVelaBin(join(root, 'bin'), {
-    assistantText: options.assistantText,
-    failAuthAtPrompt: options.failAuthAtPrompt,
-    failBalanceAtPrompt: options.failBalanceAtPrompt,
+    ...(options.assistantText !== undefined ? { assistantText: options.assistantText } : {}),
+    ...(options.failAuthAtPrompt !== undefined ? { failAuthAtPrompt: options.failAuthAtPrompt } : {}),
+    ...(options.failBalanceAtPrompt !== undefined ? { failBalanceAtPrompt: options.failBalanceAtPrompt } : {}),
   });
   await mkdir(homeDir, { recursive: true });
   if (options.seedLoginConfig !== false) {
