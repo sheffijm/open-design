@@ -17,7 +17,7 @@ import { getInfoPageCopy } from '../../../info-page-i18n';
 import { getSolutionPageCopy } from '../../../solution-pages-i18n';
 import { getSystemRecords } from '../../../_lib/catalog';
 import { imageAsset, imageAssetSrcset } from '../../../image-assets';
-import { localeFromPath, localizedHref } from '../../../i18n';
+import { localeFromPath, localizedHref, localePath, stripLocaleFromPath } from '../../../i18n';
 
 const SITE = Astro.site?.toString() ?? 'https://open-design.ai/';
 const REPO = 'https://github.com/nexu-io/open-design';
@@ -41,9 +41,19 @@ const FEATURED_SYSTEM_SLUGS = [
 ];
 const allSystems = await getSystemRecords(locale);
 const systemsBySlug = new Map(allSystems.map((s) => [s.slug, s]));
-const featuredSystems = FEATURED_SYSTEM_SLUGS
-  .map((slug) => systemsBySlug.get(slug))
-  .filter((s): s is NonNullable<typeof s> => Boolean(s));
+// Crash-visible: a renamed/removed reference system fails the build rather
+// than silently shrinking the swatch grid (AGENTS.md prefers loud failures).
+const missingSystems = FEATURED_SYSTEM_SLUGS.filter((slug) => !systemsBySlug.has(slug));
+if (missingSystems.length > 0) {
+  throw new Error(
+    `[solutions/design-system] reference systems not found: ${missingSystems.join(', ')}. ` +
+      `Update FEATURED_SYSTEM_SLUGS or fix the renamed/removed design-system.`,
+  );
+}
+const featuredSystems = FEATURED_SYSTEM_SLUGS.map((slug) => systemsBySlug.get(slug)!);
+
+const pagePath = localePath(locale, stripLocaleFromPath(Astro.url.pathname).pathname);
+const pageUrl = new URL(pagePath, SITE).toString();
 
 const faq = page.faq;
 
@@ -53,7 +63,7 @@ const jsonLd = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Open Design', item: SITE },
-      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: `${SITE}solutions/design-system/` },
+      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: pageUrl },
     ],
   },
   {
@@ -61,7 +71,7 @@ const jsonLd = [
     '@type': 'WebPage',
     name: title,
     description,
-    url: `${SITE}solutions/design-system/`,
+    url: pageUrl,
     isPartOf: { '@id': `${SITE}#website` },
   },
   {

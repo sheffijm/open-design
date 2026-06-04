@@ -17,8 +17,9 @@ import { getInfoPageCopy } from '../../../info-page-i18n';
 import { getSolutionPageCopy } from '../../../solution-pages-i18n';
 import { getBundledPlugins } from '../../../_lib/bundled-plugins';
 import { bundledRecordOf, categorizePlugin } from '../../../_lib/plugin-facets';
+import { pickSolutionPlugins } from '../../../_lib/solution-featured';
 import { imageAsset, imageAssetSrcset } from '../../../image-assets';
-import { localeFromPath, localizedHref } from '../../../i18n';
+import { localeFromPath, localizedHref, localePath, stripLocaleFromPath } from '../../../i18n';
 
 const SITE = Astro.site?.toString() ?? 'https://open-design.ai/';
 const REPO = 'https://github.com/nexu-io/open-design';
@@ -52,10 +53,10 @@ const FEATURED_VIDEO_IDS = [
 const videoPlugins = getBundledPlugins().filter(
   (p) => categorizePlugin(bundledRecordOf(p)) === 'video',
 );
-const pluginById = new Map(videoPlugins.map((p) => [p.manifestId, p]));
-const featuredVideos = FEATURED_VIDEO_IDS
-  .map((id) => pluginById.get(id))
-  .filter((p): p is NonNullable<typeof p> => Boolean(p));
+const featuredVideos = pickSolutionPlugins(videoPlugins, FEATURED_VIDEO_IDS, 'video');
+
+const pagePath = localePath(locale, stripLocaleFromPath(Astro.url.pathname).pathname);
+const pageUrl = new URL(pagePath, SITE).toString();
 
 const faq = page.faq;
 
@@ -65,7 +66,7 @@ const jsonLd = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Open Design', item: SITE },
-      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: `${SITE}solutions/video/` },
+      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: pageUrl },
     ],
   },
   {
@@ -73,7 +74,7 @@ const jsonLd = [
     '@type': 'WebPage',
     name: title,
     description,
-    url: `${SITE}solutions/video/`,
+    url: pageUrl,
     isPartOf: { '@id': `${SITE}#website` },
   },
   {

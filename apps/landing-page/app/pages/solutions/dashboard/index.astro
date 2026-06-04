@@ -1,16 +1,20 @@
 ---
 /*
- * /solutions/dashboard/ — Solution use-case page: prototyping with Open Design.
- *
- * Solution use-case page; structure mirrors /solutions/prototype/ (the
- * template). Copy lives in solution-pages-i18n.ts under the 'dashboard' key.
+ * /solutions/dashboard/ — Solution use-case page: data dashboards with Open
+ * Design. Structure mirrors /solutions/prototype/; the feature grid renders
+ * REAL dashboard/report plugins (mode=prototype) via <TemplateCard>. Copy
+ * lives in solution-pages-i18n.ts under the 'dashboard' key.
  */
 import Layout from '../../../_components/sub-page-layout.astro';
 import LazyImg from '../../../_components/lazy-img.astro';
+import TemplateCard from '../../../_components/template-card.astro';
 import { getInfoPageCopy } from '../../../info-page-i18n';
 import { getSolutionPageCopy } from '../../../solution-pages-i18n';
+import { getBundledPlugins } from '../../../_lib/bundled-plugins';
+import { bundledRecordOf, categorizePlugin } from '../../../_lib/plugin-facets';
+import { pickSolutionPlugins } from '../../../_lib/solution-featured';
 import { imageAsset, imageAssetSrcset } from '../../../image-assets';
-import { localeFromPath, localizedHref } from '../../../i18n';
+import { localeFromPath, localizedHref, localePath, stripLocaleFromPath } from '../../../i18n';
 
 const SITE = Astro.site?.toString() ?? 'https://open-design.ai/';
 const REPO = 'https://github.com/nexu-io/open-design';
@@ -26,6 +30,24 @@ const description = page.description;
 const heroImg = imageAsset('solutions/dashboard/hero.png', { width: 1280, quality: 82 });
 const heroSrcset = imageAssetSrcset('solutions/dashboard/hero.png', [768, 1280]);
 
+// Real dashboard/report plugins (mode=prototype) for the feature grid, via
+// <TemplateCard>. pickSolutionPlugins throws on any missing id (crash-visible).
+const FEATURED_DASHBOARD_IDS = [
+  'example-dashboard',
+  'example-github-dashboard',
+  'example-data-report',
+  'example-finance-report',
+  'example-last30days',
+  'example-flowai-live-dashboard-template',
+];
+const allPrototypes = getBundledPlugins().filter(
+  (p) => categorizePlugin(bundledRecordOf(p)) === 'prototype',
+);
+const featuredDashboards = pickSolutionPlugins(allPrototypes, FEATURED_DASHBOARD_IDS, 'dashboard');
+
+const pagePath = localePath(locale, stripLocaleFromPath(Astro.url.pathname).pathname);
+const pageUrl = new URL(pagePath, SITE).toString();
+
 const faq = page.faq;
 
 const jsonLd = [
@@ -34,7 +56,7 @@ const jsonLd = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Open Design', item: SITE },
-      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: `${SITE}solutions/dashboard/` },
+      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: pageUrl },
     ],
   },
   {
@@ -42,7 +64,7 @@ const jsonLd = [
     '@type': 'WebPage',
     name: title,
     description,
-    url: `${SITE}solutions/dashboard/`,
+    url: pageUrl,
     isPartOf: { '@id': `${SITE}#website` },
   },
   {
@@ -108,21 +130,11 @@ const jsonLd = [
       </ol>
     </section>
 
-    <section class="info-section" id="features">
+    <section class="info-section catalog-grid templates-grid" id="features">
       <h2>{page.featuresTitle}</h2>
-      <ul class="solution-feature-grid">
-        {page.features.map((f) => (
-          <li class="solution-feature-card">
-            <LazyImg
-              src={`/previews/plugins/${f.thumb}.png`}
-              sizes="(max-width: 560px) 100vw, (max-width: 880px) 50vw, 360px"
-              alt={f.title}
-              width={1280}
-              height={800}
-            />
-            <h3>{f.title}</h3>
-            <p>{f.body}</p>
-          </li>
+      <ul class="tpl-grid solution-tpl-grid">
+        {featuredDashboards.map((record, idx) => (
+          <TemplateCard record={record} index={idx} />
         ))}
       </ul>
     </section>
@@ -151,25 +163,8 @@ const jsonLd = [
       </div>
     </section>
 
-    <section class="info-section" id="gallery">
-      <h2>{page.galleryTitle}</h2>
+    <section class="info-section" id="browse">
       <p>{page.galleryLead}</p>
-      <ul class="solution-gallery">
-        {page.gallery.map((item) => (
-          <li class="solution-gallery-item">
-            <a href={href(page.exampleHref)}>
-              <LazyImg
-                src={`/previews/plugins/${item.thumb}.png`}
-                sizes="(max-width: 560px) 100vw, (max-width: 880px) 50vw, 360px"
-                alt={item.caption}
-                width={1280}
-                height={800}
-              />
-              <span class="solution-gallery-caption">{item.caption}</span>
-            </a>
-          </li>
-        ))}
-      </ul>
       <p>
         <a class="inline-link" href={href(page.exampleHref)}>{page.exampleLinkLabel} →</a>
       </p>
