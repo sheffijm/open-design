@@ -4,13 +4,16 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type MutableRefObject,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useAnalytics } from '../analytics/provider';
 import { trackChatPanelClick, trackRunFailedToastSurfaceView } from '../analytics/events';
 import { attributedAmrUrl, recordAmrEntry } from '../analytics/amr-attribution';
@@ -281,7 +284,7 @@ interface Props {
   // Live-only streaming tool-input partials keyed by tool-use id. Threaded to
   // AssistantMessage so an in-flight Write/Edit can render its code in real
   // time before the full `tool_use` arrives. Never persisted.
-  liveToolInput?: Record<string, { name: string; text: string }>;
+  liveToolInput?: Record<string, { name: string; text: string; seq?: number }>;
   initialDraft?: string;
   // Question-form submissions become a normal user message; the parent
   // routes that text through onSend (no attachments).
@@ -360,6 +363,12 @@ interface Props {
   byokApiProtocol?: AppConfig['apiProtocol'];
   byokImageModel?: string;
   onChangeByokImageModel?: (model: string) => void;
+  byokVideoModel?: string;
+  onChangeByokVideoModel?: (model: string) => void;
+  byokSpeechModel?: string;
+  onChangeByokSpeechModel?: (model: string) => void;
+  byokSpeechVoice?: string;
+  onChangeByokSpeechVoice?: (voice: string) => void;
   composerFooterAccessory?: ReactNode;
   // Forwarded straight to the chat composer's mid-chat design-system
   // switcher. ProjectView owns the project record so the parent is the
@@ -485,6 +494,12 @@ export function ChatPane({
   byokApiProtocol,
   byokImageModel,
   onChangeByokImageModel,
+  byokVideoModel,
+  onChangeByokVideoModel,
+  byokSpeechModel,
+  onChangeByokSpeechModel,
+  byokSpeechVoice,
+  onChangeByokSpeechVoice,
   composerFooterAccessory,
   currentDesignSystemId,
   onActiveDesignSystemChange,
@@ -500,6 +515,8 @@ export function ChatPane({
   const chatLogScrollIdleTimerRef = useRef<number | null>(null);
   const historyWrapRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<ChatComposerHandle | null>(null);
+  const composerSlotRef = useRef<HTMLDivElement | null>(null);
+  const composerLayerRef = useRef<HTMLDivElement | null>(null);
   const pinnedTodoRef = useRef<HTMLDivElement | null>(null);
   const queuedSendStripRef = useRef<HTMLDivElement | null>(null);
   const didInitialScrollRef = useRef(false);
@@ -552,6 +569,13 @@ export function ChatPane({
   const [scrolledFromBottom, setScrolledFromBottom] = useState(false);
   const [chatLogScrollable, setChatLogScrollable] = useState(false);
   const [chatLogScrolling, setChatLogScrolling] = useState(false);
+  const [composerPortalTarget, setComposerPortalTarget] = useState<HTMLElement | null>(null);
+  const [composerPortalRect, setComposerPortalRect] = useState<{
+    left: number;
+    width: number;
+    bottom: number;
+  } | null>(null);
+  const [composerSlotHeight, setComposerSlotHeight] = useState(0);
   // The user can dismiss the pinned task list once everything is complete.
   // We key the dismissal on the snapshot (serialized TodoWrite input) so
   // the next time the agent emits a different snapshot the card returns,
@@ -1187,6 +1211,169 @@ export function ChatPane({
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    setComposerPortalTarget(document.body);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (tab !== 'chat') {
+      setComposerPortalRect(null);
+      return;
+    }
+    const slot = composerSlotRef.current;
+    if (!slot || typeof window === 'undefined') return;
+
+    let frame: number | null = null;
+    const updateRect = () => {
+      frame = null;
+      const rect = slot.getBoundingClientRect();
+      setComposerPortalRect((prev) => {
+        const next = {
+          left: Math.round(rect.left),
+          width: Math.round(rect.width),
+          bottom: Math.max(0, Math.round(window.innerHeight - rect.bottom)),
+        };
+        if (
+          prev
+          && prev.left === next.left
+          && prev.width === next.width
+          && prev.bottom === next.bottom
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    const scheduleUpdate = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(updateRect);
+    };
+
+    updateRect();
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(scheduleUpdate)
+        : null;
+    resizeObserver?.observe(slot);
+    const pane = slot.closest('.pane');
+    if (pane) resizeObserver?.observe(pane);
+    window.addEventListener('resize', scheduleUpdate);
+    window.visualViewport?.addEventListener('resize', scheduleUpdate);
+
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', scheduleUpdate);
+      window.visualViewport?.removeEventListener('resize', scheduleUpdate);
+    };
+  }, [tab]);
+
+  useLayoutEffect(() => {
+    if (tab !== 'chat' || !composerPortalTarget || !composerPortalRect) return;
+    const layer = composerLayerRef.current;
+    if (!layer || typeof window === 'undefined') return;
+
+    let frame: number | null = null;
+    const updateHeight = () => {
+      frame = null;
+      const nextHeight = Math.ceil(layer.getBoundingClientRect().height);
+      setComposerSlotHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+    };
+    const scheduleUpdate = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(updateHeight);
+    };
+
+    updateHeight();
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(scheduleUpdate)
+        : null;
+    resizeObserver?.observe(layer);
+
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+    };
+  }, [composerPortalRect, composerPortalTarget, tab]);
+
+  const composerNode = (
+    <ChatComposer
+      ref={composerRef}
+      designSystemPicker={designSystemPicker}
+      projectId={projectId}
+      projectFiles={projectFiles}
+      sessionMode={sessionMode}
+      onSessionModeChange={onSessionModeChange}
+      skills={skills}
+      streaming={streaming}
+      sendDisabled={sendDisabled}
+      initialDraft={initialDraft}
+      draftStorageKey={composerDraftStorageKey}
+      onEnsureProject={onEnsureProject}
+      commentAttachments={commentsToAttachments(attachedComments)}
+      onRemoveCommentAttachment={onDetachComment}
+      onSend={(prompt, attachments, commentAttachments, meta) => {
+        pinnedToBottomRef.current = true;
+        scrolledToFormRef.current = new Set();
+        if (editingQueuedSendId && onUpdateQueuedSend) {
+          const original = queuedItems.find((item) => item.id === editingQueuedSendId);
+          const update: QueuedSendUpdate = {
+            prompt,
+            attachments,
+            commentAttachments,
+          };
+          const nextMeta = meta ?? original?.meta;
+          if (nextMeta !== undefined) update.meta = nextMeta;
+          onUpdateQueuedSend(editingQueuedSendId, update);
+          setEditingQueuedSendId(null);
+          return;
+        }
+        // Arm "anchor to top": the messages effect promotes this once
+        // the new user turn renders, pinning it to the top of the view.
+        anchorPendingRef.current = true;
+        onSend(prompt, attachments, commentAttachments, meta);
+      }}
+      onStop={onStop}
+      onOpenSettings={onOpenSettings}
+      onOpenMcpSettings={onOpenMcpSettings}
+      petConfig={petConfig}
+      onAdoptPet={onAdoptPet}
+      onTogglePet={onTogglePet}
+      onOpenPetSettings={onOpenPetSettings}
+      researchAvailable={researchAvailable}
+      projectMetadata={projectMetadata}
+      onProjectMetadataChange={onProjectMetadataChange}
+      activeWorkspaceContext={activeWorkspaceContext}
+      workspaceContexts={workspaceContexts}
+      byokApiProtocol={byokApiProtocol}
+      byokImageModel={byokImageModel}
+      onChangeByokImageModel={onChangeByokImageModel}
+      byokVideoModel={byokVideoModel}
+      onChangeByokVideoModel={onChangeByokVideoModel}
+      byokSpeechModel={byokSpeechModel}
+      onChangeByokSpeechModel={onChangeByokSpeechModel}
+      byokSpeechVoice={byokSpeechVoice}
+      onChangeByokSpeechVoice={onChangeByokSpeechVoice}
+      currentSkillId={currentSkillId}
+      onProjectSkillChange={onProjectSkillChange}
+      pinnedPluginId={activePluginSnapshot?.pluginId ?? null}
+      footerAccessory={composerFooterAccessory}
+      currentDesignSystemId={currentDesignSystemId}
+      onActiveDesignSystemChange={onActiveDesignSystemChange}
+      onShowToast={onShowToast}
+    />
+  );
+  const shouldPortalComposer =
+    tab === 'chat'
+    && composerPortalTarget !== null
+    && composerPortalRect !== null
+    && composerPortalRect.width > 0;
+  const composerSlotStyle: CSSProperties | undefined = shouldPortalComposer
+    ? { minHeight: composerSlotHeight > 0 ? composerSlotHeight : undefined }
+    : undefined;
+
   return (
     <div className="pane">
       <div className="chat-project-header">
@@ -1600,65 +1787,30 @@ export function ChatPane({
             onReorder={onReorderQueuedSends}
             onSendNow={onSendQueuedNow}
           />
-          <ChatComposer
-            ref={composerRef}
-            designSystemPicker={designSystemPicker}
-            projectId={projectId}
-            projectFiles={projectFiles}
-            sessionMode={sessionMode}
-            onSessionModeChange={onSessionModeChange}
-            skills={skills}
-            streaming={streaming}
-            sendDisabled={sendDisabled}
-            initialDraft={initialDraft}
-            draftStorageKey={composerDraftStorageKey}
-            onEnsureProject={onEnsureProject}
-            commentAttachments={commentsToAttachments(attachedComments)}
-            onRemoveCommentAttachment={onDetachComment}
-            onSend={(prompt, attachments, commentAttachments, meta) => {
-              pinnedToBottomRef.current = true;
-              scrolledToFormRef.current = new Set();
-              if (editingQueuedSendId && onUpdateQueuedSend) {
-                const original = queuedItems.find((item) => item.id === editingQueuedSendId);
-                const update: QueuedSendUpdate = {
-                  prompt,
-                  attachments,
-                  commentAttachments,
-                };
-                const nextMeta = meta ?? original?.meta;
-                if (nextMeta !== undefined) update.meta = nextMeta;
-                onUpdateQueuedSend(editingQueuedSendId, update);
-                setEditingQueuedSendId(null);
-                return;
-              }
-              // Arm "anchor to top": the messages effect promotes this once
-              // the new user turn renders, pinning it to the top of the view.
-              anchorPendingRef.current = true;
-              onSend(prompt, attachments, commentAttachments, meta);
-            }}
-            onStop={onStop}
-            onOpenSettings={onOpenSettings}
-            onOpenMcpSettings={onOpenMcpSettings}
-            petConfig={petConfig}
-            onAdoptPet={onAdoptPet}
-            onTogglePet={onTogglePet}
-            onOpenPetSettings={onOpenPetSettings}
-            researchAvailable={researchAvailable}
-            projectMetadata={projectMetadata}
-            onProjectMetadataChange={onProjectMetadataChange}
-            activeWorkspaceContext={activeWorkspaceContext}
-            workspaceContexts={workspaceContexts}
-            byokApiProtocol={byokApiProtocol}
-            byokImageModel={byokImageModel}
-            onChangeByokImageModel={onChangeByokImageModel}
-            currentSkillId={currentSkillId}
-            onProjectSkillChange={onProjectSkillChange}
-            pinnedPluginId={activePluginSnapshot?.pluginId ?? null}
-            footerAccessory={composerFooterAccessory}
-            currentDesignSystemId={currentDesignSystemId}
-            onActiveDesignSystemChange={onActiveDesignSystemChange}
-            onShowToast={onShowToast}
-          />
+          <div
+            className="chat-composer-slot"
+            ref={composerSlotRef}
+            style={composerSlotStyle}
+            aria-hidden={shouldPortalComposer ? true : undefined}
+          >
+            {shouldPortalComposer ? null : composerNode}
+          </div>
+          {shouldPortalComposer && composerPortalTarget && composerPortalRect
+            ? createPortal(
+                <div
+                  className="chat-composer-fixed-layer"
+                  ref={composerLayerRef}
+                  style={{
+                    left: composerPortalRect.left,
+                    bottom: composerPortalRect.bottom,
+                    width: composerPortalRect.width,
+                  }}
+                >
+                  {composerNode}
+                </div>,
+                composerPortalTarget,
+              )
+            : null}
         </>
       ) : null}
     </div>
@@ -1746,7 +1898,7 @@ function ChatRows({
 }: {
   messages: ChatMessage[];
   streaming: boolean;
-  liveToolInput?: Record<string, { name: string; text: string }>;
+  liveToolInput?: Record<string, { name: string; text: string; seq?: number }>;
   projectId: string | null;
   projectKindForTracking: TrackingProjectKind | null;
   activeConversationId: string | null;
@@ -1828,7 +1980,10 @@ function ChatRows({
       <AssistantMessage
         message={m}
         streaming={messageStreaming}
-        liveToolInput={liveToolInput}
+        // Only the streaming row consumes live tool input. Non-streaming rows
+        // get a stable `undefined`, so adding `liveToolInput` to the memo
+        // comparator re-renders just this row per `tool_input_delta`, not all N.
+        liveToolInput={messageStreaming ? liveToolInput : undefined}
         projectId={projectId}
         projectKind={projectKindForTracking}
         conversationId={activeConversationId}
