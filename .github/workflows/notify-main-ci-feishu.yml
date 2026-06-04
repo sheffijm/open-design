@@ -39,6 +39,16 @@ jobs:
             const run = context.payload.workflow_run;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const startedAt = new Date(run.run_started_at || run.created_at).getTime();
+            const updatedAt = new Date(run.updated_at).getTime();
+            const durationMinutes = Number.isFinite(startedAt) && Number.isFinite(updatedAt)
+              ? Math.round((updatedAt - startedAt) / 60000)
+              : null;
+
+            if (run.conclusion === 'cancelled' && durationMinutes !== null && durationMinutes < 35) {
+              core.info(`Skipping short cancelled run (${durationMinutes}m), likely superseded by a newer main push.`);
+              return;
+            }
 
             const jobsResponse = await github.rest.actions.listJobsForWorkflowRun({
               owner,
@@ -92,6 +102,7 @@ jobs:
                         `**Branch:** main`,
                         `**Workflow:** ${run.name}`,
                         `**Conclusion:** ${run.conclusion}`,
+                        `**Duration:** ${durationMinutes === null ? 'unknown' : `${durationMinutes}m`}`,
                         `**Commit:** ${shortSha}`,
                         `**Author:** ${author}`,
                         `**Subject:** ${subject}`,
