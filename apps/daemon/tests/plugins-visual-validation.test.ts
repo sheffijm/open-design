@@ -65,6 +65,7 @@ describe('visual validation atom runner', () => {
       );
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           const png = createFilledPng(200, 120, [255, 255, 255, 255]);
           paintRect(png, { x: 40, y: 25, width: 60, height: 30 }, [255, 0, 0, 255]);
@@ -101,6 +102,7 @@ describe('visual validation atom runner', () => {
       const result = await runVisualValidation({
         cwd,
         entryFile: 'active.html',
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ entryFile, outputPath }) => {
           capturedEntryFile = entryFile;
           await writeFile(outputPath, PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])));
@@ -156,6 +158,26 @@ describe('visual validation atom runner', () => {
     }
   });
 
+  it('fails closed instead of falling back to file:// when preview context is unavailable', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'od-visual-missing-preview-context-'));
+    try {
+      await writeFile(path.join(cwd, 'index.html'), '<!doctype html><html><body>ok</body></html>', 'utf8');
+      await writeFile(
+        path.join(cwd, 'reference-home.png'),
+        PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])),
+      );
+
+      const result = await runVisualValidation({ cwd });
+
+      expect(result.report.status).toBe('failed');
+      expect(result.report.message).toContain('requires daemon preview context');
+      expect(result.signals['preview.ok']).toBe(false);
+      expect(result.signals['critique.score']).toBe(1);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('captures with the reference dimensions instead of the old clamp bounds', async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), 'od-visual-reference-viewport-'));
     try {
@@ -168,6 +190,7 @@ describe('visual validation atom runner', () => {
       let capturedViewport: { width: number; height: number } | null = null;
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath, viewport }) => {
           capturedViewport = viewport;
           await writeFile(outputPath, PNG.sync.write(createFilledPng(viewport.width, viewport.height, [255, 255, 255, 255])));
@@ -195,6 +218,7 @@ describe('visual validation atom runner', () => {
       );
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async () => {
           throw new Error('playwright launch failed');
         },
@@ -226,6 +250,7 @@ describe('visual validation atom runner', () => {
 
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           await writeFile(outputPath, PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])));
         },
@@ -250,6 +275,7 @@ describe('visual validation atom runner', () => {
       );
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async () => {
           throw new Error(
             "browserType.launch: Executable doesn't exist at /tmp/ms-playwright/chromium\nPlease run the following command to download new browsers: npx playwright install",
@@ -280,6 +306,7 @@ describe('visual validation atom runner', () => {
 
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           await writeFile(outputPath, PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])));
         },
@@ -306,6 +333,7 @@ describe('visual validation atom runner', () => {
 
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           await writeFile(outputPath, PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])));
         },
@@ -329,6 +357,7 @@ describe('visual validation atom runner', () => {
 
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           await writeFile(outputPath, PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])));
         },
@@ -356,6 +385,7 @@ describe('visual validation atom runner', () => {
 
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           await writeFile(outputPath, PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])));
         },
@@ -386,6 +416,7 @@ describe('visual validation atom runner', () => {
       const captures: string[] = [];
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           captures.push(path.relative(cwd, outputPath));
           await writeFile(outputPath, PNG.sync.write(createFilledPng(200, 120, [255, 255, 255, 255])));
@@ -419,6 +450,7 @@ describe('visual validation atom runner', () => {
 
       const result = await runVisualValidation({
         cwd,
+        entryUrl: 'about:blank',
         captureScreenshot: async ({ outputPath }) => {
           const png = createFilledPng(200, 120, [255, 255, 255, 255]);
           if (outputPath.endsWith('reference-mobile-2.actual.png')) {

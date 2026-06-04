@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { type Page, type ViewportSize } from 'playwright';
@@ -62,6 +61,7 @@ export interface RunVisualValidationOptions {
   daemonUrl?: string | null;
   referenceImages?: ReadonlyArray<string>;
   entryFile?: string | null;
+  entryUrl?: string | null;
   pixelmatchThreshold?: number;
   captureScreenshot?: (input: VisualValidationCaptureInput) => Promise<void>;
 }
@@ -109,10 +109,10 @@ export async function runVisualValidation(
       const diffPath = path.join(outputDir, `${stem}.diff.png`);
       const capture = input.captureScreenshot ?? captureWithPlaywright;
       const entryUrl = await resolveVisualValidationEntryUrl({
-        cwd,
         entryFile,
         ...(input.projectId == null ? {} : { projectId: input.projectId }),
         ...(input.daemonUrl == null ? {} : { daemonUrl: input.daemonUrl }),
+        ...(input.entryUrl == null ? {} : { entryUrl: input.entryUrl }),
       });
       await capture({
         entryFile,
@@ -334,13 +334,18 @@ function buildFailedVisualValidationResult(
 }
 
 async function resolveVisualValidationEntryUrl(input: {
-  cwd: string;
   entryFile: string;
   projectId?: string | null;
   daemonUrl?: string | null;
+  entryUrl?: string | null;
 }): Promise<string> {
+  if (typeof input.entryUrl === 'string' && input.entryUrl.length > 0) {
+    return input.entryUrl;
+  }
   if (!input.projectId || !input.daemonUrl) {
-    return pathToFileURL(path.join(input.cwd, input.entryFile)).href;
+    throw new Error(
+      'visual validation requires daemon preview context to resolve the project entry URL',
+    );
   }
   const base = input.daemonUrl.replace(/\/+$/, '');
   const response = await fetch(
