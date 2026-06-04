@@ -1017,7 +1017,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-muted);
+  /* A dark heading that still sits one notch below the "Memory model"
+     title (pure --text) so the section reads as secondary without going
+     gray. */
+  color: color-mix(in srgb, var(--text) 65%, var(--text-muted));
   font-size: 12px;
   font-weight: 600;
   user-select: none;
@@ -1235,8 +1238,14 @@
   cursor: not-allowed;
   opacity: 0.55;
 }
+/* Installable cards aren't "disabled" in a faded sense — they're real,
+   actionable Install targets. Keep them at full opacity (no gray wash) and
+   instead express their lower priority through softer text colors below. */
 .agent-card.disabled.agent-card-unavailable {
-  opacity: 0.72;
+  opacity: 1;
+}
+.agent-grid-unavailable .agent-card-name {
+  color: color-mix(in srgb, var(--text) 62%, var(--text-muted));
 }
 /* Unavailable cards stack vertically: the logo/name/links live in a single
    top row, and any diagnostic reason gets its own full-width row underneath
@@ -1579,6 +1588,11 @@
 .agent-cli-env select,
 .agent-cli-env input {
   background-color: var(--bg-subtle);
+}
+/* Placeholders document the expected input format, so render them italic to
+   read as guidance; user-typed values stay upright (the default). */
+.agent-cli-env input::placeholder {
+  font-style: italic;
 }
 /*
   Generic Settings card — wraps a single panel of related controls in a

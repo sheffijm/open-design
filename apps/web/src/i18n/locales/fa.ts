@@ -249,7 +249,7 @@ export const fa: Dict = {
     'هنوز هیچ عاملی شناسایی نشده. یکی از Claude Code، Codex، Gemini CLI، OpenCode، Cursor Agent، Qwen یا GitHub Copilot CLI را نصب کنید، سپس روی اسکن مجدد کلیک کنید.',
   'settings.agentInstalledGroup': 'CLIهای شما ({count})',
   'settings.agentInstallGroup': 'آماده نصب ({count})',
-  'settings.agentInstallShowAll': 'View all ({count})',
+  'settings.agentInstallShowAll': 'View all',
   'settings.agentInstallShowLess': 'Show less',
   'settings.agentAuthRequired': 'احراز هویت لازم است',
   'settings.agentAuthUnknown': 'وضعیت احراز هویت نامشخص است',
@@ -335,7 +335,7 @@ export const fa: Dict = {
     'پیش‌فرض‌های داخلی نمایش داده می‌شوند. برای دریافت مدل‌های زنده از CLI روی اسکن مجدد کلیک کنید.',
   'settings.cliEnvTitle': 'CLI config locations',
   'settings.cliEnvHint':
-    'Optional — only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
+    'Only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
   'settings.cliEnvClaudeConfigDir': 'Config directory',
   'settings.cliEnvClaudeBaseUrl': 'Proxy base URL',
   'settings.cliEnvClaudeApiKey': 'Proxy API key',

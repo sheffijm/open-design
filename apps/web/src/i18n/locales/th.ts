@@ -248,7 +248,7 @@ export const th: Dict = {
   'settings.agentAuthRequired': 'ต้องยืนยันตัวตน',
   'settings.agentInstalledGroup': 'CLI ของคุณ ({count})',
   'settings.agentInstallGroup': 'พร้อมให้ติดตั้ง ({count})',
-  'settings.agentInstallShowAll': 'View all ({count})',
+  'settings.agentInstallShowAll': 'View all',
   'settings.agentInstallShowLess': 'Show less',
   'settings.agentAuthUnknown': 'ไม่ทราบสถานะการยืนยันตัวตน',
   'settings.amrLogin': 'Sign in',
@@ -328,7 +328,7 @@ export const th: Dict = {
   'settings.modelPickerFallbackHint':
     'กำลังแสดงค่าเริ่มต้นในตัว คลิกสแกนอีกครั้งเพื่อดึงโมเดลสดจาก CLI',
   'settings.cliEnvTitle': 'ตำแหน่งการตั้งค่า CLI',
-  'settings.cliEnvHint': 'Optional — only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
+  'settings.cliEnvHint': 'Only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
   'settings.cliEnvClaudeConfigDir': 'Config directory',
   'settings.cliEnvCodexHome': 'Config directory',
   'settings.cliEnvCodexBin': 'Executable path',

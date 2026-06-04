@@ -249,7 +249,7 @@ export const ja: Dict = {
     'エージェントが検出されませんでした。Claude Code、Codex、Gemini CLI、OpenCode、Cursor Agent、Qwen、または GitHub Copilot CLI のいずれかをインストールして、再スキャンをクリックしてください。',
   'settings.agentInstalledGroup': 'あなたの CLI（{count}）',
   'settings.agentInstallGroup': 'インストール可能（{count}）',
-  'settings.agentInstallShowAll': 'View all ({count})',
+  'settings.agentInstallShowAll': 'View all',
   'settings.agentInstallShowLess': 'Show less',
   'settings.agentAuthRequired': '認証が必要です',
   'settings.agentAuthUnknown': '認証状態は不明です',
@@ -335,7 +335,7 @@ export const ja: Dict = {
     '組み込みのデフォルトを表示しています。再スキャンをクリックすると CLI から最新モデルを取得します。',
   'settings.cliEnvTitle': 'CLI config locations',
   'settings.cliEnvHint':
-    'Optional — only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
+    'Only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
   'settings.cliEnvClaudeConfigDir': 'Config directory',
   'settings.cliEnvClaudeBaseUrl': 'Proxy base URL',
   'settings.cliEnvClaudeApiKey': 'Proxy API key',

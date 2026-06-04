@@ -249,7 +249,7 @@ export const ko: Dict = {
     '에이전트가 감지되지 않았습니다. Claude Code, Codex, Devin for Terminal, Gemini CLI, OpenCode, Cursor Agent, Qwen 또는 GitHub Copilot CLI 중 하나를 설치한 후 다시 스캔을 클릭하세요.',
   'settings.agentInstalledGroup': '내 CLI ({count})',
   'settings.agentInstallGroup': '설치 가능 ({count})',
-  'settings.agentInstallShowAll': 'View all ({count})',
+  'settings.agentInstallShowAll': 'View all',
   'settings.agentInstallShowLess': 'Show less',
   'settings.agentAuthRequired': '인증 필요',
   'settings.agentAuthUnknown': '인증 상태를 알 수 없음',
@@ -335,7 +335,7 @@ export const ko: Dict = {
     '내장 기본값을 표시 중입니다. CLI에서 실시간 모델을 가져오려면 다시 스캔을 클릭하세요.',
   'settings.cliEnvTitle': 'CLI config locations',
   'settings.cliEnvHint':
-    'Optional — only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
+    'Only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
   'settings.cliEnvClaudeConfigDir': 'Config directory',
   'settings.cliEnvClaudeBaseUrl': 'Proxy base URL',
   'settings.cliEnvClaudeApiKey': 'Proxy API key',

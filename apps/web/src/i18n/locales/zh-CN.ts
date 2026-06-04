@@ -241,7 +241,7 @@ export const zhCN: Dict = {
     '尚未检测到任何代理。请安装 Claude Code、Codex、Gemini CLI、OpenCode、Cursor Agent、Qwen 或 GitHub Copilot CLI 中的一个，然后点击「重新扫描」。',
   'settings.agentInstalledGroup': '你的 CLI（{count}）',
   'settings.agentInstallGroup': '可安装（{count}）',
-  'settings.agentInstallShowAll': '查看全部（{count}）',
+  'settings.agentInstallShowAll': '查看全部',
   'settings.agentInstallShowLess': '收起',
   'settings.agentAuthRequired': '需要认证',
   'settings.agentAuthUnknown': '认证状态未知',

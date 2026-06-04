@@ -248,7 +248,7 @@ export const it: Dict = {
     'Nessun agente rilevato per ora. Installa Claude Code, Codex, Devin for Terminal, Gemini CLI, OpenCode, Cursor Agent, Qwen o GitHub Copilot CLI, poi clicca su Rianalizza.',
   'settings.agentInstalledGroup': 'Le tue CLI ({count})',
   'settings.agentInstallGroup': 'Disponibili per l\'installazione ({count})',
-  'settings.agentInstallShowAll': 'View all ({count})',
+  'settings.agentInstallShowAll': 'View all',
   'settings.agentInstallShowLess': 'Show less',
   'settings.amrLogin': 'Sign in',
   'settings.amrLogout': 'Sign out',
@@ -331,7 +331,7 @@ export const it: Dict = {
     'Mostra i valori predefiniti integrati. Clicca su Rianalizza per recuperare i modelli live dalla CLI.',
   'settings.cliEnvTitle': 'Posizioni di configurazione CLI',
   'settings.cliEnvHint':
-    'Optional — only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
+    'Only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
   'settings.cliEnvClaudeConfigDir': 'Config directory',
   'settings.cliEnvCodexHome': 'Config directory',
   'settings.cliEnvCodexBin': 'Executable path',

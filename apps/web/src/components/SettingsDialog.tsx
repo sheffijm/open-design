@@ -3611,9 +3611,7 @@ export function SettingsDialog({
                         >
                           {showAllInstallable
                             ? t('settings.agentInstallShowLess')
-                            : t('settings.agentInstallShowAll', {
-                                count: unavailableAgents.length,
-                              })}
+                            : t('settings.agentInstallShowAll')}
                           <Icon name="chevron-down" size={13} />
                         </button>
                       ) : null}

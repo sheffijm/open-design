@@ -249,7 +249,7 @@ export const id: Dict = {
     'Belum ada agent terdeteksi. Pasang salah satu dari Claude Code, Codex, Devin for Terminal, Gemini CLI, OpenCode, Cursor Agent, Qwen, atau GitHub Copilot CLI, lalu klik pindai ulang.',
   'settings.agentInstalledGroup': 'CLI Anda ({count})',
   'settings.agentInstallGroup': 'Tersedia untuk dipasang ({count})',
-  'settings.agentInstallShowAll': 'View all ({count})',
+  'settings.agentInstallShowAll': 'View all',
   'settings.agentInstallShowLess': 'Show less',
   'settings.agentAuthRequired': 'Autentikasi diperlukan',
   'settings.agentAuthUnknown': 'Status autentikasi tidak diketahui',
@@ -330,7 +330,7 @@ export const id: Dict = {
   'settings.modelPickerFallbackHint':
     'Menampilkan default bawaan. Klik Pindai ulang untuk mengambil model langsung dari CLI.',
   'settings.cliEnvTitle': 'Lokasi konfigurasi CLI',
-  'settings.cliEnvHint': 'Optional — only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
+  'settings.cliEnvHint': 'Only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
   'settings.cliEnvClaudeConfigDir': 'Config directory',
   'settings.cliEnvClaudeBaseUrl': 'Proxy base URL',
   'settings.cliEnvClaudeApiKey': 'Proxy API key',

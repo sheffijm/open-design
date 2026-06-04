@@ -250,7 +250,7 @@ export const uk: Dict = {
     'Агентів ще не виявлено. Встановіть один з: Claude Code, Codex, Devin for Terminal, Gemini CLI, OpenCode, Cursor Agent, Qwen або GitHub Copilot CLI, а потім натисніть Переканувати.',
   'settings.agentInstalledGroup': 'Ваші CLI ({count})',
   'settings.agentInstallGroup': 'Доступні для встановлення ({count})',
-  'settings.agentInstallShowAll': 'View all ({count})',
+  'settings.agentInstallShowAll': 'View all',
   'settings.agentInstallShowLess': 'Show less',
   'settings.agentAuthRequired': 'Потрібна автентифікація',
   'settings.agentAuthUnknown': 'Стан автентифікації невідомий',
@@ -336,7 +336,7 @@ export const uk: Dict = {
     'Показано вбудовані типові значення. Натисніть Переканувати, щоб отримати актуальні моделі з CLI.',
   'settings.cliEnvTitle': 'CLI config locations',
   'settings.cliEnvHint':
-    'Optional — only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
+    'Only for a custom proxy or non-standard install path. Stored locally; used only by this CLI.',
   'settings.cliEnvClaudeConfigDir': 'Config directory',
   'settings.cliEnvClaudeBaseUrl': 'Proxy base URL',
   'settings.cliEnvClaudeApiKey': 'Proxy API key',
