@@ -13,8 +13,9 @@ import {
   fetchProjectFileText,
   uploadProjectFiles,
   writeProjectTextFile,
+  fetchProjectFolders,
 } from '../../src/providers/registry';
-import type { ChatMessage, ProjectFile } from '../../src/types';
+import type { ChatMessage, ProjectFile, ProjectFolder } from '../../src/types';
 
 vi.mock('../../src/components/AmrGuidance', () => ({
   AmrGuidance: ({
@@ -59,6 +60,7 @@ vi.mock('../../src/providers/registry', async () => {
     fetchProjectFileText: vi.fn(),
     uploadProjectFiles: vi.fn(),
     writeProjectTextFile: vi.fn(),
+    fetchProjectFolders: vi.fn().mockResolvedValue([]),
   };
 });
 
@@ -378,6 +380,87 @@ describe('FileWorkspace upload input', () => {
         'Uploaded 1 file(s), but 1 failed (permission denied).',
       );
     });
+  });
+
+  it('starts Design Files navigation fresh when switching projects', () => {
+    const baseProps: React.ComponentProps<typeof FileWorkspace> = {
+      projectId: 'project-a',
+      projectKind: 'prototype',
+      files: [
+        workspaceFile('assets/logo.png'),
+        workspaceFile('top.html'),
+      ],
+      liveArtifacts: [],
+      onRefreshFiles: vi.fn(),
+      isDeck: false,
+      tabsState: { tabs: [], active: null },
+      onTabsStateChange: vi.fn(),
+    };
+
+    const { container, rerender } = render(<FileWorkspace {...baseProps} />);
+
+    fireEvent.click(container.querySelector('.df-dir-row .df-row-name-btn')!);
+    expect(container.querySelector('.df-breadcrumb-current')?.textContent).toBe('assets');
+
+    rerender(
+      <FileWorkspace
+        {...baseProps}
+        projectId="project-b"
+        files={[
+          workspaceFile('beta-assets/logo.png'),
+          workspaceFile('home.html'),
+        ]}
+      />,
+    );
+
+    expect(container.querySelector('.df-breadcrumb-current')?.textContent).toBe('project');
+    expect(screen.getByTestId('design-file-row-home.html')).toBeTruthy();
+  });
+
+  it('drops the previous project folders when switching, before the new fetch resolves', async () => {
+    const folder = (path: string): ProjectFolder => ({
+      name: path.split('/').pop() ?? path,
+      path,
+      type: 'dir',
+      size: 0,
+      mtime: 1700000000,
+    });
+    const mockedFolders = vi.mocked(fetchProjectFolders);
+    // project-a has an empty persisted folder; project-b's fetch stays pending.
+    // (One-time values take precedence over the factory default `[]`; no reset,
+    // so later tests keep that default.)
+    mockedFolders.mockResolvedValueOnce([folder('assets')]);
+    mockedFolders.mockReturnValueOnce(new Promise<ProjectFolder[]>(() => {}));
+
+    const baseProps: React.ComponentProps<typeof FileWorkspace> = {
+      projectId: 'project-a',
+      projectKind: 'prototype',
+      files: [],
+      liveArtifacts: [],
+      onRefreshFiles: vi.fn(),
+      isDeck: false,
+      tabsState: { tabs: [], active: null },
+      onTabsStateChange: vi.fn(),
+    };
+    const { container, rerender } = render(<FileWorkspace {...baseProps} />);
+    // project-a's empty folder shows once its fetch resolves.
+    await waitFor(() => {
+      expect(
+        [...container.querySelectorAll('.df-dir-row .df-row-name')].some(
+          (e) => e.textContent === 'assets',
+        ),
+      ).toBe(true);
+    });
+
+    // Switch to project-b; its folder fetch is still pending. The previous
+    // project's 'assets' folder must be gone immediately (reset synchronously),
+    // not linger and suppress the new project's empty state.
+    rerender(<FileWorkspace {...baseProps} projectId="project-b" files={[]} />);
+    expect(
+      [...container.querySelectorAll('.df-dir-row .df-row-name')].some(
+        (e) => e.textContent === 'assets',
+      ),
+    ).toBe(false);
   });
 
   it('clears a prior upload failure after a later successful upload', async () => {

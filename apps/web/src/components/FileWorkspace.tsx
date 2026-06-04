@@ -503,6 +503,11 @@ export function FileWorkspace({
 
   useEffect(() => {
     let cancelled = false;
+    // Clear the previous project's folders synchronously before the async
+    // fetch resolves — otherwise switching projects briefly renders the old
+    // project's folders (and suppresses the new project's empty state, now
+    // that DesignFilesPanel treats a non-empty `folders` prop as content).
+    setProjectFolders([]);
     void fetchProjectFolders(projectId).then((next) => {
       if (!cancelled) setProjectFolders(next);
     });
