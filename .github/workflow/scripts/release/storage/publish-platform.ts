@@ -12,6 +12,7 @@ import {
   storageConfigFromEnv,
   writeJson,
 } from "./common.ts";
+import { assertCurrentVersionReservation, versionLockObjectKey } from "./beta-version-reservation.ts";
 import { putStorageObject } from "./s3-upload.ts";
 
 type AssetEntry = {
@@ -47,6 +48,13 @@ const versionPrefix = optional("RELEASE_VERSION_PREFIX", `${releaseChannel}/vers
 const latestPrefix = `${releaseChannel}/latest`;
 const reportRoot = optional("RELEASE_REPORT_DIR");
 const reportZipPath = optional("RELEASE_REPORT_ZIP_PATH");
+const versionLockRequired = bool("RELEASE_VERSION_LOCK_REQUIRED");
+const versionLockKey = optional("RELEASE_VERSION_LOCK_KEY", versionLockObjectKey(releaseVersion));
+
+if (versionLockRequired) {
+  await assertCurrentVersionReservation(storage, releaseVersion, versionLockKey);
+  console.log(`verified beta version reservation ${versionLockKey}`);
+}
 
 function assetEntry(name: string): AssetEntry {
   const path = join(releaseAssetsDir, name);
@@ -289,4 +297,3 @@ writeFileSync(
 );
 
 console.log(`published ${config.label} beta assets to ${versionPrefix}`);
-

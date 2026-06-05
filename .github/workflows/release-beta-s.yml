@@ -270,10 +270,6 @@ permissions:
   contents: read
   actions: read
 
-concurrency:
-  group: release-beta-s
-  cancel-in-progress: false
-
 env:
   OPEN_DESIGN_TELEMETRY_RELAY_URL: ${{ vars.OPEN_DESIGN_TELEMETRY_RELAY_URL }}
   POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
@@ -299,12 +295,14 @@ jobs:
     outputs:
       asset_version_suffix: ${{ steps.beta.outputs.asset_version_suffix }}
       base_version: ${{ steps.beta.outputs.base_version }}
-      beta_version: ${{ inputs.release_version != '' && inputs.release_version || steps.beta.outputs.beta_version }}
+      beta_version: ${{ steps.reserve.outputs.beta_version }}
       branch: ${{ steps.beta.outputs.branch }}
       commit: ${{ steps.beta.outputs.commit }}
       previous_commit: ${{ steps.prev.outputs.previous_commit }}
-      release_name: ${{ steps.beta.outputs.release_name }}
-      state_source: ${{ steps.beta.outputs.state_source }}
+      release_name: ${{ steps.reserve.outputs.release_name }}
+      state_source: ${{ steps.reserve.outputs.state_source }}
+      version_lock_key: ${{ steps.reserve.outputs.version_lock_key }}
+      version_lock_url: ${{ steps.reserve.outputs.version_lock_url }}
     steps:
       - name: Checkout metadata sources
         id: checkout
@@ -362,6 +360,7 @@ jobs:
           mkdir -p "$(dirname "$repo_dir/$sparse_path")"
           cat > "$repo_dir/$sparse_path" <<'EOF'
           apps/packaged/package.json
+          .github/workflow/scripts/release/storage
           scripts/release-beta.ts
           EOF
 
@@ -426,6 +425,31 @@ jobs:
           # shellcheck disable=SC1090
           source "$OPEN_DESIGN_RELEASE_PROFILE"
           fnm exec --using=24 -- node --experimental-strip-types ./scripts/release-beta.ts
+
+      - name: Reserve beta version
+        id: reserve
+        working-directory: _release-metadata
+        env:
+          BASE_VERSION: ${{ steps.beta.outputs.base_version }}
+          RELEASE_CHANNEL: beta
+          RELEASE_LANE: release-beta-s
+          RELEASE_METADATA_DIR: ${{ runner.temp }}/release-version-reservation
+          RELEASE_PUBLIC_ORIGIN: ${{ inputs.release_public_origin }}
+          RELEASE_STORAGE_ACCESS_KEY_ID: ${{ secrets.NEXU_S3_ACCESS_KEY_ID }}
+          RELEASE_STORAGE_BUCKET: ${{ secrets.NEXU_S3_BUCKET }}
+          RELEASE_STORAGE_ENDPOINT: ${{ secrets.NEXU_S3_ENDPOINT }}
+          RELEASE_STORAGE_REGION: ${{ secrets.NEXU_S3_REGION }}
+          RELEASE_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.NEXU_S3_SECRET_ACCESS_KEY }}
+          RELEASE_VERSION_CANDIDATE: ${{ inputs.release_version != '' && inputs.release_version || steps.beta.outputs.beta_version }}
+          RELEASE_VERSION_MANUAL_OVERRIDE: ${{ inputs.release_version != '' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if ! command -v rehash >/dev/null 2>&1; then
+            rehash() { hash -r; }
+          fi
+          # shellcheck disable=SC1090
+          source "$OPEN_DESIGN_RELEASE_PROFILE"
+          fnm exec --using=24 -- node --experimental-strip-types .github/workflow/scripts/release/storage/reserve-beta-version.ts
 
   unsupported_mac_x64:
     name: Reject unsupported self-hosted mac_x64
@@ -587,6 +611,8 @@ jobs:
           RELEASE_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.NEXU_S3_SECRET_ACCESS_KEY }}
           RELEASE_TARGET: mac_arm64
           RELEASE_VERSION: ${{ needs.metadata.outputs.beta_version }}
+          RELEASE_VERSION_LOCK_KEY: ${{ needs.metadata.outputs.version_lock_key }}
+          RELEASE_VERSION_LOCK_REQUIRED: "true"
         run: |
           set -euo pipefail
           if ! command -v rehash >/dev/null 2>&1; then
@@ -706,6 +732,8 @@ jobs:
           RELEASE_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.NEXU_S3_SECRET_ACCESS_KEY }}
           RELEASE_TARGET: win_x64
           RELEASE_VERSION: ${{ needs.metadata.outputs.beta_version }}
+          RELEASE_VERSION_LOCK_KEY: ${{ needs.metadata.outputs.version_lock_key }}
+          RELEASE_VERSION_LOCK_REQUIRED: "true"
         shell: pwsh
         run: '& "C:\Users\runner\.cargo\bin\fnm.exe" exec --using=24 -- node --experimental-strip-types .github\workflow\scripts\release\storage\publish-platform.ts'
 
@@ -816,6 +844,7 @@ jobs:
           LINUX_X64_RESULT: skipped
           MAC_ARM64_RESULT: ${{ needs.build_mac_arm64.result }}
           MAC_X64_RESULT: skipped
+          RELEASE_LATEST_CAS_REQUIRED: "true"
           RELEASE_ASSET_SUFFIX: auto
           RELEASE_CHANNEL: beta
           RELEASE_MANIFEST_DIR: ${{ runner.temp }}/release-platform-manifests
@@ -829,6 +858,8 @@ jobs:
           RELEASE_STORAGE_REGION: ${{ secrets.NEXU_S3_REGION }}
           RELEASE_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.NEXU_S3_SECRET_ACCESS_KEY }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.beta_version }}
+          RELEASE_VERSION_LOCK_KEY: ${{ needs.metadata.outputs.version_lock_key }}
+          RELEASE_VERSION_LOCK_REQUIRED: "true"
           STATE_SOURCE: ${{ needs.metadata.outputs.state_source }}
           WIN_X64_RESULT: ${{ needs.build_win_x64.result }}
         working-directory: _release-scripts

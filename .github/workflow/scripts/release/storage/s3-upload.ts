@@ -14,6 +14,7 @@ type PutObjectOptions = StorageConfig & {
   bodyPath: string;
   cacheControl: string;
   contentType: string;
+  headers?: Record<string, string>;
   objectKey: string;
 };
 
@@ -66,6 +67,13 @@ function authorizationHeader(config: StorageConfig, method: "GET" | "PUT", canon
 }
 
 export async function putStorageObject(options: PutObjectOptions): Promise<void> {
+  const result = await putStorageObjectWithStatus(options);
+  if (!result.ok) {
+    throw new Error(`PUT ${result.url} failed with HTTP ${result.status}${result.body.length > 0 ? `: ${result.body}` : ""}`);
+  }
+}
+
+export async function putStorageObjectWithStatus(options: PutObjectOptions): Promise<{ body: string; ok: boolean; status: number; url: string }> {
   const body = readFileSync(options.bodyPath);
   const payloadHash = hash(body);
   const { amzDate, dateStamp } = amzTimestamp(new Date());
@@ -76,6 +84,7 @@ export async function putStorageObject(options: PutObjectOptions): Promise<void>
     host: url.host,
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate,
+    ...(options.headers ?? {}),
   };
   if (options.sessionToken != null && options.sessionToken.length > 0) {
     headers["x-amz-security-token"] = options.sessionToken;
@@ -89,13 +98,15 @@ export async function putStorageObject(options: PutObjectOptions): Promise<void>
     },
     method: "PUT",
   });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`PUT ${url} failed with HTTP ${response.status}${text.length > 0 ? `: ${text}` : ""}`);
-  }
+  return {
+    body: await response.text().catch(() => ""),
+    ok: response.ok,
+    status: response.status,
+    url: url.toString(),
+  };
 }
 
-export async function getStorageObjectText(options: GetObjectOptions): Promise<string | null> {
+export async function getStorageObject(options: GetObjectOptions): Promise<{ etag: string; text: string } | null> {
   const payloadHash = hash("");
   const { amzDate, dateStamp } = amzTimestamp(new Date());
   const { canonicalUri, url } = objectUrl(options, options.objectKey);
@@ -120,6 +131,13 @@ export async function getStorageObjectText(options: GetObjectOptions): Promise<s
     const text = await response.text().catch(() => "");
     throw new Error(`GET ${url} failed with HTTP ${response.status}${text.length > 0 ? `: ${text}` : ""}`);
   }
-  return await response.text();
+  return {
+    etag: response.headers.get("etag") ?? "",
+    text: await response.text(),
+  };
 }
 
+export async function getStorageObjectText(options: GetObjectOptions): Promise<string | null> {
+  const object = await getStorageObject(options);
+  return object?.text ?? null;
+}

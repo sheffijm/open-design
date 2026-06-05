@@ -8,7 +8,8 @@ import {
   storageConfigFromEnv,
   writeJson,
 } from "./common.ts";
-import { putStorageObject } from "./s3-upload.ts";
+import { assertCurrentVersionReservation, versionLockObjectKey } from "./beta-version-reservation.ts";
+import { getStorageObject, putStorageObject, putStorageObjectWithStatus } from "./s3-upload.ts";
 
 type PlatformManifest = {
   artifacts?: Record<string, { url?: string }>;
@@ -52,6 +53,14 @@ const versionPrefix = optional("RELEASE_VERSION_PREFIX", `${releaseChannel}/vers
 const latestPrefix = `${releaseChannel}/latest`;
 const currentCommit = optional("RELEASE_COMMIT");
 const currentRunId = Number(optional("RELEASE_RUN_ID", "0"));
+const versionLockRequired = process.env.RELEASE_VERSION_LOCK_REQUIRED === "true";
+const versionLockKey = optional("RELEASE_VERSION_LOCK_KEY", versionLockObjectKey(releaseVersion));
+const latestCasRequired = process.env.RELEASE_LATEST_CAS_REQUIRED === "true";
+
+if (versionLockRequired) {
+  await assertCurrentVersionReservation(storage, releaseVersion, versionLockKey);
+  console.log(`verified beta version reservation ${versionLockKey}`);
+}
 
 const targetDefs: TargetDef[] = [
   { enableEnv: "ENABLE_MAC_ARM64", label: "macOS arm64", legacyKey: "mac", resultEnv: "MAC_ARM64_RESULT", target: "mac_arm64" },
@@ -59,6 +68,30 @@ const targetDefs: TargetDef[] = [
   { enableEnv: "ENABLE_MAC_X64", label: "macOS x64", legacyKey: "macIntel", resultEnv: "MAC_X64_RESULT", target: "mac_x64" },
   { enableEnv: "ENABLE_LINUX_X64", label: "Linux x64", legacyKey: "linux", resultEnv: "LINUX_X64_RESULT", target: "linux_x64" },
 ];
+
+function parseReleaseVersion(value: string): { base: [number, number, number]; betaNumber: number } | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)-beta\.(\d+)$/.exec(value);
+  if (match?.[1] == null || match[2] == null || match[3] == null || match[4] == null) return null;
+  const base: [number, number, number] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const betaNumber = Number(match[4]);
+  if (base.some((part) => !Number.isSafeInteger(part)) || !Number.isSafeInteger(betaNumber) || betaNumber < 1) return null;
+  return { base, betaNumber };
+}
+
+function compareReleaseVersions(left: string, right: string): number {
+  const parsedLeft = parseReleaseVersion(left);
+  const parsedRight = parseReleaseVersion(right);
+  if (parsedLeft == null || parsedRight == null) {
+    throw new Error(`invalid beta version comparison: ${left} vs ${right}`);
+  }
+  for (let index = 0; index < parsedLeft.base.length; index += 1) {
+    if (parsedLeft.base[index] > parsedRight.base[index]) return 1;
+    if (parsedLeft.base[index] < parsedRight.base[index]) return -1;
+  }
+  if (parsedLeft.betaNumber > parsedRight.betaNumber) return 1;
+  if (parsedLeft.betaNumber < parsedRight.betaNumber) return -1;
+  return 0;
+}
 
 async function upload(path: string, objectKey: string, cacheControl: string): Promise<void> {
   await putStorageObject({
@@ -68,6 +101,56 @@ async function upload(path: string, objectKey: string, cacheControl: string): Pr
     contentType: "application/json; charset=utf-8",
     objectKey,
   });
+}
+
+async function uploadLatestMetadataWithCas(path: string, objectKey: string): Promise<void> {
+  if (!latestCasRequired) {
+    await upload(path, objectKey, "public, max-age=60, must-revalidate");
+    return;
+  }
+
+  if (parseReleaseVersion(releaseVersion) == null) {
+    throw new Error(`invalid beta version for latest CAS: ${releaseVersion}`);
+  }
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const latest = await getStorageObject({ ...storage, objectKey });
+    const headers: Record<string, string> = {};
+    if (latest == null) {
+      headers["if-none-match"] = "*";
+    } else {
+      let latestBetaVersion = "";
+      try {
+        const parsed = JSON.parse(latest.text.replace(/^\uFEFF/u, "")) as { betaVersion?: unknown };
+        latestBetaVersion = typeof parsed.betaVersion === "string" ? parsed.betaVersion : "";
+      } catch (error) {
+        throw new Error(`latest metadata is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (latestBetaVersion.length > 0 && compareReleaseVersions(latestBetaVersion, releaseVersion) > 0) {
+        throw new Error(`refusing to move beta latest backward from ${latestBetaVersion} to ${releaseVersion}`);
+      }
+      if (latest.etag.length === 0) {
+        throw new Error("latest metadata GET did not return an ETag for CAS update");
+      }
+      headers["if-match"] = latest.etag;
+    }
+
+    const result = await putStorageObjectWithStatus({
+      ...storage,
+      bodyPath: path,
+      cacheControl: "public, max-age=60, must-revalidate",
+      contentType: "application/json; charset=utf-8",
+      headers,
+      objectKey,
+    });
+    if (result.ok) return;
+    if (result.status !== 412) {
+      throw new Error(`latest metadata CAS PUT ${objectKey} failed with HTTP ${result.status}${result.body.length > 0 ? `: ${result.body}` : ""}`);
+    }
+    console.log(`latest metadata CAS conflict on attempt ${attempt}; retrying`);
+  }
+
+  throw new Error(`failed to update latest metadata with CAS after 5 attempts: ${objectKey}`);
 }
 
 function enabled(name: string): boolean {
@@ -179,7 +262,7 @@ const metadataPath = join(metadataDir, "metadata.json");
 writeJson(metadataPath, metadata);
 await upload(metadataPath, `${versionPrefix}/metadata.json`, "public, max-age=31536000, immutable");
 if (latestMetadataUpdated) {
-  await upload(metadataPath, `${latestPrefix}/metadata.json`, "public, max-age=60, must-revalidate");
+  await uploadLatestMetadataWithCas(metadataPath, `${latestPrefix}/metadata.json`);
 } else {
   console.log(`left ${metadata.r2.latestMetadataUrl} unchanged because releaseState=${releaseState}`);
 }
