@@ -329,6 +329,31 @@ function validateRelativePath(value: string, path: string, issues: LiveArtifactV
   }
 }
 
+// Reserved project path segments rejected by validateProjectPath() in projects.ts.
+// Mirrored here (kept in sync with RESERVED_PROJECT_FILE_SEGMENTS) so schema-side
+// acceptance stays a subset of what a refresh can actually read.
+const RESERVED_READ_JSON_SEGMENTS = new Set(['.live-artifacts']);
+
+// project_files.read_json resolves a selector, feeds it to validateProjectPath()
+// (refresh.ts → projects.ts), and then requires a .json extension. validateRelativePath
+// alone misses single-dot segments, reserved segments, and the extension, so mirror the
+// remaining static rules here — otherwise sources like { path: './report.json' } or
+// { file: '.live-artifacts/cache.json' } pass creation yet fail every refresh, recreating
+// the persisted-but-unrefreshable artifact class this validation exists to prevent.
+function validateReadJsonSelector(value: string, path: string, issues: LiveArtifactValidationIssue[]): void {
+  validateRelativePath(value, path, issues); // absolute / .. / null-byte / length
+  const segments = value.replace(/\\/g, '/').split('/').filter((part) => part.length > 0);
+  if (segments.some((part) => part === '.')) {
+    issues.push({ path, message: `${path} cannot contain '.' path segments` });
+  }
+  if (segments.some((part) => RESERVED_READ_JSON_SEGMENTS.has(part))) {
+    issues.push({ path, message: `${path} cannot reference a reserved project path` });
+  }
+  if (!value.toLowerCase().endsWith('.json')) {
+    issues.push({ path, message: `${path} must point to a .json file for project_files.read_json sources` });
+  }
+}
+
 function validateNoDaemonOwnedFields(raw: Record<string, unknown>, issues: LiveArtifactValidationIssue[]): void {
   for (const key of Object.keys(raw)) {
     if (DAEMON_OWNED_INPUT_FIELDS.has(key)) {
@@ -493,13 +518,12 @@ function validateDaemonRefreshRequiredInput(
     });
     return;
   }
-  // path and file already pass through validateSourceInputPaths' key filter, but
-  // name does not — yet selectJsonPath feeds it to validateProjectPath all the
-  // same. Validate the resolved name selector here so a traversal/absolute target
-  // is rejected at creation instead of persisting a source that only fails on refresh.
-  if (selectorKey === 'name') {
-    validateRelativePath(selector, `${path}.${selectorKey}`, issues);
-  }
+  // Validate the resolved selector with the same static rules the runtime applies
+  // (validateProjectPath + .json extension). path/file also pass through
+  // validateSourceInputPaths' key filter; name does not — and none of the three are
+  // checked for single-dot/reserved segments or the extension there — so do it here
+  // on whichever alias selectJsonPath would actually read.
+  validateReadJsonSelector(selector, `${path}.${selectorKey}`, issues);
 }
 
 function validatePreview(value: unknown, path: string, issues: LiveArtifactValidationIssue[]): LiveArtifactPreview | undefined {

@@ -383,6 +383,37 @@ describe('live artifact schema validation', () => {
     }
   });
 
+  it('rejects single-dot and reserved-path read_json selectors across every alias', () => {
+    // validateProjectPath (refresh.ts → projects.ts) rejects '.' segments and the
+    // reserved '.live-artifacts' segment; the executor also requires a .json file.
+    // Schema acceptance must stay a subset of that, or the source persists yet
+    // fails every refresh with "invalid file name" / "reserved project path".
+    const badValues = ['./report.json', '.live-artifacts/cache.json', 'nested/./report.json', 'reports/notes.txt'];
+    for (const alias of ['path', 'file', 'name'] as const) {
+      for (const value of badValues) {
+        const result = validateLiveArtifactCreateInput({
+          ...validCreateInput(),
+          document: {
+            ...validCreateInput().document,
+            sourceJson: {
+              type: 'local_file',
+              toolName: 'project_files.read_json',
+              input: { [alias]: value },
+              refreshPermission: 'manual_refresh_granted_for_read_only',
+            },
+          },
+        });
+
+        expect(result.ok, `${alias}=${value} should be rejected`).toBe(false);
+        if (!result.ok) {
+          expect(result.issues).toEqual(expect.arrayContaining([
+            expect.objectContaining({ path: `input.document.sourceJson.input.${alias}` }),
+          ]));
+        }
+      }
+    }
+  });
+
   it('rejects oversized bounded JSON payloads', () => {
     const oversized = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`field${index}`, 'x'.repeat(3_000)]));
     const result = validateBoundedJsonObject(oversized, 'data');
