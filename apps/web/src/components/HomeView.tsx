@@ -1399,6 +1399,9 @@ export function HomeView({
         return { examplePromptContext: examplePromptInfoRef.current };
       })(),
     });
+    setSelectedPluginContexts([]);
+    setSelectedMcpContexts([]);
+    setSelectedConnectorContexts([]);
   }
 
   return (
