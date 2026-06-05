@@ -700,15 +700,16 @@ describe('HomeView prompt handoff', () => {
     const applyCall = fetchMock.mock.calls.find(([url]) => (
       typeof url === 'string' && url.includes('/api/plugins/example-web-prototype/apply')
     ));
-    expect(JSON.parse(String((applyCall?.[1] as RequestInit).body))).toMatchObject({
-      inputs: {
-        artifactKind: 'web prototype',
-        fidelity: 'high-fidelity',
-        audience: 'product evaluators',
-        designSystem: 'Refly Design System',
-        template: 'the bundled web prototype seed',
-      },
+    const protoApplyInputs = JSON.parse(String((applyCall?.[1] as RequestInit).body)).inputs;
+    expect(protoApplyInputs).toMatchObject({
+      artifactKind: 'web prototype',
+      audience: 'product evaluators',
+      designSystem: 'Refly Design System',
+      template: 'the bundled web prototype seed',
     });
+    // Fidelity is deferred to first-turn discovery, so its plugin default must
+    // NOT be forwarded with the run.
+    expect(protoApplyInputs).not.toHaveProperty('fidelity');
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       pluginId: 'example-web-prototype',
       projectKind: 'prototype',
@@ -800,7 +801,6 @@ describe('HomeView prompt handoff', () => {
     expect(JSON.parse(String((applyCall?.[1] as RequestInit).body))).toMatchObject({
       inputs: {
         artifactKind: 'web prototype',
-        fidelity: 'high-fidelity',
         audience: 'product evaluators',
         designSystem: 'Refly Design System',
         template: 'the bundled web prototype seed',

@@ -193,6 +193,8 @@ export function ComposerPlusMenu({
                     type="button"
                     role="menuitem"
                     className="plus-menu__item"
+                    // Keep focus on the editor so the pick handler's
+                    // insertMention lands at the caret, not the draft end.
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       close();
