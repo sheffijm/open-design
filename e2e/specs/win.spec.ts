@@ -88,6 +88,27 @@ const clickUpdaterRailExpression = `
     return { clicked: true, hostStatus };
   })()
 `;
+const ensureMainAppShellExpression = `
+  (() => {
+    const home = document.querySelector('[data-testid="entry-nav-home"]');
+    if (home instanceof HTMLElement) {
+      return { homeVisible: true, onboardingVisible: false, skipped: false };
+    }
+    const onboarding = document.querySelector('.entry-shell--onboarding, .entry-onboarding-modal');
+    const skip = document.querySelector('.onboarding-view__secondary');
+    if (onboarding instanceof HTMLElement && skip instanceof HTMLButtonElement && !skip.disabled) {
+      skip.click();
+      return { homeVisible: false, onboardingVisible: true, skipped: true, text: skip.textContent?.trim() ?? '' };
+    }
+    return {
+      homeVisible: false,
+      onboardingVisible: onboarding instanceof HTMLElement,
+      skipped: false,
+      title: document.title,
+      text: document.body?.textContent?.trim().slice(0, 300) ?? '',
+    };
+  })()
+`;
 
 type DesktopStatus = {
   pid?: number;
@@ -379,6 +400,8 @@ winDescribe('packaged windows runtime smoke', () => {
       else expect(value.health.version).toEqual(expect.any(String));
       assertLauncherPointer(inspect.launcher.active, updateScenario.expectedCurrentVersion, 0, 'initial active');
       assertLauncherPointer(inspect.launcher.lastSuccessful, updateScenario.expectedCurrentVersion, 0, 'initial lastSuccessful');
+
+      await measureSmokeStep(timings, 'ensure main app shell', async () => ensureMainAppShell());
 
       await mkdir(dirname(preUpdateScreenshotPath), { recursive: true });
       const preUpdateScreenshot = await measureSmokeStep(timings, 'inspect screenshot before update', async () =>
@@ -828,6 +851,23 @@ async function waitForHealthyDesktop(): Promise<WinInspectResult> {
   }
 
   throw new Error(`packaged windows runtime did not become healthy: ${formatUnknown(lastResult)}`);
+}
+
+async function ensureMainAppShell(timeoutMs = 45_000): Promise<void> {
+  const startedAt = Date.now();
+  let lastResult: unknown = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const inspect = await runToolsPackJson<WinInspectResult>('inspect', ['--expr', ensureMainAppShellExpression]);
+      lastResult = inspect;
+      const value = inspect.eval?.value;
+      if (isRecord(value) && value.homeVisible === true) return;
+    } catch (error) {
+      lastResult = error;
+    }
+    await delay(750);
+  }
+  throw new Error(`packaged windows runtime did not reach main app shell: ${formatUnknown(lastResult)}`);
 }
 
 async function waitForHealthyDesktopVersion(expectedVersion: string, previousPid: number | null | undefined): Promise<WinInspectResult> {
