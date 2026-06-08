@@ -662,6 +662,88 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     );
   });
 
+  it('registers object upload authority through the object relay when traces use direct Langfuse', async () => {
+    await writeAppCfg({
+      installationId: 'install-uuid-1',
+      telemetry: { metrics: true, content: true, artifactManifest: true },
+    });
+    const projectDir = path.join(dataDir, 'projects', 'proj-1');
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(path.join(projectDir, 'index.html'), '<!doctype html><h1>artifact body</h1>');
+    const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.includes('/api/objects/authorize')) {
+        const parsed = JSON.parse(init.body as string) as {
+          objects: Array<{ storage_ref: string; object_class: string }>;
+        };
+        expect(parsed.objects).toHaveLength(1);
+        expect(parsed.objects[0]).toMatchObject({ object_class: 'artifact' });
+        return new Response(JSON.stringify({ upload_token: 'upload-token' }), { status: 200 });
+      }
+      if (url.includes('/api/objects/batch')) {
+        const parsed = JSON.parse(init.body as string) as {
+          objects: Array<{ storage_ref: string; content_base64: string }>;
+        };
+        return new Response(
+          JSON.stringify({
+            objects: parsed.objects.map((object) => ({
+              storage_ref: object.storage_ref,
+              status: 'available',
+              size_bytes: Buffer.from(object.content_base64, 'base64').byteLength,
+              sha256: 'sha256:uploaded-artifact',
+            })),
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('{}', { status: 207 });
+    });
+
+    process.env.OPEN_DESIGN_OBJECT_RELAY_URL = 'https://telemetry.open-design.ai/api/objects/batch';
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk';
+    process.env.LANGFUSE_SECRET_KEY = 'sk';
+    try {
+      await reportRunCompletedFromDaemon({
+        db: makeDbWithListMessages({
+          'conv-1': [
+            { id: 'user-1', role: 'user', content: 'Build it.' },
+            {
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'done',
+              producedFiles: [{ name: 'index.html', kind: 'html', size: 35 }],
+            },
+          ],
+        }),
+        dataDir,
+        run: makeRun() as any,
+        fetchImpl: fetchSpy as any,
+      });
+    } finally {
+      delete process.env.OPEN_DESIGN_OBJECT_RELAY_URL;
+      delete process.env.LANGFUSE_PUBLIC_KEY;
+      delete process.env.LANGFUSE_SECRET_KEY;
+    }
+
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(fetchSpy.mock.calls[0]![0]).toBe('https://telemetry.open-design.ai/api/langfuse');
+    expect(fetchSpy.mock.calls[1]![0]).toBe('https://telemetry.open-design.ai/api/objects/authorize');
+    expect(fetchSpy.mock.calls[2]![0]).toBe('https://telemetry.open-design.ai/api/objects/batch');
+    expect(fetchSpy.mock.calls[3]![0]).toBe('https://us.cloud.langfuse.com/api/public/ingestion');
+    const registrationBatch = JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string).batch as any[];
+    const finalBatch = JSON.parse(fetchSpy.mock.calls[3]![1]!.body as string).batch as any[];
+    expect(registrationBatch[0].body.metadata.artifact_manifest[0]).toMatchObject({
+      object_class: 'artifact',
+      storage_ref: expect.stringContaining(
+        'od://objects/workspaces/unknown/projects/proj-1/runs/run-id-1/artifact/',
+      ),
+    });
+    expect(finalBatch[0].body.metadata.artifact_manifest[0]).toMatchObject({
+      object_class: 'artifact',
+      status: 'ok',
+      stored_in_open_design: true,
+    });
+  });
+
   it('derives manifest completeness from merged uploaded and fallback manifests', async () => {
     await writeAppCfg({
       installationId: 'install-uuid-1',

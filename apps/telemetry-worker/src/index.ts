@@ -441,16 +441,54 @@ function decodeBase64(input: string): Uint8Array | null {
   }
 }
 
-function hasPerEventErrors(responseBody: string): boolean {
-  if (!responseBody) return false;
+function traceCreateEventIds(value: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!isRecord(value) || !Array.isArray(value.batch)) return ids;
+  for (const event of value.batch) {
+    if (
+      isRecord(event) &&
+      event.type === 'trace-create' &&
+      typeof event.id === 'string' &&
+      event.id.length > 0
+    ) {
+      ids.add(event.id);
+    }
+  }
+  return ids;
+}
+
+function eventResultIds(value: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(value)) return ids;
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) continue;
+    ids.add(item.id);
+  }
+  return ids;
+}
+
+function acceptedTraceCreateEventIds(responseBody: string, requestBody: unknown): Set<string> {
+  const traceIds = traceCreateEventIds(requestBody);
+  if (traceIds.size === 0 || !responseBody) return traceIds;
   let parsed: unknown;
   try {
     parsed = JSON.parse(responseBody);
   } catch {
-    return false;
+    return traceIds;
   }
-  const errors = isRecord(parsed) ? parsed.errors : undefined;
-  return Array.isArray(errors) && errors.length > 0;
+  if (!isRecord(parsed)) return traceIds;
+
+  const successes = eventResultIds(parsed.successes);
+  if (successes.size > 0) {
+    return new Set([...traceIds].filter((id) => successes.has(id)));
+  }
+
+  const errors = eventResultIds(parsed.errors);
+  if (errors.size > 0) {
+    return new Set([...traceIds].filter((id) => !errors.has(id)));
+  }
+
+  return traceIds;
 }
 
 function validateObjectBody(value: unknown): string | null {
@@ -531,10 +569,15 @@ function manifestObjectsFromMetadata(metadata: unknown): ObjectUploadScopeObject
   return out;
 }
 
-async function registerObjectUploadScopes(env: Env, parsed: unknown): Promise<void> {
+async function registerObjectUploadScopes(
+  env: Env,
+  parsed: unknown,
+  acceptedTraceEventIds: Set<string>,
+): Promise<void> {
   if (!env.TRACE_OBJECT_SCOPE_KV || !isRecord(parsed) || !Array.isArray(parsed.batch)) return;
   for (const event of parsed.batch) {
     if (!isRecord(event) || event.type !== 'trace-create' || !isRecord(event.body)) continue;
+    if (typeof event.id !== 'string' || !acceptedTraceEventIds.has(event.id)) continue;
     const body = event.body;
     const metadata = body.metadata;
     if (!isRecord(metadata)) continue;
@@ -850,8 +893,8 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     body: rawBody,
   });
   const upstreamBody = await upstream.text();
-  if (upstream.ok && !hasPerEventErrors(upstreamBody)) {
-    await registerObjectUploadScopes(env, parsed);
+  if (upstream.ok) {
+    await registerObjectUploadScopes(env, parsed, acceptedTraceCreateEventIds(upstreamBody, parsed));
   }
   return new Response(upstreamBody, {
     status: upstream.status,

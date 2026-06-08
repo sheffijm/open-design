@@ -32,6 +32,7 @@ import {
   type MessageSummary,
   type ReportContext,
   type RuntimeInfo,
+  type TelemetrySinkConfig,
   type ToolCallSummary,
   type TurnInfo,
 } from './langfuse-trace.js';
@@ -165,6 +166,46 @@ function mergeTraceSafeManifests(
     artifactManifest,
     ...(inputTextSnapshotManifest ? { inputTextSnapshotManifest } : {}),
     completeness: deriveManifestCompleteness(entries, selectedFallbackUnavailable),
+  };
+}
+
+function inferObjectRegistrationRelayUrl(env: NodeJS.ProcessEnv = process.env): string | null {
+  const objectRelayUrl = env.OPEN_DESIGN_OBJECT_RELAY_URL?.trim();
+  if (!objectRelayUrl) return null;
+  try {
+    const url = new URL(objectRelayUrl);
+    url.pathname = url.pathname.replace(/\/api\/objects\/batch\/?$/, '/api/langfuse');
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return objectRelayUrl.replace(/\/api\/objects\/batch\/?$/, '/api/langfuse').replace(/\/+$/, '');
+  }
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseNonNegativeInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function objectRegistrationTelemetryConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): Extract<TelemetrySinkConfig, { kind: 'relay' }> | null {
+  const relayUrl = inferObjectRegistrationRelayUrl(env);
+  if (!relayUrl) return null;
+  return {
+    kind: 'relay',
+    relayUrl,
+    timeoutMs: parsePositiveInt(
+      env.OPEN_DESIGN_OBJECT_RELAY_TIMEOUT_MS ?? env.OPEN_DESIGN_TELEMETRY_TIMEOUT_MS,
+      20_000,
+    ),
+    retries: parseNonNegativeInt(env.OPEN_DESIGN_TELEMETRY_RETRIES, 1),
   };
 }
 
@@ -936,7 +977,10 @@ export async function reportRunCompletedFromDaemon(
     if (registrationManifests) {
       await reportRunCompleted(
         buildContext(mergeTraceSafeManifests(manifests, registrationManifests)),
-        opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {},
+        {
+          config: objectRegistrationTelemetryConfig(),
+          ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+        },
       );
     }
 
