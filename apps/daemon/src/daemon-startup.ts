@@ -28,6 +28,13 @@ export type DaemonCliStartupParseResult =
   | { ok: false; kind: 'help' }
   | { ok: false; kind: 'error'; message: string };
 
+function requiredOptionValue(flag: string, value: string | undefined, label: string): string | DaemonCliStartupParseResult {
+  if (value == null || value.startsWith('-')) {
+    return { ok: false, kind: 'error', message: `${flag} requires ${label}` };
+  }
+  return value;
+}
+
 export function parseDaemonCliStartupArgs(
   argv: string[],
   env: NodeJS.ProcessEnv = process.env,
@@ -40,16 +47,16 @@ export function parseDaemonCliStartupArgs(
     const a = argv[i];
     if (a == null) continue;
     if (a === '-p' || a === '--port') {
-      const next = argv[++i];
-      if (next == null) return { ok: false, kind: 'error', message: `${a} requires a port` };
+      const next = requiredOptionValue(a, argv[++i], 'a port');
+      if (typeof next !== 'string') return next;
       const parsedPort = Number(next);
       if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
         return { ok: false, kind: 'error', message: `invalid port: ${next}` };
       }
       port = parsedPort;
     } else if (a === '--host') {
-      const next = argv[++i];
-      if (next == null) return { ok: false, kind: 'error', message: '--host requires an address' };
+      const next = requiredOptionValue(a, argv[++i], 'an address');
+      if (typeof next !== 'string') return next;
       host = next;
     } else if (a === '--no-open') {
       open = false;

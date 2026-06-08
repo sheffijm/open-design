@@ -40,4 +40,17 @@ describe('daemon startup CLI parsing', () => {
       message: 'unknown option: --url',
     });
   });
+
+  it('rejects flag-shaped values for required daemon startup options', () => {
+    expect(parseDaemonCliStartupArgs(['--host', '--no-open'], {})).toEqual({
+      ok: false,
+      kind: 'error',
+      message: '--host requires an address',
+    });
+    expect(parseDaemonCliStartupArgs(['--port', '--no-open'], {})).toEqual({
+      ok: false,
+      kind: 'error',
+      message: '--port requires a port',
+    });
+  });
 });
