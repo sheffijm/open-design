@@ -58,9 +58,12 @@ const VISUAL_PROJECTS = [
 ] as const;
 
 type VisualProject = (typeof VISUAL_PROJECTS)[number];
+type VisualConfig = typeof VISUAL_CONFIG;
 
 type VisualPageOptions = {
   projects?: readonly VisualProject[];
+  config?: Partial<VisualConfig>;
+  agents?: readonly unknown[];
 };
 
 const VISUAL_PLUGINS = [
@@ -133,6 +136,8 @@ const VISUAL_DESIGN_SYSTEMS = [
 
 export async function configureVisualPage(page: Page, options: VisualPageOptions = {}): Promise<void> {
   const projects = options.projects ?? VISUAL_PROJECTS;
+  const config = { ...VISUAL_CONFIG, ...(options.config ?? {}) };
+  const agents = options.agents ?? [MOCK_AGENT];
 
   await page.addInitScript(([key, config, githubStarsKey, githubStarsCount]) => {
     window.localStorage.setItem(key, JSON.stringify(config));
@@ -140,14 +145,27 @@ export async function configureVisualPage(page: Page, options: VisualPageOptions
       githubStarsKey,
       JSON.stringify({ count: githubStarsCount, ts: Date.now() }),
     );
-  }, [STORAGE_KEY, VISUAL_CONFIG, GITHUB_STARS_STORAGE_KEY, VISUAL_GITHUB_STARS] as const);
+  }, [STORAGE_KEY, config, GITHUB_STARS_STORAGE_KEY, VISUAL_GITHUB_STARS] as const);
 
   await page.route('**/api/app-config', async (route) => {
-    await fulfillGet(route, { config: VISUAL_CONFIG });
+    await fulfillGet(route, { config });
   });
 
   await page.route('**/api/agents**', async (route) => {
-    await fulfillAgentsRoute(route, [MOCK_AGENT]);
+    await fulfillAgentsRoute(route, agents);
+  });
+
+  await page.route('**/api/health', async (route) => {
+    await fulfillGet(route, { ok: true });
+  });
+
+  await page.route('**/api/integrations/vela/status', async (route) => {
+    await fulfillGet(route, {
+      loggedIn: false,
+      profile: 'local',
+      configPath: '/tmp/.amr/config.json',
+      user: null,
+    });
   });
 
   await page.route(VISUAL_GITHUB_REPO_API, async (route) => {

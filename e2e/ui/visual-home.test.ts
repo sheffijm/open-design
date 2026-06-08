@@ -8,6 +8,66 @@ import {
   waitForVisualProjects,
 } from '@/playwright/visual';
 
+const VISUAL_CLI_AGENTS = [
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    bin: 'claude',
+    available: true,
+    version: '2.1.31',
+    models: [
+      { id: 'sonnet-alias', label: 'Sonnet (alias)' },
+      { id: 'opus-alias', label: 'Opus (alias)' },
+    ],
+  },
+  {
+    id: 'codex',
+    name: 'Codex CLI',
+    bin: 'codex',
+    available: true,
+    version: '0.134.0',
+    models: [
+      { id: 'default', label: 'Default (CLI config)' },
+      { id: 'gpt-5.4', label: 'GPT-5.4' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+    ],
+  },
+] as const;
+
+const VISUAL_AMR_AGENT = {
+  id: 'amr',
+  name: 'Open Design AMR',
+  bin: 'vela',
+  available: true,
+  version: '0.1.0',
+  models: [
+    { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
+    { id: 'deepseek-v3.2', label: 'DeepSeek V3.2' },
+    { id: 'glm-5.1', label: 'GLM 5.1' },
+    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  ],
+} as const;
+
+test('[P2] captures the onboarding runtime selection surface', async ({ page }) => {
+  await configureVisualPage(page, {
+    projects: [],
+    agents: [VISUAL_AMR_AGENT, ...VISUAL_CLI_AGENTS],
+    config: {
+      onboardingCompleted: false,
+      agentId: 'amr',
+      agentModels: { amr: { model: 'deepseek-v4-flash', reasoning: 'default' } },
+    },
+  });
+
+  await page.goto('/onboarding', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: /Welcome|欢迎/i })).toBeVisible();
+  await expect(page.getByText(/Open Design AMR/i)).toBeVisible();
+  await expect(page.getByText(/DeepSeek V4 Flash/i)).toBeVisible();
+  await waitForVisualFonts(page);
+
+  await captureVisual(page, 'visual-onboarding-runtime');
+});
+
 test('[P2] captures the visual home harness', async ({ page }) => {
   await configureVisualPage(page, { projects: [] });
   await gotoVisualHome(page);
@@ -64,6 +124,23 @@ test('[P2] captures the home plugin detail surface', async ({ page }) => {
   await captureVisual(page, 'visual-plugin-details');
 });
 
+test('[P2] captures the plugin detail share menu surface', async ({ page }) => {
+  await configureVisualPage(page);
+  await gotoVisualHome(page);
+
+  const home = page.getByTestId('entry-view-home');
+  await home.getByTestId('plugins-home-pill-category-deck').click();
+  const card = home.locator('article.plugins-home__card[data-plugin-id="visual-deck-writer"]');
+  await expect(card).toBeVisible();
+  await card.hover();
+  await home.getByTestId('plugins-home-details-visual-deck-writer').click({ force: true });
+  await expect(page.getByRole('dialog', { name: /Deck Writer preview/i })).toBeVisible();
+  await page.getByTestId('plugin-share-visual-deck-writer').getByRole('button', { name: /^More$/i }).click();
+  await expect(page.locator('.plugin-share-popover[role="menu"]')).toBeVisible();
+
+  await captureVisual(page, 'visual-plugin-share-menu');
+});
+
 test('[P2] captures the home context picker surface', async ({ page }) => {
   await configureVisualPage(page);
   await gotoVisualHome(page);
@@ -73,6 +150,20 @@ test('[P2] captures the home context picker surface', async ({ page }) => {
   await expect(page.getByRole('option', { name: /Prototype Starter/i })).toBeVisible();
 
   await captureVisual(page, 'visual-home-context-picker');
+});
+
+test('[P2] captures the home staged attachment surface', async ({ page }) => {
+  await configureVisualPage(page);
+  await gotoVisualHome(page);
+
+  await page.getByTestId('home-hero-file-input').setInputFiles({
+    name: 'visual-brief.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Visual regression fixture for staged home attachments.\n', 'utf8'),
+  });
+  await expect(page.getByTestId('home-hero-staged-files')).toContainText('visual-brief.txt');
+
+  await captureVisual(page, 'visual-home-staged-attachment');
 });
 
 test('[P2] captures the new project modal surface', async ({ page }) => {
@@ -192,6 +283,18 @@ test('[P2] captures the tasks page surface', async ({ page }) => {
   await captureVisual(page, 'visual-tasks');
 });
 
+test('[P2] captures the project workspace surface', async ({ page }) => {
+  await configureVisualPage(page);
+  await gotoVisualHome(page);
+  await gotoVisualWorkspace(page);
+
+  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+  await expect(page.getByTestId('file-workspace')).toBeVisible();
+  await waitForVisualFonts(page);
+
+  await captureVisual(page, 'visual-project-workspace');
+});
+
 test('[P2] captures the topbar execution switcher surface', async ({ page }) => {
   await configureVisualPage(page);
   await gotoVisualHome(page);
@@ -201,6 +304,26 @@ test('[P2] captures the topbar execution switcher surface', async ({ page }) => 
   await expect(page.getByTestId('inline-model-switcher-mode-daemon')).toBeVisible();
 
   await captureVisual(page, 'visual-topbar-execution-switcher');
+});
+
+test('[P2] captures the topbar BYOK execution switcher surface', async ({ page }) => {
+  await configureVisualPage(page, {
+    config: {
+      mode: 'api',
+      apiKey: 'sk-visual',
+      apiProtocol: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      agentId: null,
+    },
+  });
+  await gotoVisualHome(page);
+
+  await page.getByTestId('inline-model-switcher-chip').click();
+  await expect(page.getByTestId('inline-model-switcher-popover')).toBeVisible();
+  await expect(page.getByTestId('inline-model-switcher-mode-api')).toHaveAttribute('aria-selected', 'true');
+
+  await captureVisual(page, 'visual-topbar-byok-switcher');
 });
 
 test('[P2] captures the avatar menu surface', async ({ page }) => {
@@ -216,6 +339,24 @@ test('[P2] captures the avatar menu surface', async ({ page }) => {
   await captureVisual(page, 'visual-avatar-menu');
 });
 
+test('[P2] captures the avatar local agent list surface', async ({ page }) => {
+  await configureVisualPage(page, {
+    agents: VISUAL_CLI_AGENTS,
+    config: {
+      agentId: 'codex',
+      agentModels: { codex: { model: 'default', reasoning: 'default' } },
+    },
+  });
+  await gotoVisualHome(page);
+  await gotoVisualWorkspace(page);
+
+  const menu = await openAvatarMenu(page);
+  await expect(menu.getByTestId('avatar-agent-option-claude')).toBeVisible();
+  await expect(menu.getByTestId('avatar-agent-option-codex')).toBeVisible();
+
+  await captureVisual(page, 'visual-avatar-local-agent-list');
+});
+
 test('[P2] captures the settings execution surface', async ({ page }) => {
   await configureVisualPage(page);
   await gotoVisualHome(page);
@@ -227,6 +368,25 @@ test('[P2] captures the settings execution surface', async ({ page }) => {
   await waitForVisualFonts(page);
 
   await captureVisual(page, 'visual-settings-execution');
+});
+
+test('[P2] captures the settings local CLI surface', async ({ page }) => {
+  await configureVisualPage(page, {
+    agents: VISUAL_CLI_AGENTS,
+    config: {
+      agentId: 'codex',
+      agentModels: { codex: { model: 'default', reasoning: 'default' } },
+    },
+  });
+  await gotoVisualHome(page);
+  await gotoVisualWorkspace(page);
+
+  const dialog = await openSettingsDetailsFromHeader(page);
+  await dialog.getByRole('tab', { name: /Local CLI/i }).click();
+  await expect(dialog.getByTestId('settings-agent-select-codex')).toBeVisible();
+  await waitForVisualFonts(page);
+
+  await captureVisual(page, 'visual-settings-local-cli');
 });
 
 test('[P2] captures the settings BYOK surface', async ({ page }) => {
@@ -241,6 +401,29 @@ test('[P2] captures the settings BYOK surface', async ({ page }) => {
   await waitForVisualFonts(page);
 
   await captureVisual(page, 'visual-settings-byok');
+});
+
+test('[P2] captures the settings BYOK OpenAI surface', async ({ page }) => {
+  await configureVisualPage(page, {
+    config: {
+      mode: 'api',
+      apiKey: 'sk-visual',
+      apiProtocol: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      agentId: null,
+    },
+  });
+  await gotoVisualHome(page);
+  await gotoVisualWorkspace(page);
+
+  const dialog = await openSettingsDetailsFromHeader(page);
+  await dialog.getByRole('tab', { name: 'BYOK' }).click();
+  await dialog.getByRole('tab', { name: 'OpenAI', exact: true }).click();
+  await expect(dialog.getByRole('heading', { name: 'OpenAI API' })).toBeVisible();
+  await waitForVisualFonts(page);
+
+  await captureVisual(page, 'visual-settings-byok-openai');
 });
 
 async function openAvatarMenu(page: Parameters<typeof configureVisualPage>[0]) {
