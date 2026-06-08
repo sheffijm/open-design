@@ -3523,7 +3523,11 @@ describe('SettingsDialog appearance interactions', () => {
         agentId: 'amr',
         theme: 'dark',
         agentCliEnv: {
-          amr: { OPEN_DESIGN_AMR_PROFILE: 'prod' },
+          codex: { CODEX_BIN: '/tmp/codex-dev' },
+          amr: {
+            OPEN_DESIGN_AMR_PROFILE: 'prod',
+            AMR_API_BASE_URL: 'https://draft.example.test',
+          },
         },
       },
       { initialSection: 'appearance', agents: [amrAgent, ...availableAgents] },
@@ -3537,7 +3541,10 @@ describe('SettingsDialog appearance interactions', () => {
           agentId: 'amr',
           theme: 'dark',
           agentCliEnv: {
-            amr: { OPEN_DESIGN_AMR_PROFILE: 'local' },
+            amr: {
+              OPEN_DESIGN_AMR_PROFILE: 'local',
+              AMR_API_BASE_URL: 'https://daemon.example.test',
+            },
           },
         }}
         agents={[amrAgent, ...availableAgents]}
@@ -3558,7 +3565,11 @@ describe('SettingsDialog appearance interactions', () => {
       expect.objectContaining({
         theme: 'light',
         agentCliEnv: {
-          amr: { OPEN_DESIGN_AMR_PROFILE: 'local' },
+          codex: { CODEX_BIN: '/tmp/codex-dev' },
+          amr: {
+            OPEN_DESIGN_AMR_PROFILE: 'local',
+            AMR_API_BASE_URL: 'https://draft.example.test',
+          },
         },
       }),
       {},
