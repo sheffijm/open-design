@@ -3666,6 +3666,37 @@ export function ProjectView({
     ],
   );
 
+  // Cancel every in-flight run for the current conversation (the user's own
+  // streaming turn plus any reattached runs), mark their assistant messages
+  // canceled, and drop the streaming state. Defined here — ahead of the
+  // queued-send handlers — because "send now" interrupts the active run to
+  // make room for the prioritized send.
+  const handleStop = useCallback(() => {
+    const stoppedAt = Date.now();
+    cancelSendTextBuffer(true);
+    cancelReattachTextBuffers(true);
+    cancelRef.current?.abort();
+    cancelRef.current = null;
+    for (const controller of reattachCancelControllersRef.current.values()) {
+      controller.abort();
+    }
+    reattachCancelControllersRef.current.clear();
+    abortRef.current?.abort();
+    abortRef.current = null;
+    for (const controller of reattachControllersRef.current.values()) {
+      controller.abort();
+    }
+    reattachControllersRef.current.clear();
+    setStreaming(false);
+    streamingConversationIdRef.current = null;
+    setStreamingConversationId(null);
+    setMessages((curr) => {
+      const { messages: next, finalized } = finalizeActiveAssistantMessagesOnStop(curr, stoppedAt);
+      for (const message of finalized) persistMessage(message, { telemetryFinalized: true });
+      return next;
+    });
+  }, [cancelSendTextBuffer, cancelReattachTextBuffers, persistMessage]);
+
   // Flip the deck preview to the slide a queued send's marked element lives on
   // the moment that send starts processing. No-op for plain prompts or marks
   // without a slide index; FileWorkspace/FileViewer ignore it unless the named
@@ -3680,7 +3711,14 @@ export function ProjectView({
     const item = queuedChatSendsRef.current.find((candidate) => candidate.id === id);
     if (!item) return;
     if (currentConversationBusy) {
+      // "Send now" while the agent is still working: the user has explicitly
+      // chosen this turn over the in-flight one, so interrupt the running run
+      // and move this item to the front. Stopping flips the conversation out
+      // of its busy state, and the auto-start effect below then flushes the
+      // now-first queued send — reusing the same path as a natural completion,
+      // so runs never overlap.
       prioritizeQueuedChatSend(id);
+      handleStop();
       return;
     }
     void (async () => {
@@ -3693,7 +3731,7 @@ export function ProjectView({
       );
       if (started) removeQueuedChatSend(id);
     })();
-  }, [armSlideNavForQueuedSend, currentConversationBusy, handleSend, prioritizeQueuedChatSend, removeQueuedChatSend]);
+  }, [armSlideNavForQueuedSend, currentConversationBusy, handleSend, handleStop, prioritizeQueuedChatSend, removeQueuedChatSend]);
 
   useEffect(() => {
     if (currentConversationBusy) {
@@ -4291,32 +4329,6 @@ export function ProjectView({
     },
     [currentConversationActionDisabled, handleSend],
   );
-
-  const handleStop = useCallback(() => {
-    const stoppedAt = Date.now();
-    cancelSendTextBuffer(true);
-    cancelReattachTextBuffers(true);
-    cancelRef.current?.abort();
-    cancelRef.current = null;
-    for (const controller of reattachCancelControllersRef.current.values()) {
-      controller.abort();
-    }
-    reattachCancelControllersRef.current.clear();
-    abortRef.current?.abort();
-    abortRef.current = null;
-    for (const controller of reattachControllersRef.current.values()) {
-      controller.abort();
-    }
-    reattachControllersRef.current.clear();
-    setStreaming(false);
-    streamingConversationIdRef.current = null;
-    setStreamingConversationId(null);
-    setMessages((curr) => {
-      const { messages: next, finalized } = finalizeActiveAssistantMessagesOnStop(curr, stoppedAt);
-      for (const message of finalized) persistMessage(message, { telemetryFinalized: true });
-      return next;
-    });
-  }, [cancelSendTextBuffer, cancelReattachTextBuffers, persistMessage]);
 
   const handleNewConversation = useCallback(async () => {
     if (creatingConversationRef.current) return;

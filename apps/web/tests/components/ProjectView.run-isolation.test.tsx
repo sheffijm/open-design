@@ -818,7 +818,7 @@ describe('ProjectView conversation run isolation', () => {
     );
   });
 
-  it('does not overlap active runs when send-now is clicked for a queued item', async () => {
+  it('interrupts the active run and flushes the prioritized queued send when send-now is clicked while busy', async () => {
     let finishReattach: (() => void) | null = null;
     let reattachHandlers: { onDone: () => void } | null = null;
     reattachDaemonRun.mockImplementation(async (input: unknown) => {
@@ -837,15 +837,25 @@ describe('ProjectView conversation run isolation', () => {
     fireEvent.click(screen.getByTestId('send-message-alt'));
 
     await waitFor(() => expect(screen.getByTestId('send-queued-1')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('send-queued-1'));
-
     expect(streamViaDaemon).not.toHaveBeenCalled();
 
-    await act(async () => {
-      reattachHandlers?.onDone();
-      finishReattach?.();
-    });
+    // Send-now on the second queued item while the conversation is still
+    // busy. The chosen UX is "interrupt the running turn and send this item
+    // now" — so this must stop the in-flight run and flush the prioritized
+    // send WITHOUT waiting for the active run to finish on its own. Stopping
+    // first keeps runs from overlapping. The reattach promise is never
+    // resolved here on purpose: a regression that only reorders the queue
+    // (without stopping) would leave the conversation busy forever and never
+    // call streamViaDaemon.
+    fireEvent.click(screen.getByTestId('send-queued-1'));
 
+    // The in-flight turn is canceled (interrupted), not left running.
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-summary').textContent).toContain('canceled'),
+    );
+
+    // ...and the prioritized queued send flushes immediately afterward, with
+    // no manual completion of the reattach run.
     await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(1));
     const payload = streamViaDaemon.mock.calls[0]?.[0] as {
       history?: Array<{ role: string; content: string }>;
