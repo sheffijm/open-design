@@ -779,6 +779,7 @@ export function attachAcpSession({
   let aborted = false;
   let stageTimer: TimerHandle | null = null;
   let dsmlArtifactSuppressor: ArtifactTextSuppressor | null = null;
+  let dsmlArtifactSuppressorToolCallId: string | null = null;
   let dsmlArtifactSuppressorArmedAfterText = false;
   let dsmlArtifactSuppressorSawIncrementalProse = false;
   const acpArtifactWriteToolCallIds = new Set<string>();
@@ -1059,6 +1060,7 @@ export function attachAcpSession({
               }
               if (consumedArtifactText && !hasOpenArtifactCandidate) {
                 dsmlArtifactSuppressor = null;
+                dsmlArtifactSuppressorToolCallId = null;
                 dsmlArtifactSuppressorArmedAfterText = false;
                 dsmlArtifactSuppressorSawIncrementalProse = false;
               }
@@ -1084,14 +1086,20 @@ export function attachAcpSession({
         }
         if (isAcpArtifactWriteUpdate(update, acpArtifactWriteToolCallIds)) {
           dsmlArtifactSuppressor = createDsmlArtifactTextSuppressor();
+          dsmlArtifactSuppressorToolCallId = toolCallId;
           dsmlArtifactSuppressorArmedAfterText = emittedTextBuffer.length > 0;
           dsmlArtifactSuppressorSawIncrementalProse = false;
           if (toolCallId) acpArtifactWriteToolCallIds.delete(toolCallId);
         } else if (toolCallId && isAcpTerminalFailureStatus(update)) {
+          const ownsPendingWriteSuppression = toolCallId === dsmlArtifactSuppressorToolCallId;
+          const ownsPendingWriteCall = acpArtifactWriteToolCallIds.has(toolCallId);
           acpArtifactWriteToolCallIds.delete(toolCallId);
-          dsmlArtifactSuppressor = null;
-          dsmlArtifactSuppressorArmedAfterText = false;
-          dsmlArtifactSuppressorSawIncrementalProse = false;
+          if (ownsPendingWriteSuppression || ownsPendingWriteCall) {
+            dsmlArtifactSuppressor = null;
+            dsmlArtifactSuppressorToolCallId = null;
+            dsmlArtifactSuppressorArmedAfterText = false;
+            dsmlArtifactSuppressorSawIncrementalProse = false;
+          }
         }
         return;
       }
