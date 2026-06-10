@@ -238,10 +238,17 @@ export function NextStepActions({
 
   const visibleToolboxActions = useMemo(
     () =>
-      NON_FEATURED_TOOLBOX_ACTIONS.filter((action) =>
-        designToolboxActionMatchesQuery(action, toolboxQuery, findDesignToolboxSkill(action, skills), t),
-      ),
-    [toolboxQuery, skills, t],
+      NON_FEATURED_TOOLBOX_ACTIONS.filter((action) => {
+        const skill = findDesignToolboxSkill(action, skills);
+        return designToolboxActionMatchesQuery(
+          action,
+          toolboxQuery,
+          skill,
+          t,
+          skill ? [localizeSkillName(locale, skill), localizeSkillDescription(locale, skill)] : [],
+        );
+      }),
+    [toolboxQuery, skills, locale, t],
   );
 
   const visibleToolboxResources = useMemo(() => {

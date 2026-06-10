@@ -113,6 +113,7 @@ export function designToolboxActionMatchesQuery(
   query: string,
   skill: SkillSummary | null,
   t: TranslateFn,
+  extra: string[] = [],
 ): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -125,6 +126,7 @@ export function designToolboxActionMatchesQuery(
     skill?.name ?? '',
     skill?.description ?? '',
     skill?.category ?? '',
+    ...extra,
   ]
     .join(' ')
     .toLowerCase()

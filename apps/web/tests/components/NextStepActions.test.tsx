@@ -176,6 +176,25 @@ describe('NextStepActions', () => {
     expect(within(list).getByText('创意总监')).toBeTruthy();
   });
 
+  it('keeps the paired action visible for a localized preferred-skill query (action/resource parity under a non-English locale)', () => {
+    const motionSkill = {
+      ...skill('emilkowalski-motion', 'emilkowalski-motion', 'animation-motion'),
+      displayName: { 'zh-CN': '动效大师' },
+    } as SkillSummary;
+    renderActions({ skills: [motionSkill] }, 'zh-CN');
+    fireEvent.mouseEnter(screen.getByTestId('next-step-toolbox-more'));
+    fireEvent.mouseEnter(screen.getByTestId('next-step-more-toolbox'));
+    const list = screen.getByTestId('next-step-toolbox-actions');
+
+    fireEvent.change(within(list).getByRole('textbox'), { target: { value: '动效大师' } });
+
+    // The resource row matches the localized name...
+    expect(within(list).getByTestId('next-step-toolbox-resource-emilkowalski-motion')).toBeTruthy();
+    // ...and the action it is the preferred skill for must stay visible, instead
+    // of the action matcher ignoring the localized skill text and hiding it.
+    expect(within(list).getByTestId('next-step-toolbox-sub-action-motion')).toBeTruthy();
+  });
+
   it('seeds the composer with a non-featured action id when picked from the submenu', () => {
     const h = renderActions();
     fireEvent.mouseEnter(screen.getByTestId('next-step-toolbox-more'));

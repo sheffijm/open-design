@@ -3360,10 +3360,17 @@ function DesignToolboxPanel({
   );
   const visibleActions = useMemo(
     () =>
-      actions.filter((action) =>
-        designToolboxActionMatchesQuery(action, query, findDesignToolboxSkill(action, skills), t),
-      ),
-    [actions, query, skills, t],
+      actions.filter((action) => {
+        const skill = findDesignToolboxSkill(action, skills);
+        return designToolboxActionMatchesQuery(
+          action,
+          query,
+          skill,
+          t,
+          skill ? [localizeSkillName(locale, skill), localizeSkillDescription(locale, skill)] : [],
+        );
+      }),
+    [actions, query, skills, locale, t],
   );
   const visibleResources = useMemo(
     () => {
