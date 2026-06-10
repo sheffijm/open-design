@@ -137,8 +137,9 @@ function storageRef(projectId: string, runId: string, objectClass: ObjectClass, 
 function inferRelayUrl(env: NodeJS.ProcessEnv): string | null {
   const explicit = env.OPEN_DESIGN_OBJECT_RELAY_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, '');
-  const telemetryRelayUrl = env.OPEN_DESIGN_TELEMETRY_RELAY_URL?.trim();
-  if (!telemetryRelayUrl) return null;
+  const rawTelemetryRelayUrl = env.OPEN_DESIGN_TELEMETRY_RELAY_URL?.trim();
+  if (!rawTelemetryRelayUrl) return null;
+  const telemetryRelayUrl = rawTelemetryRelayUrl.replace(/\/+$/, '');
   try {
     const url = new URL(telemetryRelayUrl);
     if (!/\/api\/langfuse\/?$/u.test(url.pathname)) return null;
