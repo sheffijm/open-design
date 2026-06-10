@@ -131,10 +131,18 @@ export function designToolboxActionMatchesQuery(
     .includes(q);
 }
 
-export function skillMatchesQuery(skill: SkillSummary, query: string): boolean {
+// `extra` carries any locale-resolved text (localized name / description) the
+// caller wants indexed alongside the raw skill fields, so a localized query
+// matches the same way the composer's localized resource index does. design-
+// toolbox stays free of i18n/content — the caller resolves the strings.
+export function skillMatchesQuery(
+  skill: SkillSummary,
+  query: string,
+  extra: string[] = [],
+): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return [skill.id, skill.name, skill.description, skill.mode, skill.surface ?? '', ...skill.triggers]
+  return [skill.id, skill.name, skill.description, skill.mode, skill.surface ?? '', ...skill.triggers, ...extra]
     .join(' ')
     .toLowerCase()
     .includes(q);

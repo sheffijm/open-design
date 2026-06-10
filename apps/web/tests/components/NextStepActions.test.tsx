@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { NextStepActions } from '../../src/components/NextStepActions';
+import { I18nProvider } from '../../src/i18n';
 import { en } from '../../src/i18n/locales/en';
+import type { Locale } from '../../src/i18n/types';
 import type { SkillSummary } from '../../src/types';
 
 afterEach(() => {
@@ -40,7 +42,10 @@ function skill(id: string, name: string, category = 'creative-direction'): Skill
   } as SkillSummary;
 }
 
-function renderActions(overrides: Partial<Parameters<typeof NextStepActions>[0]> = {}) {
+function renderActions(
+  overrides: Partial<Parameters<typeof NextStepActions>[0]> = {},
+  locale?: Locale,
+) {
   const handlers = {
     onShare: vi.fn(),
     onDownload: vi.fn(),
@@ -48,7 +53,7 @@ function renderActions(overrides: Partial<Parameters<typeof NextStepActions>[0]>
     onPickSkill: vi.fn(),
     onShareToOpenDesign: vi.fn(),
   };
-  render(
+  const ui = (
     <NextStepActions
       fileName="landing.html"
       onShare={handlers.onShare}
@@ -63,8 +68,9 @@ function renderActions(overrides: Partial<Parameters<typeof NextStepActions>[0]>
       ]}
       toolboxSkillNames={{ 'auto-match': 'creative-director', 'visual-polish': 'impeccable-design-polish' }}
       {...overrides}
-    />,
+    />
   );
+  render(locale ? <I18nProvider initial={locale}>{ui}</I18nProvider> : ui);
   return handlers;
 }
 
@@ -149,6 +155,25 @@ describe('NextStepActions', () => {
     // ...and the action it is the preferred skill for must stay visible too,
     // instead of the action row disappearing while its resource row shows.
     expect(within(list).getByTestId('next-step-toolbox-sub-action-motion')).toBeTruthy();
+  });
+
+  it('matches and renders a global resource by its localized text under a non-English locale', () => {
+    const localizedSkill = {
+      ...skill('creative-director', 'creative-director'),
+      displayName: { 'zh-CN': '创意总监' },
+      descriptionI18n: { 'zh-CN': 'AI 创意总监，负责整体审美方向' },
+    } as SkillSummary;
+    renderActions({ skills: [localizedSkill] }, 'zh-CN');
+    fireEvent.mouseEnter(screen.getByTestId('next-step-toolbox-more'));
+    fireEvent.mouseEnter(screen.getByTestId('next-step-more-toolbox'));
+    const list = screen.getByTestId('next-step-toolbox-actions');
+
+    fireEvent.change(within(list).getByRole('textbox'), { target: { value: '创意总监' } });
+
+    // The localized query matches (parity with the composer's localized index)...
+    expect(within(list).getByTestId('next-step-toolbox-resource-creative-director')).toBeTruthy();
+    // ...and the row renders the localized name rather than the raw id.
+    expect(within(list).getByText('创意总监')).toBeTruthy();
   });
 
   it('seeds the composer with a non-featured action id when picked from the submenu', () => {

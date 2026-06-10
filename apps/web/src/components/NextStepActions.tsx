@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useT } from '../i18n';
+import { useI18n } from '../i18n';
+import { localizeSkillDescription, localizeSkillName } from '../i18n/content';
 import type { Dict } from '../i18n/types';
 import { useAnalytics } from '../analytics/provider';
 import { trackNextStepActionClick } from '../analytics/events';
@@ -103,7 +104,7 @@ export function NextStepActions({
   onShareToOpenDesign,
   shareToOpenDesignBusy = false,
 }: Props) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const analytics = useAnalytics();
   const exposedRef = useRef(false);
   useEffect(() => {
@@ -245,10 +246,15 @@ export function NextStepActions({
 
   const visibleToolboxResources = useMemo(() => {
     const source = toolboxQuery
-      ? skills.filter((skill) => skillMatchesQuery(skill, toolboxQuery))
+      ? skills.filter((skill) =>
+          skillMatchesQuery(skill, toolboxQuery, [
+            localizeSkillName(locale, skill),
+            localizeSkillDescription(locale, skill),
+          ]),
+        )
       : defaultToolboxSkillResources(NON_FEATURED_TOOLBOX_ACTIONS, skills);
     return source.slice(0, toolboxQuery ? 14 : 8);
-  }, [skills, toolboxQuery]);
+  }, [skills, toolboxQuery, locale]);
 
   // Share group is available whenever any of its three actions can fire.
   const canShare = !!(fileName && onShare);
@@ -434,7 +440,7 @@ export function NextStepActions({
                     onClick={() => handlePickSkill(skill.id)}
                   >
                     <Icon name={designToolboxSkillIcon(skill)} size={14} className={styles.toolboxRowIcon} />
-                    <span className={styles.toolboxRowTitle}>{skill.name}</span>
+                    <span className={styles.toolboxRowTitle}>{localizeSkillName(locale, skill)}</span>
                   </button>
                 ))}
                 {visibleToolboxActions.length === 0 && visibleToolboxResources.length === 0 ? (
