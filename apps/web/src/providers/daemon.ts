@@ -141,19 +141,24 @@ function scopeHistoryToAgent(history: ChatMessage[], targetAgentId?: string): Ch
 
 // Strip OD-specific markup that the agent emitted on a prior turn but
 // that the model would otherwise pattern-match as a template to echo.
-// Today this is `<question-form>` blocks and the ```json fenced schemas
+// Today this is `<question-form>` blocks (and the `<ask-question>` alias the
+// UI parser and the daemon open-tag matcher both accept) and the ```json
+// fenced schemas
 // some models (GPT-OSS-120B Medium, Gemini 3.5 Flash) emit alongside
 // them — leaving those literal in the transcript causes weak/medium
 // plain-stream models to re-emit an identical form on the user's
 // follow-up turn, looking like the discovery form loop never breaks
-// (see PR #3157 form-loop investigation).
+// (see PR #3157 form-loop investigation). If we only scrubbed the canonical
+// tag, an alias-form turn would replay verbatim and re-trigger that loop.
 //
 // User content is preserved verbatim — a user message that legitimately
 // quotes `<question-form>` (e.g. discussing the markup with the agent)
 // must not be mangled.
 export function sanitizePriorAssistantTurnForTranscript(content: string): string {
   let sanitized = content.replace(
-    /<question-form\b[^>]*>[\s\S]*?<\/question-form>/g,
+    // `\1` backreference keeps the open/close tag names matched so we never
+    // splice across a `<question-form>…</ask-question>` mismatch.
+    /<(question-form|ask-question)\b[^>]*>[\s\S]*?<\/\1>/g,
     '[question-form was emitted here on a prior turn; the user already answered, see their reply below.]',
   );
   // Strip ```json (or plain ```) fenced blocks whose body matches the
@@ -643,30 +648,6 @@ export async function fetchChatRunStatus(runId: string): Promise<ChatRunStatusRe
   }
 }
 
-// Push a `tool_result` content block back into a running stream-json child.
-// Used to answer Claude's `AskUserQuestion` tool: the host card collects the
-// user's pick, formats it as one text string, and we route it through the
-// daemon's POST /api/runs/:id/tool-result. The daemon writes it as a JSONL
-// line on the still-open stdin so claude-code can resume mid-call instead
-// of auto-erroring the tool in headless mode.
-export async function submitChatRunToolResult(
-  runId: string,
-  toolUseId: string,
-  content: string,
-  options: { isError?: boolean } = {},
-): Promise<{ ok: boolean; status?: number }> {
-  try {
-    const resp = await fetch(`/api/runs/${encodeURIComponent(runId)}/tool-result`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ toolUseId, content, isError: !!options.isError }),
-    });
-    return { ok: resp.ok, status: resp.status };
-  } catch {
-    return { ok: false };
-  }
-}
-
 // PR #3157: Antigravity's auth banner can offer a one-click "open
 // system terminal with agy" button. The daemon endpoint spawns
 // osascript / x-terminal-emulator / `cmd /c start` for the user; on
@@ -868,6 +849,7 @@ async function consumeDaemonRun({
   let exitCode: number | null = null;
   let exitSignal: string | null = null;
   let endStatus: ChatRunStatus | null = null;
+  let pendingStructuredError: Error | null = null;
   // Tracks whether the server explicitly declared `status: 'succeeded'` in
   // the SSE end payload (or via the fallback run-status fetch). Distinct
   // from `endStatus === 'succeeded'`, which can be a local fallback when
@@ -994,6 +976,8 @@ async function consumeDaemonRun({
 
           if (event.event === 'error') {
             const data = event.data as SseErrorPayload;
+            const structuredError = daemonSseError(data);
+            pendingStructuredError = structuredError;
             // The daemon emits this error frame from the child-close handler
             // BEFORE `finishWithRetryDecision()` runs, so a transient failure it
             // can recover via a same-run retry is reported here first and only
@@ -1014,13 +998,13 @@ async function consumeDaemonRun({
             if (status && (status.status === 'failed' || status.status === 'canceled')) {
               onRunStatus?.('failed');
               handlers.onError(
-                markErrorResumable(daemonSseError(data), status.resumable === true),
+                markErrorResumable(structuredError, status.resumable === true),
               );
               return;
             }
             if (!status) {
               onRunStatus?.('failed');
-              handlers.onError(daemonSseError(data));
+              handlers.onError(structuredError);
               return;
             }
             continue;
@@ -1086,6 +1070,10 @@ async function consumeDaemonRun({
       (!serverDeclaredSuccess &&
         (exitSignal || (exitCode !== null && exitCode !== 0)));
     if (looksLikeFailure) {
+      if (pendingStructuredError) {
+        handlers.onError(markErrorResumable(pendingStructuredError, endResumable));
+        return;
+      }
       if (shouldSuppressLifecycleExitFallback(agentId, exitCode, exitSignal, stderrBuf)) {
         handlers.onDone(acc);
         return;
