@@ -120,18 +120,58 @@ export interface BrandDetailResponse {
   guide: string | null;
 }
 
-/** POST /api/brands request — extract a brand from a URL. */
+/** POST /api/brands request — start an agent-driven brand extraction. */
 export interface BrandCreateRequest {
   url: string;
 }
 
-// ─── extraction SSE events ───────────────────────────────────────────
+/**
+ * POST /api/brands response. Extraction is no longer an in-place deterministic
+ * pipeline: the daemon reserves a brand record, spins up a backing `brand`
+ * project with the target site open in an in-app browser tab, and seeds a
+ * pending prompt that drives an agent through the full extraction chain
+ * (measure → synthesize → build the design system). The web/CLI caller
+ * navigates into the project and auto-sends the first prompt so the agent runs
+ * the extraction live — with a human in the loop for anti-bot walls.
+ */
+export interface BrandExtractStartResponse {
+  /** The reserved brand id (status starts as `extracting`). */
+  id: string;
+  /** Backing `brand` project the agent runs the extraction inside. */
+  projectId: string;
+  /** Seeded conversation the first extraction prompt auto-sends into. */
+  conversationId: string;
+  /** The normalized source URL the browser tab was opened to. */
+  sourceUrl: string;
+}
+
+/**
+ * POST /api/brands/:id/finalize request. The extraction agent calls this (or
+ * `od brand finalize`) once it has written `brand.json` (+ `BRAND.md`, logos,
+ * fonts) into the backing project: the daemon validates the kit, derives the
+ * design tokens + brand-system artifacts, and registers the `user:<id>` design
+ * system so the brand becomes selectable everywhere.
+ */
+export interface BrandFinalizeRequest {
+  /** Backing project whose `brand.json` holds the agent output. Defaults to
+   *  the brand's recorded `projectId`. */
+  projectId?: string;
+}
+
+export interface BrandFinalizeResponse {
+  id: string;
+  brand: Brand;
+  designSystemId: string;
+  projectId: string;
+  /** Files emitted by the deterministic brand-system builder. */
+  files: string[];
+}
+
+// ─── legacy extraction SSE events ────────────────────────────────────
 //
-// POST /api/brands streams `event: <name>\ndata: <json>\n\n` frames. The web
-// `useBrandExtract` hook reduces them into a 3-stage progress view:
-//   1. fetch & measure   (prefetch)
-//   2. build preview     (provisional)
-//   3. derive & register (design system)
+// Retained for backwards compatibility with any external consumer that still
+// reduces the old 3-stage SSE stream. The current extraction flow is
+// agent-driven (see `BrandExtractStartResponse`) and does not emit these.
 
 export type BrandExtractEvent =
   | { event: 'created'; id: string; projectId?: string }

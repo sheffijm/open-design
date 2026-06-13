@@ -22,11 +22,16 @@ type LoadState =
   | { status: 'ready'; detail: BrandDetailResponse }
   | { status: 'not-found' };
 
+// Logo resolution walks a fallback chain: the brand's own stored logo first,
+// then Google's favicon service for the source domain, and finally a letter
+// tile. Each step advances only when the previous image fails to load.
+type LogoStage = 'brand' | 'favicon' | 'letter';
+
 export function BrandDetailView({ brandId }: Props) {
   const t = useT();
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [busy, setBusy] = useState(false);
-  const [logoOk, setLogoOk] = useState(true);
+  const [logoStage, setLogoStage] = useState<LogoStage>('brand');
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -50,7 +55,7 @@ export function BrandDetailView({ brandId }: Props) {
 
   useEffect(() => {
     setLoad({ status: 'loading' });
-    setLogoOk(true);
+    setLogoStage('brand');
     void fetchDetail();
   }, [fetchDetail]);
 
@@ -64,6 +69,20 @@ export function BrandDetailView({ brandId }: Props) {
   const host = meta ? hostnameOf(meta.sourceUrl) : '';
   const name = brand?.name?.trim() || host;
   const refining = meta?.status === 'extracting';
+
+  const logoSrc =
+    logoStage === 'brand'
+      ? `/api/brands/${encodeURIComponent(brandId)}/logo`
+      : logoStage === 'favicon' && host
+        ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`
+        : null;
+
+  const advanceLogo = useCallback(() => {
+    setLogoStage((stage) => {
+      if (stage === 'brand') return 'favicon';
+      return 'letter';
+    });
+  }, []);
 
   const useInChat = useCallback(async () => {
     if (!meta?.designSystemId || busy) return;
@@ -132,12 +151,13 @@ export function BrandDetailView({ brandId }: Props) {
           <header className={styles.header}>
             <div className={styles.headerLeft}>
               <div className={styles.headerLogo}>
-                {logoOk ? (
+                {logoSrc ? (
                   <img
                     className={styles.headerLogoImg}
-                    src={`/api/brands/${encodeURIComponent(brandId)}/logo`}
+                    src={logoSrc}
                     alt=""
-                    onError={() => setLogoOk(false)}
+                    referrerPolicy="no-referrer"
+                    onError={advanceLogo}
                   />
                 ) : (
                   <span className={styles.headerLogoFallback} aria-hidden>
@@ -154,7 +174,20 @@ export function BrandDetailView({ brandId }: Props) {
                     </span>
                   ) : null}
                 </div>
-                <span className={styles.headerDomain}>{host}</span>
+                {brand?.tagline ? (
+                  <p className={styles.headerTagline}>{brand.tagline}</p>
+                ) : null}
+                {host ? (
+                  <a
+                    className={styles.headerDomain}
+                    href={meta?.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    {host}
+                    <ExternalGlyph />
+                  </a>
+                ) : null}
               </div>
             </div>
             <div className={styles.headerActions}>
@@ -187,83 +220,84 @@ export function BrandDetailView({ brandId }: Props) {
             </div>
           </header>
 
-          {/* ── Identity ───────────────────────────────────────────── */}
-          <section className={styles.card} aria-label={t('brandDetail.identity')}>
-            <h2 className={styles.cardTitle}>{t('brandDetail.identity')}</h2>
-            <div className={styles.identityBody}>
-              {brand?.description ? (
-                <p className={styles.description}>{brand.description}</p>
-              ) : null}
-              {brand?.tagline ? (
-                <div className={styles.field}>
-                  <span className={styles.fieldLabel}>{t('brandDetail.tagline')}</span>
-                  <span className={styles.tagline}>{brand.tagline}</span>
-                </div>
-              ) : null}
-            </div>
-          </section>
+          {brand?.description ? (
+            <section className={styles.card} aria-label={t('brandDetail.identity')}>
+              <h2 className={styles.cardTitle}>{t('brandDetail.identity')}</h2>
+              <p className={styles.description}>{brand.description}</p>
+            </section>
+          ) : null}
 
-          {/* ── Design Language ────────────────────────────────────── */}
-          <section className={styles.card} aria-label={t('brandDetail.designLanguage')}>
-            <h2 className={styles.cardTitle}>{t('brandDetail.designLanguage')}</h2>
-
-            {colors.length > 0 ? (
-              <div className={styles.subsection}>
-                <h3 className={styles.subTitle}>{t('brandDetail.colors')}</h3>
-                <div className={styles.colorGrid}>
-                  {colors.map((c, i) => (
-                    <div key={`${c.role}-${i}`} className={styles.colorItem}>
-                      <span className={styles.colorSwatch} style={{ background: c.hex }} />
-                      <span className={styles.colorName}>{c.name || c.role}</span>
-                      <span className={styles.colorHex}>{c.hex}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {fonts.length > 0 ? (
-              <div className={styles.subsection}>
-                <h3 className={styles.subTitle}>{t('brandDetail.fonts')}</h3>
-                <div className={styles.fontList}>
-                  {fonts.map(({ font, label }) => (
-                    <div key={`${label}-${font.family}`} className={styles.fontItem}>
-                      <span
-                        className={styles.fontSpecimen}
-                        style={{ fontFamily: `'${font.family}', ${font.fallbacks.join(', ') || 'sans-serif'}` }}
-                      >
-                        Aa Bb Cc
-                      </span>
-                      <span className={styles.fontMeta}>
-                        <span className={styles.fontFamily}>{font.family}</span>
-                        <span className={styles.fontRole}>{label}</span>
+          {/* ── Typography ─────────────────────────────────────────── */}
+          {fonts.length > 0 ? (
+            <section className={styles.card} aria-label={t('brandDetail.fonts')}>
+              <h2 className={styles.cardTitle}>{t('brandDetail.fonts')}</h2>
+              <div className={styles.fontList}>
+                {fonts.map(({ font, label }) => (
+                  <div key={`${label}-${font.family}`} className={styles.fontItem}>
+                    <div className={styles.fontItemHead}>
+                      <span className={styles.fontRole}>{label}</span>
+                      <span className={styles.fontFamily}>
+                        {font.family}
+                        {font.weights.length > 0 ? (
+                          <span className={styles.fontWeights}> · {font.weights.join('/')}</span>
+                        ) : null}
                       </span>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {adjectives.length > 0 ? (
-              <div className={styles.subsection}>
-                <h3 className={styles.subTitle}>{t('brandDetail.tone')}</h3>
-                <div className={styles.pills}>
-                  {adjectives.map((adj, i) => (
-                    <span key={`${adj}-${i}`} className={styles.pill}>
-                      {adj}
+                    <span
+                      className={styles.fontSpecimen}
+                      style={{
+                        fontFamily: `'${font.family}', ${font.fallbacks.join(', ') || 'sans-serif'}`,
+                      }}
+                    >
+                      {label === 'Mono' ? 'const brand = await extract(url);' : name}
                     </span>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            ) : null}
+            </section>
+          ) : null}
 
-            {aesthetic ? (
-              <div className={styles.subsection}>
-                <h3 className={styles.subTitle}>{t('brandDetail.aesthetic')}</h3>
-                <p className={styles.aesthetic}>{aesthetic}</p>
+          {/* ── Palette ────────────────────────────────────────────── */}
+          {colors.length > 0 ? (
+            <section className={styles.card} aria-label={t('brandDetail.colors')}>
+              <h2 className={styles.cardTitle}>{t('brandDetail.colors')}</h2>
+              <div className={styles.colorGrid}>
+                {colors.map((c, i) => (
+                  <div key={`${c.role}-${i}`} className={styles.colorCard}>
+                    <span className={styles.colorSwatch} style={{ background: c.hex }}>
+                      <span className={styles.colorHex}>{c.hex}</span>
+                    </span>
+                    <span className={styles.colorName}>{c.name || c.role}</span>
+                  </div>
+                ))}
               </div>
-            ) : null}
-          </section>
+            </section>
+          ) : null}
+
+          {/* ── Voice & aesthetic ──────────────────────────────────── */}
+          {adjectives.length > 0 || aesthetic ? (
+            <section className={styles.card} aria-label={t('brandDetail.voice')}>
+              <h2 className={styles.cardTitle}>{t('brandDetail.voice')}</h2>
+              {adjectives.length > 0 ? (
+                <div className={styles.subsection}>
+                  <h3 className={styles.subTitle}>{t('brandDetail.tone')}</h3>
+                  <div className={styles.pills}>
+                    {adjectives.map((adj, i) => (
+                      <span key={`${adj}-${i}`} className={styles.pill}>
+                        {adj}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {aesthetic ? (
+                <div className={styles.subsection}>
+                  <h3 className={styles.subTitle}>{t('brandDetail.aesthetic')}</h3>
+                  <p className={styles.aesthetic}>{aesthetic}</p>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
         </>
       )}
     </div>
@@ -277,6 +311,20 @@ function BackGlyph() {
         d="M10 3.5L5.5 8l4.5 4.5"
         stroke="currentColor"
         strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ExternalGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" aria-hidden>
+      <path
+        d="M6 3.5h6.5V10M12.5 3.5L6.5 9.5M9 3.5H4.5a1 1 0 0 0-1 1V12a1 1 0 0 0 1 1h7.5a1 1 0 0 0 1-1V8"
+        stroke="currentColor"
+        strokeWidth="1.4"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

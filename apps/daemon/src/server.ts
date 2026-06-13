@@ -6904,6 +6904,7 @@ export async function startServer({
     brandsRoot: BRANDS_DIR,
     userDesignSystemsRoot: USER_DESIGN_SYSTEMS_DIR,
     projectsRoot: PROJECTS_DIR,
+    skillsRoot: SKILLS_DIR,
     db,
     randomId,
   });

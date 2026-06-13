@@ -1,17 +1,20 @@
 // Brand engine — public API consumed by brand-routes.ts.
 //
 // A "brand" = brand metadata (brand.json + meta.json under
-// `<brandsRoot>/<id>/`) PLUS a generated user design system. Extraction is a
-// deterministic pipeline:
-//   1. prefetch  — fetch the site, measure colors/fonts, download logos
-//   2. preview   — brandFromMaterial → a usable provisional Brand
-//   3. system    — brandToDesignMd → createUserDesignSystem, storing the
-//                  resulting `user:<id>` design-system id in brand meta so
-//                  selecting the brand in the composer reuses the EXISTING
-//                  designSystemId apply flow (no parallel brandId path).
+// `<brandsRoot>/<id>/`) PLUS a generated user design system. Extraction is now
+// AGENT-DRIVEN, not an in-place deterministic pipeline:
 //
-// Every step streams a BrandExtractEvent. extractBrand never throws out of the
-// function: any failure emits `{ event: 'error' }` and marks meta failed.
+//   1. startBrandExtraction — reserve the brand record, create a backing
+//      `brand` project with the target site open in an in-app browser tab, and
+//      seed a pending prompt that walks an agent through the full extraction
+//      chain (measure → synthesize → build the design system). The web/CLI
+//      caller navigates in and auto-sends, so the agent runs the extraction
+//      live in front of the user (who can clear anti-bot walls by hand).
+//   2. finalizeBrand — once the agent has written `brand.json` (+ BRAND.md,
+//      logos, fonts) into the project, validate the kit, derive tokens +
+//      brand-system artifacts, and register the `user:<id>` design system so
+//      selecting the brand in the composer reuses the EXISTING designSystemId
+//      apply flow (no parallel brandId path).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +23,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   Brand,
   BrandDetailResponse,
-  BrandExtractEvent,
+  BrandFinalizeResponse,
   BrandMeta,
   BrandSummary,
   ProjectMetadata,
@@ -35,13 +38,14 @@ import {
   getProject,
   insertConversation,
   insertProject,
+  setTabs,
   updateProject,
 } from '../db.js';
-import { writeProjectFile } from '../projects.js';
+import { readProjectFile, resolveProjectDir, writeProjectFile } from '../projects.js';
 import { brandGuideMd, brandToDesignMd } from './design-md.js';
-import { prefetchBrand } from './prefetch.js';
-import { brandFromMaterial } from './provisional.js';
 import { brandSystemDir, rebuildSystem } from './system.js';
+import { extractJsonBlock, validateBrand } from './validate.js';
+import { BRAND_KIT_FILE, writeBrandKitPreview } from './kit-render.js';
 import {
   createBrandDir,
   deleteBrandDir,
@@ -56,6 +60,10 @@ import {
   writeBrandGuide,
 } from './store.js';
 
+/** The in-app browser tab id the extraction project opens to the target site.
+ *  Matches the web `FileWorkspace` BROWSER_TAB_PREFIX numbering. */
+const BRAND_BROWSER_TAB_ID = '__browser__:1';
+
 export type {
   ColorCandidate,
   FontCandidate,
@@ -66,16 +74,23 @@ export { brandFromMaterial } from './provisional.js';
 export { brandToDesignMd, brandGuideMd } from './design-md.js';
 export { extractJsonBlock, validateBrand } from './validate.js';
 
-export type ExtractBrandOptions = {
+export interface StartBrandExtractionOptions {
   url: string;
   brandsRoot: string;
-  userDesignSystemsRoot: string;
-  projectsRoot?: string;
-  db?: Parameters<typeof insertProject>[0];
+  projectsRoot: string;
+  /** Skills root so the seeded `brand.html` can be rendered from the bundled
+   *  brand-extract template. */
+  skillsRoot: string;
+  db: Parameters<typeof insertProject>[0];
   randomId?: () => string;
-  onEvent: (e: BrandExtractEvent) => void;
-  signal?: AbortSignal;
-};
+}
+
+export interface StartBrandExtractionResult {
+  id: string;
+  projectId: string;
+  conversationId: string;
+  sourceUrl: string;
+}
 
 /** Normalize a user-typed URL: prepend https:// when no scheme is present;
  *  reject anything that isn't http(s). Returns null when unusable. */
@@ -93,153 +108,317 @@ function normalizeUrl(raw: string): string | null {
   return parsed.href;
 }
 
-/**
- * Extract a brand from a URL, streaming progress events. Never throws —
- * failures emit `{ event: 'error' }` and mark the brand meta `failed`.
- */
-export async function extractBrand(opts: ExtractBrandOptions): Promise<void> {
-  const {
-    brandsRoot,
-    userDesignSystemsRoot,
-    projectsRoot,
-    db,
-    randomId,
-    onEvent,
-    signal,
-  } = opts;
-
-  const url = normalizeUrl(opts.url);
-  if (!url) {
-    onEvent({ event: 'error', message: 'Enter a valid http(s) website URL.' });
-    return;
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '');
+  } catch {
+    return url;
   }
+}
 
+/**
+ * Reserve a brand and stand up the agent-driven extraction project. Throws on
+ * an invalid URL (the route maps that to a 400). The caller navigates into the
+ * returned project and auto-sends the seeded prompt to start the agent.
+ */
+export async function startBrandExtraction(
+  opts: StartBrandExtractionOptions,
+): Promise<StartBrandExtractionResult> {
+  const url = normalizeUrl(opts.url);
+  if (!url) throw new Error('Enter a valid http(s) website URL.');
+
+  const { brandsRoot, projectsRoot, skillsRoot, db, randomId = randomUUID } = opts;
   const id = newBrandId(url);
   const projectId = brandProjectId(id);
-  let created = false;
-  try {
-    const now = Date.now();
-    const meta: BrandMeta = {
-      id,
-      sourceUrl: url,
-      createdAt: now,
-      updatedAt: now,
-      status: 'extracting',
-      projectId,
-    };
-    createBrandDir(brandsRoot, id, meta);
-    created = true;
-    onEvent({ event: 'created', id, projectId });
+  const host = hostnameOf(url);
+  const now = Date.now();
 
-    if (signal?.aborted) throw new Error('aborted');
+  const meta: BrandMeta = {
+    id,
+    sourceUrl: url,
+    createdAt: now,
+    updatedAt: now,
+    status: 'extracting',
+    projectId,
+  };
+  createBrandDir(brandsRoot, id, meta);
 
-    // ── phase 1: prefetch ──
-    onEvent({ event: 'phase', phase: 'prefetch' });
-    const dir = resolveBrandFile(brandsRoot, id, []);
-    if (!dir) throw new Error('could not resolve brand directory');
-    const material = await prefetchBrand(url, dir, (step, detail) => {
-      onEvent(detail === undefined ? { event: 'prefetch', step } : { event: 'prefetch', step, detail });
-    });
-    if (!material) {
-      patchMeta(brandsRoot, id, { status: 'failed', error: 'Could not fetch the site.' });
-      onEvent({ event: 'error', message: 'Could not fetch the site.' });
-      return;
-    }
-    onEvent({
-      event: 'prefetch-done',
-      colors: material.colors.length,
-      fonts: material.fonts.length,
-      logos: material.logos.length,
-      thin: material.thin,
-    });
+  const metadata: ProjectMetadata = {
+    kind: 'brand',
+    importedFrom: 'brand-extraction',
+    sourceFileName: host,
+    nameSource: 'generated',
+    skipDiscoveryBrief: true,
+    brandId: id,
+    brandSourceUrl: url,
+  };
+  const name = `${host} Brand Kit`;
+  const pendingPrompt = brandExtractionPrompt({ url, brandId: id, host });
+  insertProject(db, {
+    id: projectId,
+    name,
+    skillId: null,
+    designSystemId: null,
+    pendingPrompt,
+    metadata,
+    customInstructions: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const conversationId = randomId();
+  insertConversation(db, {
+    id: conversationId,
+    projectId,
+    title: null,
+    sessionMode: 'design',
+    createdAt: now,
+    updatedAt: now,
+  });
 
-    if (signal?.aborted) throw new Error('aborted');
+  // Seed the brand-kit page immediately so the user sees a real, on-brand
+  // scaffold the moment the project opens — not just a scrolling chat. It
+  // starts as skeletons + "Extracting…" and fills in as the agent writes
+  // brand.json and re-runs `od brand preview`.
+  await writeBrandKitPreview({
+    skillsRoot,
+    projectsRoot,
+    projectId,
+    brand: { name: host, sourceUrl: url, colors: [], typography: {} },
+    status: 'extracting',
+    host,
+    metadata,
+  });
 
-    // ── phase 2: preview (deterministic provisional brand) ──
-    onEvent({ event: 'phase', phase: 'preview' });
-    const brand = brandFromMaterial(material, url);
-    writeBrand(brandsRoot, id, brand);
-    writeBrandGuide(brandsRoot, id, brandGuideMd(brand));
-    onEvent({ event: 'preview', brand });
+  // brand.html is the star of the workspace (active tab). The target site stays
+  // available as a secondary in-app browser tab so the user can glance at it /
+  // clear an anti-bot wall by hand when the agent asks.
+  setTabs(db, projectId, {
+    tabs: [BRAND_KIT_FILE],
+    active: BRAND_KIT_FILE,
+    browserTabs: [{ id: BRAND_BROWSER_TAB_ID, label: 'Browser', url, title: host }],
+  });
 
-    if (signal?.aborted) throw new Error('aborted');
+  return { id, projectId, conversationId, sourceUrl: url };
+}
 
-    // ── phase 3: register the user design system ──
-    onEvent({ event: 'phase', phase: 'system' });
-    const systemBuild = await rebuildSystem(brandsRoot, id);
-    let designSystemId: string | undefined;
-    let projectReady = false;
-    try {
-      const body = brandToDesignMd(brand);
-      const summary = await createUserDesignSystem(userDesignSystemsRoot, {
-        title: brand.name,
-        category: 'Brands',
-        surface: 'web',
-        status: 'published',
-        artifactMode: 'agent-managed',
-        body,
-        provenance: {
-          ...(brand.description ? { companyBlurb: brand.description } : {}),
-          sourceNotes: `Extracted from ${url}`,
-        },
-      });
-      designSystemId = summary.id;
-      syncBrandSystemToUserDesignSystem(userDesignSystemsRoot, designSystemId, brandsRoot, id, body);
-    } catch (err) {
-      throw new Error(`Could not register brand design system: ${errorMessage(err)}`);
-    }
-    if (!designSystemId) {
-      throw new Error('Could not register brand design system: missing design system id');
-    }
+export interface FinalizeBrandOptions {
+  id: string;
+  brandsRoot: string;
+  userDesignSystemsRoot: string;
+  projectsRoot: string;
+  /** Skills root so the final `brand.html` re-render can read the template. */
+  skillsRoot: string;
+  db: Parameters<typeof insertProject>[0];
+  /** Overrides the brand's recorded backing project. */
+  projectId?: string;
+  randomId?: () => string;
+}
 
-    if (projectsRoot && db) {
-      const projectArgs: BrandProjectArgs = {
-        brandsRoot,
-        projectsRoot,
-        db,
-        brandId: id,
-        projectId,
-        brand,
-        url,
-        systemFiles: systemBuild.files,
-        designSystemId,
-      };
-      if (randomId) projectArgs.randomId = randomId;
-      await createOrUpdateBrandProject(projectArgs);
-      projectReady = true;
-      if (designSystemId) {
-        await linkUserDesignSystemProject(userDesignSystemsRoot, designSystemId, projectId);
-      }
-    }
+/**
+ * Finalize an agent-extracted brand: read `brand.json` (+ optional BRAND.md,
+ * logos, fonts) the agent wrote into the backing project, validate it, derive
+ * the deterministic brand-system artifacts, and register the `user:<id>`
+ * design system. Marks the brand `ready`. Throws with a precise message when
+ * the agent output is missing or invalid.
+ */
+export async function finalizeBrand(
+  opts: FinalizeBrandOptions,
+): Promise<BrandFinalizeResponse> {
+  const { id, brandsRoot, userDesignSystemsRoot, projectsRoot, db } = opts;
+  const meta = readMeta(brandsRoot, id);
+  if (!meta) throw new Error(`brand not found: ${id}`);
+  const projectId = opts.projectId ?? meta.projectId ?? brandProjectId(id);
 
-    patchMeta(brandsRoot, id, {
-      designSystemId,
-      systemFiles: systemBuild.files,
-      ...(projectReady ? { projectId } : {}),
-    });
-    onEvent({
-      event: 'system',
-      ok: true,
-      designSystemId,
-      files: systemBuild.files,
-      ...(projectReady ? { projectId } : {}),
-    });
-
-    patchMeta(brandsRoot, id, { status: 'ready' });
-    onEvent({
-      event: 'brand',
-      id,
-      brand,
-      designSystemId,
-      files: systemBuild.files,
-      ...(projectReady ? { projectId } : {}),
-    });
-    onEvent({ event: 'phase', phase: 'done' });
-  } catch (err) {
-    const message = errorMessage(err);
-    if (created) patchMeta(brandsRoot, id, { status: 'failed', error: message });
-    onEvent({ event: 'error', message });
+  const brandJsonRaw = await readProjectTextOrNull(projectsRoot, projectId, 'brand.json');
+  if (brandJsonRaw === null) {
+    throw new Error(
+      'brand.json not found in the extraction project — the agent has not written the brand kit yet.',
+    );
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(brandJsonRaw);
+  } catch {
+    const block = extractJsonBlock(brandJsonRaw);
+    if (block === null) throw new Error('brand.json is not valid JSON.');
+    parsed = block;
+  }
+  let brand: Brand;
+  try {
+    brand = validateBrand(parsed, meta.sourceUrl);
+  } catch (err) {
+    throw new Error(`brand.json failed validation: ${errorMessage(err)}`);
+  }
+
+  // Pull the agent's brand.json + downloaded assets into the brand workspace so
+  // the deterministic builder and the design system see them.
+  writeBrand(brandsRoot, id, brand);
+  const guideMd =
+    (await readProjectTextOrNull(projectsRoot, projectId, 'BRAND.md')) ?? brandGuideMd(brand);
+  writeBrandGuide(brandsRoot, id, guideMd);
+  copyProjectDirToBrand(projectsRoot, projectId, brandsRoot, id, 'logos');
+  copyProjectDirToBrand(projectsRoot, projectId, brandsRoot, id, 'fonts');
+
+  const systemBuild = await rebuildSystem(brandsRoot, id);
+
+  const body = brandToDesignMd(brand);
+  const summary = await createUserDesignSystem(userDesignSystemsRoot, {
+    title: brand.name,
+    category: 'Brands',
+    surface: 'web',
+    status: 'published',
+    artifactMode: 'agent-managed',
+    body,
+    provenance: {
+      ...(brand.description ? { companyBlurb: brand.description } : {}),
+      sourceNotes: `Extracted from ${meta.sourceUrl}`,
+    },
+  });
+  const designSystemId = summary.id;
+  syncBrandSystemToUserDesignSystem(userDesignSystemsRoot, designSystemId, brandsRoot, id, body);
+
+  const finalizeMetadata: ProjectMetadata = {
+    kind: 'brand',
+    importedFrom: 'brand-extraction',
+    entryFile: 'system/index.html',
+    sourceFileName: brand.name,
+    nameSource: 'generated',
+    skipDiscoveryBrief: true,
+    brandId: id,
+    brandSourceUrl: meta.sourceUrl,
+    brandDesignSystemId: designSystemId,
+  };
+  await syncBrandFilesToProject({
+    brandsRoot,
+    projectsRoot,
+    brandId: id,
+    projectId,
+    brand,
+    metadata: finalizeMetadata,
+  });
+
+  // Re-render the kit page now that the brand is complete and the six system
+  // artifacts exist in the project, so the Brand Assets tiles light up with
+  // live previews and the status flips to "Brand ready".
+  await writeBrandKitPreview({
+    skillsRoot: opts.skillsRoot,
+    projectsRoot,
+    projectId,
+    brand: brand as unknown as Record<string, unknown>,
+    status: 'ready',
+    metadata: finalizeMetadata,
+  });
+
+  await linkUserDesignSystemProject(userDesignSystemsRoot, designSystemId, projectId);
+
+  const existing = getProject(db, projectId);
+  if (existing) {
+    updateProject(db, projectId, {
+      name: `${brand.name || meta.sourceUrl} Brand Kit`,
+      skillId: existing.skillId ?? null,
+      designSystemId,
+      pendingPrompt: existing.pendingPrompt ?? null,
+      metadata: { ...(existing.metadata ?? {}), ...finalizeMetadata },
+      customInstructions: existing.customInstructions ?? null,
+      updatedAt: Date.now(),
+    });
+  }
+
+  patchMeta(brandsRoot, id, {
+    status: 'ready',
+    designSystemId,
+    systemFiles: systemBuild.files,
+    projectId,
+  });
+
+  return { id, brand, designSystemId, projectId, files: systemBuild.files };
+}
+
+export interface RenderBrandPreviewOptions {
+  id: string;
+  brandsRoot: string;
+  skillsRoot: string;
+  projectsRoot: string;
+  /** Overrides the brand's recorded backing project. */
+  projectId?: string;
+}
+
+export interface RenderBrandPreviewResult {
+  id: string;
+  projectId: string;
+  file: string;
+  /** True when a brand.json was found and rendered; false means an empty
+   *  scaffold was (re)written so the page still shows progress. */
+  rendered: boolean;
+}
+
+/**
+ * Re-render `brand.html` from whatever the agent has written into the project's
+ * `brand.json` so far. Lenient by design — partial / in-progress brand data
+ * renders with skeletons for the missing modules, which is exactly the live
+ * "filling in" experience. Called after each measurement pass via
+ * `POST /api/brands/:id/preview` (`od brand preview`).
+ */
+export async function renderBrandPreviewIntoProject(
+  opts: RenderBrandPreviewOptions,
+): Promise<RenderBrandPreviewResult> {
+  const { id, brandsRoot, skillsRoot, projectsRoot } = opts;
+  const meta = readMeta(brandsRoot, id);
+  if (!meta) throw new Error(`brand not found: ${id}`);
+  const projectId = opts.projectId ?? meta.projectId ?? brandProjectId(id);
+  const status: 'extracting' | 'ready' = meta.status === 'ready' ? 'ready' : 'extracting';
+
+  const raw = await readProjectTextOrNull(projectsRoot, projectId, 'brand.json');
+  let brand: Record<string, unknown> = { sourceUrl: meta.sourceUrl, colors: [], typography: {} };
+  let rendered = false;
+  if (raw !== null) {
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = extractJsonBlock(raw);
+    }
+    if (parsed && typeof parsed === 'object') {
+      brand = parsed as Record<string, unknown>;
+      if (typeof brand.sourceUrl !== 'string' || !brand.sourceUrl) brand.sourceUrl = meta.sourceUrl;
+      rendered = true;
+    }
+  }
+
+  await writeBrandKitPreview({
+    skillsRoot,
+    projectsRoot,
+    projectId,
+    brand,
+    status,
+    metadata: { kind: 'brand', brandId: id, brandSourceUrl: meta.sourceUrl },
+  });
+  return { id, projectId, file: BRAND_KIT_FILE, rendered };
+}
+
+/** The first prompt the extraction agent auto-runs. Self-sufficient (does not
+ *  rely on the brand-extract skill auto-loading) but names it so a runtime that
+ *  surfaces skills can pull in the longer methodology + craft guides. */
+function brandExtractionPrompt(input: { url: string; brandId: string; host: string }): string {
+  return [
+    `This is a live BRAND EXTRACTION task for ${input.host}.`,
+    `Source URL: ${input.url}`,
+    `Brand id: ${input.brandId}`,
+    '',
+    'A live brand-kit page (`brand.html`) is ALREADY open as the active tab — right now it shows skeletons and "Extracting…". Your job is to make it fill in with the real brand as fast as possible. The target site is also open in a secondary in-app Browser tab. Use the `brand-extract` skill and the `agent-browser` tool to drive and observe the site. Do not guess — measure.',
+    '',
+    'Work the branding-agent chain, optimizing for FAST first paint:',
+    '',
+    '1. MEASURE — drive the site with agent-browser. Snapshot it, then harvest the real design language: frequency-ranked color literals (background / surface / foreground / muted / border / accent / accent-secondary), the @font-face + font-family declarations, the logo candidates (inline header SVG, apple-touch-icon, favicon, og:image), and representative headings + copy for voice. Save logo files under `logos/` and any self-hosted webfonts under `fonts/` in this project.',
+    '   - ANTI-BOT WALL: if the page is a Cloudflare / DataDome / "Just a moment…" / "Verify you are human" interstitial instead of the real site, STOP and emit a `<question-form>` asking the user to complete the verification in the browser, then Continue. Do NOT try to bypass it yourself. When the user submits the form, re-snapshot and resume.',
+    '',
+    '2. SYNTHESIZE INCREMENTALLY — write `brand.json` into this project AS SOON AS you have the name, a couple of colors, and a logo candidate (do not wait for everything). It must parse as JSON and use exactly the seven color roles (background, surface, foreground, muted, border, accent, accent-secondary), each with `hex` (#rrggbb), `oklch`, `name`, `usage`; plus `name`, `tagline`, `description`, `sourceUrl`, `logo` ({ primary, alternates, notes } with `logos/<file>` paths), `typography` ({ display, body, mono? } each { family, fallbacks[], weights[], googleFontsUrl? }), `voice`, `imagery`, and `layout`. Never invent colors from memory — pick them from what you measured.',
+    '   - After that FIRST write, run `od brand preview ' + input.brandId + '` to render the kit page, and tell the user it is filling in. Then keep measuring, update `brand.json`, and re-run `od brand preview ' + input.brandId + '` after each pass so they watch it complete. Also write `BRAND.md`, a prose brand guide an autonomous design agent can follow.',
+    '',
+    '3. BUILD & REGISTER — when `brand.json` is complete, run `od brand finalize ' + input.brandId + '` (add `--json` for machine output). That validates it, derives the light/dark/compact design tokens and the six brand-system artifacts (landing, deck, poster, email, newsletter, form), registers the reusable design system, and lights up the Brand Assets tiles on the kit page. Fix `brand.json` and re-run if it reports a validation error.',
+    '',
+    'Finish by pointing the user at the completed brand.html (logo, palette, typography, voice) and the Brand Assets they can now preview, and confirm the brand was registered.',
+  ].join('\n');
 }
 
 function errorMessage(err: unknown): string {
@@ -250,132 +429,41 @@ function brandProjectId(brandId: string): string {
   return `brand-${brandId}`;
 }
 
-type BrandProjectArgs = {
-  brandsRoot: string;
-  projectsRoot: string;
-  db: Parameters<typeof insertProject>[0];
-  brandId: string;
-  projectId: string;
-  brand: Brand;
-  url: string;
-  systemFiles: string[];
-  designSystemId?: string;
-  randomId?: () => string;
-};
-
-async function createOrUpdateBrandProject(args: BrandProjectArgs): Promise<void> {
-  const {
-    brandsRoot,
-    projectsRoot,
-    db,
-    brandId,
-    projectId,
-    brand,
-    url,
-    systemFiles,
-    designSystemId,
-    randomId = randomUUID,
-  } = args;
-  const now = Date.now();
-  const metadata: ProjectMetadata = {
-    kind: 'brand',
-    importedFrom: 'brand-extraction',
-    entryFile: 'system/index.html',
-    sourceFileName: brand.name,
-    nameSource: 'generated',
-    skipDiscoveryBrief: true,
-    brandId,
-    brandSourceUrl: url,
-    ...(designSystemId ? { brandDesignSystemId: designSystemId } : {}),
-  };
-  const name = `${brand.name || 'Brand'} Brand Kit`;
-  const promptInput: {
-    brand: Brand;
-    brandId: string;
-    url: string;
-    designSystemId?: string;
-    systemFiles: string[];
-  } = {
-    brand,
-    brandId,
-    url,
-    systemFiles,
-  };
-  if (designSystemId) promptInput.designSystemId = designSystemId;
-  const pendingPrompt = brandProjectPrompt(promptInput);
-  const existing = getProject(db, projectId);
-  if (existing) {
-    updateProject(db, projectId, {
-      name,
-      skillId: existing.skillId ?? null,
-      designSystemId: designSystemId ?? existing.designSystemId ?? null,
-      pendingPrompt,
-      metadata: {
-        ...(existing.metadata ?? {}),
-        ...metadata,
-      },
-      customInstructions: existing.customInstructions ?? null,
-      updatedAt: now,
-    });
-  } else {
-    insertProject(db, {
-      id: projectId,
-      name,
-      skillId: null,
-      designSystemId: designSystemId ?? null,
-      pendingPrompt,
-      metadata,
-      customInstructions: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    insertConversation(db, {
-      id: randomId(),
-      projectId,
-      title: null,
-      sessionMode: 'design',
-      createdAt: now,
-      updatedAt: now,
-    });
+/** Read a UTF-8 project file, returning null when it is absent. */
+async function readProjectTextOrNull(
+  projectsRoot: string,
+  projectId: string,
+  name: string,
+): Promise<string | null> {
+  try {
+    const file = await readProjectFile(projectsRoot, projectId, name);
+    const buf = file?.buffer;
+    if (buf === null || buf === undefined) return null;
+    return Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf);
+  } catch {
+    return null;
   }
-
-  await syncBrandFilesToProject({
-    brandsRoot,
-    projectsRoot,
-    brandId,
-    projectId,
-    brand,
-    metadata,
-  });
 }
 
-function brandProjectPrompt(input: {
-  brand: Brand;
-  brandId: string;
-  url: string;
-  designSystemId?: string;
-  systemFiles: string[];
-}): string {
-  const files = input.systemFiles.length > 0
-    ? input.systemFiles.map((file) => `- system/${file}`).join('\n')
-    : '- system/index.html\n- system/artifacts/landing.html\n- system/artifacts/deck.html\n- system/artifacts/poster.html\n- system/artifacts/email.html\n- system/artifacts/newsletter.html\n- system/artifacts/form.html';
-  return [
-    `This is a brand extraction task for ${input.brand.name}.`,
-    `Source URL: ${input.url}`,
-    `Brand id: ${input.brandId}`,
-    input.designSystemId ? `Design system id: ${input.designSystemId}` : null,
-    '',
-    'The daemon has already completed the deterministic branding-agent extraction and wrote the brand kit into this project.',
-    'Use these files as the source of truth:',
-    '- brand.json',
-    '- DESIGN.md',
-    '- system/BRAND-SYSTEM.md',
-    '- fonts/ and logos/',
-    files,
-    '',
-    'First response: show this as a brand extraction task, summarize the extracted logo, palette, typography, voice, and layout, and call out the six generated brand assets: landing, deck, poster, email, newsletter, and form.',
-    'Do not restart extraction or overwrite files unless a required file is missing or the user asks for an iteration.',
-  ].filter((line): line is string => line !== null).join('\n');
+/** Copy a top-level project subdirectory (logos / fonts) into the brand dir. */
+function copyProjectDirToBrand(
+  projectsRoot: string,
+  projectId: string,
+  brandsRoot: string,
+  brandId: string,
+  dirName: string,
+): void {
+  let projectDir: string;
+  try {
+    projectDir = resolveProjectDir(projectsRoot, projectId);
+  } catch {
+    return;
+  }
+  const source = path.join(projectDir, dirName);
+  if (!isDirectory(source)) return;
+  const target = resolveBrandFile(brandsRoot, brandId, [dirName]);
+  if (!target) return;
+  copyDirectorySync(source, target);
 }
 
 async function syncBrandFilesToProject(input: {

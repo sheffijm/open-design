@@ -9,6 +9,7 @@
 // thin wrapper that passes data and callbacks through to this shell.
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -983,12 +984,30 @@ function OnboardingView({
     state: brandExtractState,
     run: runBrandExtract,
   } = useBrandExtract();
-  const brandExtractActive =
-    brandExtractState.phase === 'prefetch' ||
-    brandExtractState.phase === 'preview' ||
-    brandExtractState.phase === 'system';
+  const brandExtractActive = brandExtractState.phase === 'starting';
   const brandExtractDone = brandExtractState.phase === 'done';
   const brandExtractFailed = brandExtractState.phase === 'error';
+  // Clicking Extract here behaves exactly like the Brands tab: stand up the
+  // extraction project, then finish onboarding and open it so the agent runs
+  // the extraction live (with a browser tab on the target site).
+  const handleOnboardingBrandExtract = useCallback(async () => {
+    const trimmed = brandUrl.trim();
+    if (!trimmed || brandExtractActive) return;
+    const result = await runBrandExtract(trimmed);
+    if (!result) return;
+    try {
+      window.sessionStorage.setItem(`od:auto-send-first:${result.projectId}`, '1');
+    } catch {
+      // Private-mode storage failures should not block navigation.
+    }
+    onFinish();
+    navigate({
+      kind: 'project',
+      projectId: result.projectId,
+      fileName: null,
+      conversationId: result.conversationId,
+    });
+  }, [brandUrl, brandExtractActive, runBrandExtract, onFinish]);
   const [amrLoginError, setAmrLoginError] = useState<string | null>(null);
   const [visibleAgentIds, setVisibleAgentIds] = useState<string[]>([]);
   const [providerTestState, setProviderTestState] = useState<
@@ -2215,7 +2234,7 @@ function OnboardingView({
                       !brandExtractActive
                     ) {
                       event.preventDefault();
-                      void runBrandExtract(brandUrl.trim());
+                      void handleOnboardingBrandExtract();
                     }
                   }}
                 />
@@ -2225,8 +2244,7 @@ function OnboardingView({
                   type="button"
                   className={`onboarding-view__mini-button${brandExtractActive ? ' is-loading' : ''}`}
                   onClick={() => {
-                    if (!brandUrl.trim() || brandExtractActive) return;
-                    void runBrandExtract(brandUrl.trim());
+                    void handleOnboardingBrandExtract();
                   }}
                   disabled={!brandUrl.trim() || brandExtractActive}
                 >
@@ -2239,7 +2257,7 @@ function OnboardingView({
                     className="onboarding-view__action-status"
                     role="status"
                   >
-                    {brandExtractState.progress || t('brand.extracting')}
+                    {t('brand.extracting')}
                   </span>
                 ) : null}
                 {brandExtractDone ? (
@@ -2252,7 +2270,7 @@ function OnboardingView({
                     className="onboarding-view__action-status is-error"
                     role="alert"
                   >
-                    {brandExtractState.progress || t('brand.failed')}
+                    {brandExtractState.error || t('brand.failed')}
                   </span>
                 ) : null}
               </div>

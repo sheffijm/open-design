@@ -1,26 +1,27 @@
-// Brands HTTP surface — list / extract (SSE) / detail / delete / logo.
+// Brands HTTP surface — list / extract / finalize / detail / delete / logo.
 //
 // A "brand" = brand metadata (brand.json + meta.json under
 // `<brandsRoot>/<id>/`) PLUS a registered user design system. These routes are
-// a thin HTTP wrapper over the deterministic engine in `./brands/index.js`;
-// they hold no brand business logic of their own. The extract route streams
-// `BrandExtractEvent`s as Server-Sent Events so the web `useBrandExtract` hook
-// can render its 3-stage progress view.
+// a thin HTTP wrapper over the agent-driven engine in `./brands/index.js`; they
+// hold no brand business logic of their own.
+//
+//   POST /api/brands           — reserve the brand + stand up the extraction
+//                                 project (browser tab + seeded prompt). JSON.
+//   POST /api/brands/:id/finalize — register the agent's brand kit. JSON.
 
 import path from 'node:path';
 
 import type { Application, Request, Response } from 'express';
 
-import type { BrandExtractEvent } from '@open-design/contracts';
-
 import type { insertProject } from './db.js';
 import {
-  extractBrand,
+  finalizeBrand,
   listBrandSummaries,
   readBrandDetail,
   removeBrand,
+  renderBrandPreviewIntoProject,
   resolveBrandLogoPath,
-  type ExtractBrandOptions,
+  startBrandExtraction,
 } from './brands/index.js';
 
 export interface BrandRoutesDeps {
@@ -30,10 +31,13 @@ export interface BrandRoutesDeps {
    *  `user:<id>` design system, so selecting a brand in the composer reuses
    *  the existing design-system apply flow. */
   userDesignSystemsRoot: string;
-  /** `<dataDir>/projects` — backing brand-generation projects. */
-  projectsRoot?: string;
-  /** Shared app database used to register the backing project. */
-  db?: Parameters<typeof insertProject>[0];
+  /** `<dataDir>/projects` — backing brand-extraction projects. */
+  projectsRoot: string;
+  /** Skills root — the agent-driven kit page is rendered from the bundled
+   *  `brand-extract` template under here. */
+  skillsRoot: string;
+  /** Shared app database used to register the backing project + conversation. */
+  db: Parameters<typeof insertProject>[0];
   /** Optional id factory; defaults inside the brand engine when omitted. */
   randomId?: () => string;
 }
@@ -50,7 +54,7 @@ const LOGO_CONTENT_TYPES: Record<string, string> = {
 };
 
 export function registerBrandRoutes(app: Application, deps: BrandRoutesDeps): void {
-  const { brandsRoot, userDesignSystemsRoot, projectsRoot, db, randomId } = deps;
+  const { brandsRoot, userDesignSystemsRoot, projectsRoot, skillsRoot, db, randomId } = deps;
 
   // GET /api/brands — list every stored brand as a summary.
   app.get('/api/brands', (_req: Request, res: Response) => {
@@ -61,48 +65,86 @@ export function registerBrandRoutes(app: Application, deps: BrandRoutesDeps): vo
     }
   });
 
-  // POST /api/brands { url } — extract a brand, streaming progress as SSE.
+  // POST /api/brands { url } — reserve the brand and stand up its extraction
+  // project (target site open in a browser tab + a seeded prompt that drives an
+  // agent through the extraction chain). Returns the ids to navigate into.
   app.post('/api/brands', async (req: Request, res: Response) => {
     const url = typeof req.body?.url === 'string' ? req.body.url : '';
     if (!url.trim()) {
       res.status(400).json({ error: 'url is required' });
       return;
     }
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders?.();
-
-    const controller = new AbortController();
-    const onClose = () => controller.abort();
-    req.on('close', onClose);
-
-    const send = (e: BrandExtractEvent) => {
-      if (res.writableEnded || res.destroyed) return;
-      res.write(`event: ${e.event}\ndata: ${JSON.stringify(e)}\n\n`);
-    };
-
     try {
-      const extractOptions: ExtractBrandOptions = {
+      const startOptions: Parameters<typeof startBrandExtraction>[0] = {
         url,
         brandsRoot,
-        userDesignSystemsRoot,
-        onEvent: send,
-        signal: controller.signal,
+        projectsRoot,
+        skillsRoot,
+        db,
       };
-      if (projectsRoot) extractOptions.projectsRoot = projectsRoot;
-      if (db) extractOptions.db = db;
-      if (randomId) extractOptions.randomId = randomId;
-      await extractBrand(extractOptions);
+      if (randomId) startOptions.randomId = randomId;
+      const result = await startBrandExtraction(startOptions);
+      res.json(result);
     } catch (err) {
-      // extractBrand is contracted never to throw, but guard anyway so a
-      // surprise rejection still reaches the client as an error frame.
-      send({ event: 'error', message: String(err) });
-    } finally {
-      req.off('close', onClose);
-      if (!res.writableEnded) res.end();
+      const message = err instanceof Error ? err.message : String(err);
+      // A bad URL is the only expected throw; everything else is a 500.
+      const status = /valid http/i.test(message) ? 400 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  // POST /api/brands/:id/preview — re-render brand.html from the project's
+  // current brand.json. The extraction agent calls this (`od brand preview`)
+  // after each measurement pass so the kit page fills in live.
+  app.post('/api/brands/:id/preview', async (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    const projectId =
+      typeof req.body?.projectId === 'string' && req.body.projectId.trim()
+        ? String(req.body.projectId)
+        : undefined;
+    try {
+      const renderOptions: Parameters<typeof renderBrandPreviewIntoProject>[0] = {
+        id,
+        brandsRoot,
+        skillsRoot,
+        projectsRoot,
+      };
+      if (projectId) renderOptions.projectId = projectId;
+      const result = await renderBrandPreviewIntoProject(renderOptions);
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = /not found/i.test(message) ? 404 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  // POST /api/brands/:id/finalize — register the agent's extracted brand kit
+  // (brand.json + assets in the backing project) as a `user:<id>` design system
+  // and mark the brand ready. Called by the agent / `od brand finalize`.
+  app.post('/api/brands/:id/finalize', async (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    const projectId =
+      typeof req.body?.projectId === 'string' && req.body.projectId.trim()
+        ? String(req.body.projectId)
+        : undefined;
+    try {
+      const finalizeOptions: Parameters<typeof finalizeBrand>[0] = {
+        id,
+        brandsRoot,
+        userDesignSystemsRoot,
+        projectsRoot,
+        skillsRoot,
+        db,
+      };
+      if (projectId) finalizeOptions.projectId = projectId;
+      if (randomId) finalizeOptions.randomId = randomId;
+      const result = await finalizeBrand(finalizeOptions);
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = /not found/i.test(message) ? 404 : 422;
+      res.status(status).json({ error: message });
     }
   });
 

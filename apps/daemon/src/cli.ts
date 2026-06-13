@@ -235,7 +235,7 @@ const SHARE_BOOLEAN_FLAGS = new Set([
 // reachable through the top-of-file SUBCOMMAND_MAP dispatch, which runs during
 // module evaluation — a const declared further down would still be in TDZ.
 const BRAND_STRING_FLAGS = new Set([
-  'daemon-url', 'prompt-file',
+  'daemon-url', 'prompt-file', 'project',
 ]);
 const BRAND_BOOLEAN_FLAGS = new Set([
   'help', 'h', 'json',
@@ -4787,12 +4787,15 @@ async function runBrand(args) {
   const sub = args[0];
   const rest = args.slice(1);
   switch (sub) {
-    case 'list':   return runBrandList(rest);
-    case 'create': return runBrandCreate(rest);
-    case 'get':    return runBrandGet(rest);
-    case 'show':   return runBrandGet(rest);
-    case 'delete': return runBrandDelete(rest);
-    case 'remove': return runBrandDelete(rest);
+    case 'list':     return runBrandList(rest);
+    case 'create':   return runBrandCreate(rest);
+    case 'extract':  return runBrandCreate(rest);
+    case 'preview':  return runBrandPreview(rest);
+    case 'finalize': return runBrandFinalize(rest);
+    case 'get':      return runBrandGet(rest);
+    case 'show':     return runBrandGet(rest);
+    case 'delete':   return runBrandDelete(rest);
+    case 'remove':   return runBrandDelete(rest);
     default:
       console.error(`unknown subcommand: od brand ${sub}`);
       console.log(BRAND_USAGE);
@@ -4859,130 +4862,114 @@ async function runBrandCreate(rest) {
   try {
     resp = await fetch(`${base}/api/brands`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ url }),
     });
   } catch (err) {
     surfaceFetchError(err, base);
     process.exit(3);
   }
-  if (!resp.ok || !resp.body) {
+  if (!resp.ok) {
     return structuredHttpFailure(resp);
   }
 
-  // Consume the SSE stream. Each frame is "event: <name>\ndata: <json>\n\n"
-  // where <json> is the full BrandExtractEvent (so data.event === <name>).
-  // Progress goes to stderr so stdout stays a clean machine-readable result;
-  // the daemon's 3-stage model is phase → prefetch/preview/system/brand/error.
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let exitCode = 0;
-  let createdId = null;
-  let projectId = null;
-  let designSystemId = null;
-  let systemFiles = [];
-  let finalBrand = null;
-  let errorMessage = null;
-  const events = [];
-
-  const STAGE_LABELS = {
-    prefetch: 'Fetching the site & measuring its design',
-    preview:  'Building a brand preview',
-    system:   'Deriving & registering the design system',
-    done:     'Brand ready',
-  };
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const blocks = buffer.split('\n\n');
-    buffer = blocks.pop() ?? '';
-    for (const block of blocks) {
-      const lines = block.split('\n');
-      const dataLine = lines.find((l) => l.startsWith('data: '));
-      const data = dataLine ? safeParseJson(dataLine.slice('data: '.length)) : null;
-      if (!data || typeof data.event !== 'string') continue;
-      events.push(data);
-      switch (data.event) {
-        case 'created':
-          createdId = data.id ?? createdId;
-          projectId = data.projectId ?? projectId;
-          break;
-        case 'phase':
-          if (!flags.json && STAGE_LABELS[data.phase]) {
-            process.stderr.write(`[brand] ${STAGE_LABELS[data.phase]}\n`);
-          }
-          break;
-        case 'prefetch':
-          if (!flags.json) {
-            const detail = data.detail ? ` — ${data.detail}` : '';
-            process.stderr.write(`[brand] ${data.step}${detail}\n`);
-          }
-          break;
-        case 'prefetch-done':
-          if (!flags.json) {
-            process.stderr.write(
-              `[brand] measured ${data.colors} colors · ${data.fonts} fonts · ${data.logos} logos\n`,
-            );
-          }
-          break;
-        case 'system':
-          projectId = data.projectId ?? projectId;
-          designSystemId = data.designSystemId ?? designSystemId;
-          systemFiles = Array.isArray(data.files) ? data.files : systemFiles;
-          if (!flags.json && data.ok === false && data.error) {
-            process.stderr.write(`[brand] design-system warning: ${data.error}\n`);
-          }
-          break;
-        case 'brand':
-          createdId = data.id ?? createdId;
-          projectId = data.projectId ?? projectId;
-          designSystemId = data.designSystemId ?? designSystemId;
-          systemFiles = Array.isArray(data.files) ? data.files : systemFiles;
-          finalBrand = data.brand ?? finalBrand;
-          break;
-        case 'error':
-          errorMessage = data.message ?? 'extraction failed';
-          exitCode = 1;
-          break;
-        default:
-          break;
-      }
-    }
-  }
-
-  if (exitCode !== 0 || (errorMessage && !finalBrand)) {
-    if (flags.json) {
-      process.stdout.write(JSON.stringify({
-        ok: false,
-        id: createdId,
-        projectId,
-        designSystemId,
-        error: errorMessage ?? 'extraction failed',
-        events,
-      }, null, 2) + '\n');
-    } else {
-      console.error(`[brand] extraction failed: ${errorMessage ?? 'unknown error'}`);
-    }
-    process.exit(exitCode || 1);
-  }
-
+  // Extraction is agent-driven: this kickoff reserves the brand + a backing
+  // project with the target site open in a browser tab and a seeded prompt.
+  // The agent then runs the chain (measure → synthesize → `od brand finalize`).
+  const data = await resp.json();
   if (flags.json) {
-    process.stdout.write(JSON.stringify({
-      ok: true,
-      id: createdId,
-      projectId,
-      designSystemId,
-      files: systemFiles,
-      brand: finalBrand,
-    }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ ok: true, ...data }, null, 2) + '\n');
     return;
   }
-  // Clean stdout result: "<id>\t<name>" so jq / cut / xargs can chain.
-  const name = finalBrand?.name ?? createdId ?? '';
-  console.log(`${createdId ?? ''}\t${name}`);
+  process.stderr.write(
+    '[brand] extraction project created — open it to run the agent, ' +
+    `then it self-finalizes with: od brand finalize ${data?.id ?? ''}\n`,
+  );
+  // Clean stdout result: "<id>\t<projectId>" so jq / cut / xargs can chain.
+  console.log(`${data?.id ?? ''}\t${data?.projectId ?? ''}`);
+}
+
+async function runBrandFinalize(rest) {
+  let flags;
+  try {
+    flags = parseFlags(rest, { string: BRAND_STRING_FLAGS, boolean: BRAND_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const id = positionalArgs(rest, BRAND_STRING_FLAGS)[0];
+  if (!id) {
+    console.error('Usage: od brand finalize <id> [--project <projectId>] [--json]');
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  const body = {};
+  if (typeof flags.project === 'string' && flags.project.trim()) body.projectId = flags.project.trim();
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/brands/${encodeURIComponent(id)}/finalize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (resp.status === 404) {
+    console.error(`brand not found: ${id}`);
+    process.exit(4);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json();
+  if (flags.json) {
+    process.stdout.write(JSON.stringify({ ok: true, ...data }, null, 2) + '\n');
+    return;
+  }
+  const name = data?.brand?.name ?? data?.id ?? id;
+  console.log(`${data?.id ?? id}\t${name}`);
+  if (data?.designSystemId) process.stderr.write(`[brand] registered design system ${data.designSystemId}\n`);
+}
+
+async function runBrandPreview(rest) {
+  let flags;
+  try {
+    flags = parseFlags(rest, { string: BRAND_STRING_FLAGS, boolean: BRAND_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const id = positionalArgs(rest, BRAND_STRING_FLAGS)[0];
+  if (!id) {
+    console.error('Usage: od brand preview <id> [--project <projectId>] [--json]');
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  const body = {};
+  if (typeof flags.project === 'string' && flags.project.trim()) body.projectId = flags.project.trim();
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/brands/${encodeURIComponent(id)}/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (resp.status === 404) {
+    console.error(`brand not found: ${id}`);
+    process.exit(4);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json();
+  if (flags.json) {
+    process.stdout.write(JSON.stringify({ ok: true, ...data }, null, 2) + '\n');
+    return;
+  }
+  // Clean stdout result: "<id>\t<file>" so the agent can confirm the path.
+  console.log(`${data?.id ?? id}\t${data?.file ?? 'brand.html'}`);
 }
 
 async function runBrandGet(rest) {

@@ -4,16 +4,22 @@
 
 export const BRAND_USAGE = `Usage:
   od brand list [--json]               List extracted brands (id, name, domain, status).
-  od brand create <url> [--json]       Extract a brand from a website URL. Streams 3-stage
-                                       progress to stderr; prints the final brand to stdout.
+  od brand extract <url> [--json]      Start an agent-driven brand extraction. Reserves the
+  od brand create <url> [--json]       brand and a backing project with the site open in a
+                                       browser tab; open it to run the extraction agent.
                                        --prompt-file <path|-> reads the URL from a file or stdin.
+  od brand preview <id> [--json]       Re-render brand.html from the project's current
+                                       brand.json so the kit page fills in live during
+                                       extraction. --project <projectId> overrides the project.
+  od brand finalize <id> [--json]      Register the agent's extracted kit (brand.json in the
+                                       backing project) as a design system; marks it ready.
+                                       --project <projectId> overrides the backing project.
   od brand get <id> [--json]           Print one brand's full detail (meta + brand + guide).
   od brand delete <id> [--json]        Remove a brand and its registered design system.
 
 Output:
   Plain text by default; --json prints raw JSON for any subcommand.
-  create streams "[brand] <stage>" progress lines to stderr while extracting,
-  then prints the final "<id>\\t<name>" to stdout (or the brand JSON with --json).
+  extract prints "<id>\\t<projectId>" to stdout; finalize prints "<id>\\t<name>".
 
 Common options:
   --daemon-url <url>   Open Design daemon HTTP base.`;
