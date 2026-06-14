@@ -4600,6 +4600,77 @@ function resolveAcpStageTimeoutMs(): number | undefined {
   return Math.min(MAX_CHAT_RUN_INACTIVITY_TIMEOUT_MS, Math.max(0, Math.floor(raw)));
 }
 
+type GeminiJsonEventStreamEvent = Record<string, unknown>;
+
+function parseGeminiJsonEventStreamEvents(text: string): GeminiJsonEventStreamEvent[] | null {
+  const lines = text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  const events: GeminiJsonEventStreamEvent[] = [];
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+      events.push(obj as GeminiJsonEventStreamEvent);
+    } catch {
+      return null;
+    }
+  }
+  return events;
+}
+
+function isGeminiJsonEventStream(events: GeminiJsonEventStreamEvent[] | null): boolean {
+  if (!events || events.length === 0) return false;
+  const [firstEvent] = events;
+  if (
+    !firstEvent ||
+    firstEvent.type !== 'init' ||
+    typeof firstEvent.session_id !== 'string' ||
+    firstEvent.session_id.length === 0 ||
+    typeof firstEvent.model !== 'string' ||
+    firstEvent.model.length === 0
+  ) {
+    return false;
+  }
+  return events.every((event) => {
+    const type = event?.type;
+    return (
+      type === 'init' ||
+      type === 'message' ||
+      type === 'tool_use' ||
+      type === 'tool_result' ||
+      type === 'error' ||
+      type === 'result'
+    );
+  });
+}
+
+function geminiJsonEventStreamHasVisibleAssistantText(
+  events: GeminiJsonEventStreamEvent[] | null,
+): boolean {
+  if (!events) return false;
+  return events.some((event) => (
+    event.type === 'message' &&
+    event.role === 'assistant' &&
+    typeof event.content === 'string' &&
+    event.content.length > 0
+  ));
+}
+
+export function bufferedAntigravityGeminiFirstTokenAt(
+  text: string,
+  firstBufferedStdoutAt: number | null,
+): number | null {
+  if (firstBufferedStdoutAt === null) return null;
+  const events = parseGeminiJsonEventStreamEvents(text);
+  if (!isGeminiJsonEventStream(events)) return null;
+  return geminiJsonEventStreamHasVisibleAssistantText(events)
+    ? firstBufferedStdoutAt
+    : null;
+}
+
 export async function startServer({
   port = 7456,
   host = process.env.OD_BIND_HOST || '127.0.0.1',
@@ -13245,45 +13316,9 @@ export async function startServer({
     // guard below skips them via `trackingSubstantiveOutput`.
     let agentProducedOutput = false;
     let trackingSubstantiveOutput = false;
-    const looksLikeGeminiJsonEventStream = (text: string) => {
-      const lines = text
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      if (lines.length === 0) return false;
-      const events: Record<string, unknown>[] = [];
-      for (const line of lines) {
-        try {
-          const obj = JSON.parse(line);
-          if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-          events.push(obj as Record<string, unknown>);
-        } catch {
-          return false;
-        }
-      }
-      const [firstEvent] = events;
-      if (
-        !firstEvent ||
-        firstEvent.type !== 'init' ||
-        typeof firstEvent.session_id !== 'string' ||
-        firstEvent.session_id.length === 0 ||
-        typeof firstEvent.model !== 'string' ||
-        firstEvent.model.length === 0
-      ) {
-        return false;
-      }
-      return events.every((obj) => {
-        const type = obj?.type;
-        return (
-          type === 'init' ||
-          type === 'message' ||
-          type === 'tool_use' ||
-          type === 'tool_result' ||
-          type === 'error' ||
-          type === 'result'
-        );
-      });
-    };
+    const looksLikeGeminiJsonEventStream = (text: string) => (
+      isGeminiJsonEventStream(parseGeminiJsonEventStreamEvents(text))
+    );
     // Event types that count as "the agent actually produced something the
     // user can see." Lifecycle markers (`status`) and meter readings
     // (`usage`) deliberately do NOT count — a model can emit token-usage
@@ -13458,6 +13493,11 @@ export async function startServer({
       const bufferedStdout = plaintextStdoutBuffer.join('');
       if (!looksLikeGeminiJsonEventStream(bufferedStdout)) return false;
       trackingSubstantiveOutput = true;
+      const firstTokenAt = bufferedAntigravityGeminiFirstTokenAt(
+        bufferedStdout,
+        firstBufferedStdoutAt,
+      );
+      if (firstTokenAt !== null) noteFirstTokenAt(firstTokenAt);
       const handler = createJsonEventStreamHandler('gemini', sendAgentEvent);
       handler.feed(bufferedStdout);
       handler.flush();
