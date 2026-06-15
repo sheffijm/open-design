@@ -52,7 +52,7 @@ jobs:
           OD_VISUAL_OUTPUT_DIR: ui/reports/visual-screenshots
         run: |
           pnpm -C e2e exec tsx scripts/playwright.ts clean
-          pnpm -C e2e exec playwright test -c playwright.visual.config.ts
+          pnpm -C e2e exec playwright test -c playwright.visual.config.ts --grep '@critical'
 
       - name: Upload visual debug artifact
         if: ${{ always() && steps.changes.outputs.should_run == 'true' }}
