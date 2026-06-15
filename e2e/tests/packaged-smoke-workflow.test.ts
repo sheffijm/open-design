@@ -477,10 +477,11 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("continue-on-error: true");
     expect(workflow).toContain("Download mac_arm64 platform manifest");
     expect(workflow).toContain("Download win_x64 platform manifest");
-    expect(workflow).toContain('manifest_url="${RELEASE_PUBLIC_ORIGIN%/}/betas/versions/${RELEASE_VERSION}${RELEASE_ASSET_SUFFIX}/platforms/${RELEASE_TARGET}.json"');
-    expect(workflow).toContain('curl -fsSL "$manifest_url" -o "$RELEASE_MANIFEST_DIR/$RELEASE_TARGET.json"');
-    expect(workflow).toContain('fallback_manifest="$RELEASE_FALLBACK_MANIFEST_DIR/$RELEASE_TARGET.json"');
-    expect(workflow).toContain("Using best-effort artifact fallback for $RELEASE_TARGET after S3 manifest download failed");
+    expect(workflow).not.toContain('manifest_url="${RELEASE_PUBLIC_ORIGIN%/}/betas/versions/${RELEASE_VERSION}${RELEASE_ASSET_SUFFIX}/platforms/${RELEASE_TARGET}.json"');
+    expect(workflow).not.toContain('curl -fsSL "$manifest_url" -o "$RELEASE_MANIFEST_DIR/$RELEASE_TARGET.json"');
+    expect(workflow).not.toContain('fallback_manifest="$RELEASE_FALLBACK_MANIFEST_DIR/$RELEASE_TARGET.json"');
+    expect(workflow).toContain("tools-release download-platform-manifest");
+    expect(workflow).toContain("RELEASE_STORAGE_ENDPOINT: ${{ secrets.NEXU_S3_ENDPOINT }}");
     expect(workflow).toContain("tools-release publish-metadata");
     expect(workflow).toContain("RELEASE_ASSET_SUFFIX: auto");
     expect(workflow).toContain("RELEASE_MANIFEST_DIR: ${{ runner.temp }}/release-platform-manifests");

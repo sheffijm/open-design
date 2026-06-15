@@ -126,6 +126,8 @@ describe("release workflows", () => {
     expect(betaSelfHosted).not.toContain("verify-beta-metadata.ts");
     expect(betaSelfHosted).not.toContain("summary-beta.ts");
     expect(betaSelfHosted).toContain("tools-release publish-metadata");
+    expect(betaSelfHosted).toContain("tools-release download-platform-manifest");
+    expect(betaSelfHosted).not.toContain('curl -fsSL "$manifest_url" -o "$RELEASE_MANIFEST_DIR/$RELEASE_TARGET.json"');
     expect(betaSelfHosted).not.toContain("tools-release verify-metadata");
     expect(betaSelfHosted).not.toContain("tools-release summary-metadata");
     expect(betaSelfHosted).toContain("release-beta-s publishes to an internal S3 namespace; public metadata fetch verification is intentionally skipped.");

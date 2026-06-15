@@ -45,6 +45,12 @@ cli
   });
 
 cli
+  .command("download-platform-manifest", "Download one platform manifest from release storage")
+  .action(async () => {
+    await import("./storage/download-platform-manifest.ts");
+  });
+
+cli
   .command("verify-metadata", "Verify published release metadata")
   .action(async () => {
     await import("./storage/verify-metadata.ts");
