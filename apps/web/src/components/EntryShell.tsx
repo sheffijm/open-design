@@ -1163,14 +1163,14 @@ function OnboardingView({
       (agent) => agent.available && agent.id !== 'amr',
     );
     if (currentAvailableAgents.length > 0) {
-      selectDefaultCliAgent(currentAvailableAgents);
+      const selectedCliAgent = selectDefaultCliAgent(currentAvailableAgents);
       showCliAgents(scanToken, currentAvailableAgents, { stagger: false });
       setCliScanStatus('done');
       emitPendingCliScanResult(scanToken, {
         result: 'success',
         detected: agents.length,
         available: currentAvailableAgents.length,
-        selectedCliId: agentIdToTracking(currentAvailableAgents[0]!.id),
+        selectedCliId: selectedCliAgent ? agentIdToTracking(selectedCliAgent.id) : undefined,
       });
       return;
     }
@@ -1512,10 +1512,14 @@ function OnboardingView({
     agentRevealTimersRef.current = [];
   }
 
-  function selectDefaultCliAgent(availableAgents: AgentInfo[]): void {
-    if (availableAgents.length === 0) return;
-    if (availableAgents.some((agent) => agent.id === config.agentId)) return;
-    onAgentChange(availableAgents[0]!.id);
+  function selectDefaultCliAgent(availableAgents: AgentInfo[]): AgentInfo | null {
+    const selectedAgent =
+      availableAgents.find((agent) => agent.id === config.agentId) ?? availableAgents[0] ?? null;
+    if (!selectedAgent) return null;
+    if (selectedAgent.id !== config.agentId) {
+      onAgentChange(selectedAgent.id);
+    }
+    return selectedAgent;
   }
 
   function emitPendingCliScanResult(
@@ -1845,14 +1849,14 @@ function OnboardingView({
       (agent) => agent.available && agent.id !== 'amr',
     );
     if (options.preferExisting && currentAvailableAgents.length > 0) {
-      selectDefaultCliAgent(currentAvailableAgents);
+      const selectedCliAgent = selectDefaultCliAgent(currentAvailableAgents);
       showCliAgents(scanToken, currentAvailableAgents, { stagger: false });
       setCliScanStatus('done');
       emitPendingCliScanResult(scanToken, {
         result: 'success',
         detected: agents.length,
         available: currentAvailableAgents.length,
-        selectedCliId: agentIdToTracking(currentAvailableAgents[0]!.id),
+        selectedCliId: selectedCliAgent ? agentIdToTracking(selectedCliAgent.id) : undefined,
       });
       return currentAvailableAgents;
     }
@@ -1866,7 +1870,7 @@ function OnboardingView({
       if (cliScanTokenRef.current !== scanToken) return;
       cliRefreshPendingTokenRef.current = null;
       const availableAgents = nextAgents.filter((agent) => agent.available && agent.id !== 'amr');
-      selectDefaultCliAgent(availableAgents);
+      const selectedCliAgent = selectDefaultCliAgent(availableAgents);
       // Scan-result semantics: zero available CLIs is a `failed` outcome
       // because the user's runtime path is blocked, even though the
       // detect call itself returned successfully. `detected_cli_count`
@@ -1886,8 +1890,8 @@ function OnboardingView({
         result: 'success',
         detected: nextAgents.length,
         available: availableAgents.length,
-        ...(availableAgents[0]
-          ? { selectedCliId: agentIdToTracking(availableAgents[0].id) }
+        ...(selectedCliAgent
+          ? { selectedCliId: agentIdToTracking(selectedCliAgent.id) }
           : {}),
       });
       showCliAgents(scanToken, availableAgents, { stagger: true });
