@@ -993,11 +993,19 @@
     // The captured component styles drive the kit + templates so each site's
     // design system looks like itself, not a shared template.
     const atoms = deriveAtoms(data.components || {}, {
-      accent,
+      accent: accentObserved,
       surface: surfaceRole,
       foreground,
       border: borderRole,
     });
+
+    // Unify the whole kit + templates + chrome on ONE primary color — the
+    // captured solid-button color when present, else the observed accent — so
+    // buttons, toggles, sliders, badges, tabs and the templates all match
+    // instead of mixing the button color with a separate accent.
+    const accent = atoms.button.bg;
+    const onAccent = atoms.button.fg;
+    const ink = accentInk(accent, foreground);
 
     // Six on-brand artifact templates, rendered as scaled srcdoc previews.
     const assetCtx = {
@@ -1484,7 +1492,7 @@
   .page.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   /* Data display */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .stat { border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px; background: var(--surface); }
+  .stat { border: var(--card-bw) solid var(--card-bd); border-radius: var(--card-radius); padding: 14px; background: var(--card-bg); }
   .stat-k { font-size: 12px; color: var(--ink-faint); }
   .stat-v { display: block; font-size: 22px; margin: 4px 0 2px; }
   .stat-d { font-size: 12px; font-weight: 600; }
@@ -1494,7 +1502,7 @@
   .ui-table th, .ui-table td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line-soft); }
   .ui-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); font-weight: 600; }
   .ui-table tbody tr:last-child td { border-bottom: 0; }
-  .list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
+  .list { list-style: none; margin: 0; padding: 0; border: var(--card-bw) solid var(--card-bd); border-radius: var(--card-radius); overflow: hidden; }
   .list-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
   .list-item:last-child { border-bottom: 0; }
   .li-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }

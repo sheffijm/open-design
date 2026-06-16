@@ -247,6 +247,7 @@ import { createQoderStreamHandler } from './qoder-stream.js';
 import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
+import { importFigmaFromBytes } from './figma/figma-import.js';
 import { createChatRunService } from './runs.js';
 import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
 import { classifyRunFailure, isResumableFailure } from './run-failure-classification.js';
@@ -3760,6 +3761,14 @@ const pluginUpload = multer({
   },
 });
 
+// Figma `.fig` import — memory storage so the offline decoder gets the raw
+// bytes without a temp-file round-trip. The decoder unzips + kiwi-decodes
+// in-process and writes the snapshot under the project cwd.
+const figmaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 },  // community kits run large
+});
+
 const pluginShareTaskStore = createPluginShareTaskStore({
   randomUUID,
   execCommandViaLoginShell,
@@ -7213,6 +7222,52 @@ export async function startServer({
       res.status(500).json({ error: String(err) });
     }
   });
+
+  // Offline `.fig` import. Decodes the uploaded Figma file in-process (no
+  // account/API/MCP) and stages the canonical `figma/` snapshot into the
+  // project cwd. Figma *URL* imports go through the `od-figma-migration`
+  // scenario instead (OAuth lives in the run pipeline, not here).
+  app.post(
+    '/api/projects/:id/figma/import',
+    (req, res, next) => figmaUpload.single('file')(req, res, (err) => (err ? sendMulterError(res, err) : next())),
+    async (req, res) => {
+      try {
+        if (!isSafeId(req.params.id)) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'invalid project id');
+        }
+        const file = (req as { file?: { buffer?: Buffer; originalname?: string } }).file;
+        const body = (req.body ?? {}) as { figmaUrl?: unknown; notes?: unknown };
+        const notes = typeof body.notes === 'string' ? body.notes : undefined;
+        const figmaUrl = typeof body.figmaUrl === 'string' ? body.figmaUrl.trim() : '';
+
+        if (!file?.buffer || file.buffer.length === 0) {
+          if (figmaUrl) {
+            // The URL path needs a Figma OAuth token, which is resolved inside
+            // the run pipeline's connector-gate. Tell the caller to use it.
+            return sendApiError(
+              res,
+              409,
+              'FIGMA_URL_NEEDS_MIGRATION',
+              'Figma URL imports run through the od-figma-migration scenario; upload a .fig here for the offline path.',
+            );
+          }
+          return sendApiError(res, 400, 'BAD_REQUEST', 'a .fig file upload is required');
+        }
+
+        const meta = projectMetadataLookup?.(req.params.id) ?? undefined;
+        const cwd = await ensureProject(PROJECTS_DIR, req.params.id, meta ?? undefined);
+        const importOpts: Parameters<typeof importFigmaFromBytes>[1] = {
+          cwd,
+          label: file.originalname || 'figma-import.fig',
+        };
+        if (notes) importOpts.notes = notes;
+        const result = await importFigmaFromBytes(new Uint8Array(file.buffer), importOpts);
+        return res.json(result);
+      } catch (err) {
+        return sendApiError(res, 500, 'INTERNAL', String((err as Error)?.message ?? err));
+      }
+    },
+  );
 
   app.post('/api/projects/:id/finalize/anthropic', async (req, res) => {
     const { apiKey, baseUrl, model, maxTokens } = req.body || {};

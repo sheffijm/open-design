@@ -66,6 +66,8 @@ import {
   exportAsJsx,
   exportAsMd,
   exportAsPdf,
+  exportArtifactAsPptx,
+  exportArtifactAsPptxEditable,
   exportProjectAsHtml,
   exportProjectAsPdf,
   exportProjectAsZip,
@@ -73,10 +75,12 @@ import {
   exportReactComponentAsHtml,
   exportReactComponentAsZip,
   captureHostIframeSnapshot,
+  captureViewSnapshot,
   imageDataUrlToBlob,
   openSandboxedPreviewInNewTab,
   prepareImageExportTarget,
   requestPreviewSnapshot,
+  type ExportProgress,
   type ImageExportFormat,
 } from '../runtime/exports';
 import { copyToClipboard } from '../lib/copy-to-clipboard';
@@ -4512,6 +4516,15 @@ function HtmlViewer({
       );
     };
     const toastFormats = new Set(['pdf', 'pptx', 'zip', 'html', 'image', 'markdown']);
+    // Programmatic exports compute in-browser and can take a few seconds, so show
+    // a loading toast up front; the per-slide onProgress callback (passed into the
+    // export call by the menu item) replaces it with "slide X/Y" while it runs.
+    if (toastFormats.has(format)) {
+      setExportToast({ message: t('fileViewer.exportingProgress'), tone: 'loading' });
+    }
+    const failToast = () => {
+      if (toastFormats.has(format)) setExportToast({ message: t('fileViewer.exportFailed'), tone: 'error' });
+    };
     try {
       const out = fn();
       if (out && typeof (out as Promise<unknown>).then === 'function') {
@@ -4519,23 +4532,29 @@ function HtmlViewer({
           (result) => {
             if (result === 'cancelled') {
               finish('cancelled');
+              if (toastFormats.has(format)) setExportToast(null);
               return;
             }
             finish('success');
-            if (toastFormats.has(format)) setExportToast({ message: t('fileViewer.exportStarted'), tone: 'default' });
+            if (toastFormats.has(format)) setExportToast({ message: t('fileViewer.exportDone'), tone: 'success' });
           },
-          (err) => finish('failed', err instanceof Error ? err.name : 'UNKNOWN'),
+          (err) => {
+            finish('failed', err instanceof Error ? err.name : 'UNKNOWN');
+            failToast();
+          },
         );
       } else {
         if (out === 'cancelled') {
           finish('cancelled');
+          if (toastFormats.has(format)) setExportToast(null);
           return;
         }
         finish('success');
-        if (toastFormats.has(format)) setExportToast({ message: t('fileViewer.exportStarted'), tone: 'default' });
+        if (toastFormats.has(format)) setExportToast({ message: t('fileViewer.exportDone'), tone: 'success' });
       }
     } catch (err) {
       finish('failed', err instanceof Error ? err.name : 'UNKNOWN');
+      failToast();
     }
   };
   // P0 helpers — keep the artifact_id + artifact_kind derivation in one place
@@ -7433,6 +7452,11 @@ function HtmlViewer({
       if (!activeIframe) return null;
       await waitForIframeLoadOrTimeout(activeIframe, 250);
       await waitForAnimationFrame();
+      // Pure web: the html2canvas export-capture bridge is more reliable than
+      // the SVG-foreignObject path (no black/blank frames). Fall through to it
+      // only if the bridge is absent or fails.
+      const bridgeSnap = await captureViewSnapshot(activeIframe, { deck: effectiveDeck });
+      if (bridgeSnap) return bridgeSnap;
       return requestPreviewSnapshotWithRetry(activeIframe);
     }
 
@@ -7460,12 +7484,15 @@ function HtmlViewer({
     const restoreVisibility = temporarilyExposeIframeForSnapshot(srcDocIframe);
     try {
       await waitForAnimationFrame();
+      const bridgeSnap = await captureViewSnapshot(srcDocIframe, { deck: effectiveDeck });
+      if (bridgeSnap) return bridgeSnap;
       return requestPreviewSnapshotWithRetry(srcDocIframe);
     } finally {
       restoreVisibility();
     }
   }, [
     activateSrcDocSnapshotTransport,
+    effectiveDeck,
     srcDocShellReady,
     useLazySrcDocTransport,
     useUrlLoadPreview,

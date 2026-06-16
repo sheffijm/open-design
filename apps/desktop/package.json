@@ -25,7 +25,8 @@
     "@open-design/launcher-proto": "workspace:*",
     "@open-design/platform": "workspace:*",
     "@open-design/sidecar": "workspace:*",
-    "@open-design/sidecar-proto": "workspace:*"
+    "@open-design/sidecar-proto": "workspace:*",
+    "pptxgenjs": "4.0.1"
   },
   "devDependencies": {
     "@types/node": "24.12.2",

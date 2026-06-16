@@ -993,9 +993,19 @@ export async function exportAsPdf(
     return;
   }
 
-  // Browser fallback: wrap with allow-modals so the injected script can
-  // call window.print(), then inject the self-printing script and open a
-  // popup.
+  // Browser fallback (pure web): assemble the PDF programmatically — capture
+  // each slide (deck) or the full page through the export-capture bridge, then
+  // build it with jsPDF. No print dialog, no agent. The window.print() popup
+  // below is kept only as a last-resort fallback if the capture path throws.
+  try {
+    await exportArtifactAsPdf(html, title, { deck: !!opts?.deck });
+    return;
+  } catch (err) {
+    console.warn('[exportAsPdf] programmatic PDF failed, falling back to print popup:', err);
+  }
+
+  // Last-resort: wrap with allow-modals so the injected script can call
+  // window.print(), then inject the self-printing script and open a popup.
   if (sandboxedPreview) {
     doc = buildSandboxedPreviewDocument(doc, title, { allowModals: true });
     doc = injectParentPrintReadyCache(doc, nonce);
@@ -1128,4 +1138,376 @@ function injectDeckPrintStylesheet(doc: string): string {
   if (/<\/head>/i.test(doc)) return doc.replace(/<\/head>/i, `${tag}</head>`);
   if (/<head[^>]*>/i.test(doc)) return doc.replace(/<head[^>]*>/i, (m) => `${m}${tag}`);
   return tag + doc;
+}
+
+// ===========================================================================
+// Programmatic client-side capture + PDF/PPTX assembly.
+//
+// The in-iframe capture half lives in ./srcdoc.ts (injectExportCaptureBridge).
+// Here we drive it: spin up a hidden, full-resolution export iframe, collect
+// one image (or structured shape list) per slide, then assemble the output with
+// jsPDF / pptxgenjs — entirely in the browser, with no print dialog and no
+// agent/model call. Both libs are dynamically imported so they stay out of the
+// main bundle until an export actually runs.
+// ===========================================================================
+
+export type ExportShape =
+  | { type: 'rect'; x: number; y: number; w: number; h: number; fill: string }
+  | {
+      type: 'image';
+      x: number; y: number; w: number; h: number;
+      dataUrl?: string | null; src?: string;
+    }
+  | {
+      type: 'text';
+      x: number; y: number; w: number; h: number;
+      text: string; fontSize: number; fontFamily: string;
+      bold: boolean; italic: boolean; color: string;
+      align: 'left' | 'center' | 'right' | 'justify';
+    };
+
+export type CapturedSlide = {
+  index: number;
+  dataUrl?: string;
+  shapes?: ExportShape[];
+  w: number;
+  h: number;
+  notes?: string;
+};
+
+/** Progress callback: `(slidesDone, totalSlides)`. */
+export type ExportProgress = (done: number, total: number) => void;
+
+function html2canvasUrl(): string {
+  const base = currentOriginBaseHref();
+  return base ? `${base}html2canvas.min.js` : '/html2canvas.min.js';
+}
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForIframeWindow(iframe: HTMLIFrameElement, timeout = 15_000): Promise<Window> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      const win = iframe.contentWindow;
+      if (win) resolve(win);
+      else reject(new Error('export iframe window unavailable'));
+    };
+    const timer = setTimeout(finish, timeout);
+    iframe.addEventListener('load', finish, { once: true });
+  });
+}
+
+type CaptureRequest = {
+  id: string;
+  mode: 'image' | 'editable';
+  deck: boolean;
+  single?: boolean;
+  scale: number;
+  delay: number;
+  h2cUrl: string;
+};
+
+/**
+ * Drive the in-iframe export-capture bridge for one window, invoking `onSlide`
+ * for each captured slide. Resolves on the bridge's `done`, rejects on its
+ * `error` or an inactivity timeout (so a wedged capture never hangs forever).
+ */
+function runExportCapture(
+  win: Window,
+  req: CaptureRequest,
+  onSlide: (slide: CapturedSlide, total: number) => void,
+  timeoutMs = 120_000,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let lastActivity = Date.now();
+    const cleanup = () => {
+      window.removeEventListener('message', onMsg);
+      clearInterval(watchdog);
+    };
+    function onMsg(ev: MessageEvent) {
+      if (ev.source !== win) return;
+      const d = ev.data as {
+        type?: string; id?: string; index?: number; total?: number;
+        dataUrl?: string; shapes?: ExportShape[]; w?: number; h?: number;
+        notes?: string; error?: string;
+      } | null;
+      if (!d || d.id !== req.id) return;
+      if (d.type === 'od:export-capture:slide') {
+        lastActivity = Date.now();
+        onSlide(
+          {
+            index: d.index ?? 0,
+            dataUrl: d.dataUrl,
+            shapes: d.shapes,
+            w: d.w ?? 0,
+            h: d.h ?? 0,
+            notes: typeof d.notes === 'string' ? d.notes : '',
+          },
+          d.total ?? 1,
+        );
+      } else if (d.type === 'od:export-capture:done') {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        resolve();
+      } else if (d.type === 'od:export-capture:error') {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        reject(new Error(String(d.error || 'export capture failed')));
+      }
+    }
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastActivity > timeoutMs) {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        reject(new Error('export capture timed out'));
+      }
+    }, 2_000);
+    window.addEventListener('message', onMsg);
+    try {
+      win.postMessage({ type: 'od:export-capture', ...req }, '*');
+    } catch (err) {
+      finished = true;
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+/**
+ * Capture every slide of a deck (or the full page, for a non-deck artifact) by
+ * rendering the HTML in a hidden, full-resolution export iframe and driving the
+ * export-capture bridge. Returns the slides ordered by index.
+ */
+async function captureArtifactSlides(
+  html: string,
+  opts: {
+    deck: boolean;
+    mode: 'image' | 'editable';
+    width?: number;
+    height?: number;
+    scale?: number;
+    onProgress?: ExportProgress;
+  },
+): Promise<CapturedSlide[]> {
+  const width = opts.width ?? (opts.deck ? 1920 : 1440);
+  const height = opts.height ?? (opts.deck ? 1080 : 900);
+  const scale = opts.scale ?? (opts.deck ? 1 : 2);
+
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('sandbox', 'allow-scripts');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.setAttribute('tabindex', '-1');
+  iframe.style.cssText = `position:fixed;left:-100000px;top:0;width:${width}px;height:${height}px;border:0;background:#fff;`;
+  iframe.srcdoc = buildSrcdoc(html, { deck: opts.deck });
+  document.body.appendChild(iframe);
+
+  const slides: CapturedSlide[] = [];
+  try {
+    const win = await waitForIframeWindow(iframe);
+    // Give the deck bridge time to fit fixed-canvas (transform: scale) layouts
+    // to the iframe before the first capture.
+    await delayMs(opts.deck ? 600 : 150);
+    await runExportCapture(
+      win,
+      {
+        id: `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        mode: opts.mode,
+        deck: opts.deck,
+        scale,
+        delay: 350,
+        h2cUrl: html2canvasUrl(),
+      },
+      (slide, total) => {
+        slides.push(slide);
+        opts.onProgress?.(slides.length, total);
+      },
+    );
+  } finally {
+    iframe.remove();
+  }
+  slides.sort((a, b) => a.index - b.index);
+  return slides;
+}
+
+/**
+ * Capture a single PNG of the CURRENT on-screen view of an existing preview
+ * iframe through the export-capture bridge (html2canvas, more reliable than the
+ * SVG-foreignObject snapshot path). Returns null if the bridge is unavailable
+ * or the capture fails, so callers can fall back.
+ */
+export async function captureViewSnapshot(
+  iframe: HTMLIFrameElement | null,
+  opts: { deck: boolean } = { deck: false },
+): Promise<PreviewSnapshot | null> {
+  const win = iframe?.contentWindow;
+  if (!win) return null;
+  let snap: PreviewSnapshot | null = null;
+  try {
+    await runExportCapture(
+      win,
+      {
+        id: `view-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        mode: 'image',
+        deck: opts.deck,
+        single: true,
+        scale: opts.deck ? 1 : 2,
+        delay: 200,
+        h2cUrl: html2canvasUrl(),
+      },
+      (slide) => {
+        if (slide.dataUrl) snap = { dataUrl: slide.dataUrl, w: slide.w, h: slide.h };
+      },
+      30_000,
+    );
+  } catch {
+    return null;
+  }
+  return snap;
+}
+
+/** Programmatic, client-side PDF: image-per-slide (deck) or paginated full page. */
+export async function exportArtifactAsPdf(
+  html: string,
+  title: string,
+  opts: { deck: boolean; onProgress?: ExportProgress },
+): Promise<void> {
+  const slides = await captureArtifactSlides(html, {
+    deck: opts.deck,
+    mode: 'image',
+    onProgress: opts.onProgress,
+  });
+  const images = slides.filter((s) => s.dataUrl && s.w > 0 && s.h > 0);
+  if (!images.length) throw new Error('Nothing was captured for PDF export');
+
+  const { jsPDF } = await import('jspdf');
+  const filename = `${safeFilename(title, 'artifact')}.pdf`;
+
+  if (opts.deck) {
+    const first = images[0]!;
+    const pdf = new jsPDF({
+      orientation: first.w >= first.h ? 'landscape' : 'portrait',
+      unit: 'px',
+      format: [first.w, first.h],
+      compress: true,
+    });
+    images.forEach((s, i) => {
+      if (i > 0) pdf.addPage([s.w, s.h], s.w >= s.h ? 'landscape' : 'portrait');
+      pdf.addImage(s.dataUrl!, 'PNG', 0, 0, s.w, s.h);
+    });
+    triggerDownload(pdf.output('blob'), filename);
+    return;
+  }
+
+  // Non-deck: slice the tall full-page capture into A4-proportioned pages.
+  const img = images[0]!;
+  const pageW = img.w;
+  const pageH = Math.max(1, Math.round(pageW * Math.SQRT2)); // A4 portrait ≈ 1:1.414
+  const pages = Math.max(1, Math.ceil(img.h / pageH));
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [pageW, pageH], compress: true });
+  for (let p = 0; p < pages; p++) {
+    if (p > 0) pdf.addPage([pageW, pageH], 'portrait');
+    pdf.addImage(img.dataUrl!, 'PNG', 0, -p * pageH, img.w, img.h);
+  }
+  triggerDownload(pdf.output('blob'), filename);
+}
+
+const PPTX_LAYOUT_WIDTH_IN = 13.333; // 16:9 width; height derived from slide aspect
+
+/** Programmatic PPTX with one full-bleed slide image per deck slide. */
+export async function exportArtifactAsPptx(
+  html: string,
+  title: string,
+  opts: { deck: boolean; onProgress?: ExportProgress },
+): Promise<void> {
+  const slides = await captureArtifactSlides(html, {
+    deck: opts.deck,
+    mode: 'image',
+    onProgress: opts.onProgress,
+  });
+  const images = slides.filter((s) => s.dataUrl && s.w > 0 && s.h > 0);
+  if (!images.length) throw new Error('Nothing was captured for PPTX export');
+
+  const { default: PptxGenJS } = await import('pptxgenjs');
+  const pptx = new PptxGenJS();
+  const first = images[0]!;
+  const layoutH = Number((PPTX_LAYOUT_WIDTH_IN * (first.h / first.w)).toFixed(3));
+  pptx.defineLayout({ name: 'OD', width: PPTX_LAYOUT_WIDTH_IN, height: layoutH });
+  pptx.layout = 'OD';
+  for (const s of images) {
+    const slide = pptx.addSlide();
+    slide.addImage({ data: s.dataUrl!, x: 0, y: 0, w: PPTX_LAYOUT_WIDTH_IN, h: layoutH });
+    if (s.notes) slide.addNotes(s.notes);
+  }
+  const blob = (await pptx.write({ outputType: 'blob' })) as Blob;
+  triggerDownload(blob, `${safeFilename(title, 'artifact')}.pptx`);
+}
+
+/** Programmatic editable PPTX: best-effort native text boxes / images / shapes. */
+export async function exportArtifactAsPptxEditable(
+  html: string,
+  title: string,
+  opts: { deck: boolean; onProgress?: ExportProgress },
+): Promise<void> {
+  const slides = await captureArtifactSlides(html, {
+    deck: opts.deck,
+    mode: 'editable',
+    onProgress: opts.onProgress,
+  });
+  if (!slides.length) throw new Error('Nothing was captured for PPTX export');
+
+  const { default: PptxGenJS } = await import('pptxgenjs');
+  const pptx = new PptxGenJS();
+  const first = slides[0]!;
+  const baseW = first.w || 1920;
+  const layoutH = Number((PPTX_LAYOUT_WIDTH_IN * ((first.h || 1080) / baseW)).toFixed(3));
+  pptx.defineLayout({ name: 'OD', width: PPTX_LAYOUT_WIDTH_IN, height: layoutH });
+  pptx.layout = 'OD';
+
+  for (const s of slides) {
+    const slide = pptx.addSlide();
+    const pxToIn = PPTX_LAYOUT_WIDTH_IN / (s.w || baseW);
+    const inch = (v: number) => Number((v * pxToIn).toFixed(3));
+    for (const shape of s.shapes ?? []) {
+      const x = inch(shape.x);
+      const y = inch(shape.y);
+      const w = Math.max(0.05, inch(shape.w));
+      const h = Math.max(0.05, inch(shape.h));
+      try {
+        if (shape.type === 'rect') {
+          slide.addShape(pptx.ShapeType.rect, { x, y, w, h, fill: { color: shape.fill } });
+        } else if (shape.type === 'image') {
+          if (shape.dataUrl) slide.addImage({ data: shape.dataUrl, x, y, w, h });
+          else if (shape.src) slide.addImage({ path: shape.src, x, y, w, h });
+        } else {
+          slide.addText(shape.text, {
+            x, y, w, h,
+            fontSize: Math.max(1, Number((shape.fontSize * pxToIn * 72).toFixed(1))),
+            color: shape.color,
+            bold: shape.bold,
+            italic: shape.italic,
+            align: shape.align,
+            valign: 'top',
+            margin: 0,
+            ...(shape.fontFamily ? { fontFace: shape.fontFamily } : {}),
+            fit: 'shrink',
+          });
+        }
+      } catch {
+        /* skip a shape pptxgenjs rejects rather than failing the whole export */
+      }
+    }
+    if (s.notes) slide.addNotes(s.notes);
+  }
+  const blob = (await pptx.write({ outputType: 'blob' })) as Blob;
+  triggerDownload(blob, `${safeFilename(title, 'artifact')}.pptx`);
 }
