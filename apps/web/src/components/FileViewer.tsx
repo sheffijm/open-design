@@ -4546,8 +4546,9 @@ function HtmlViewer({
       | 'reload'
       | 'preview'
       | 'source'
+      | 'screenshot'
       | 'tweaks'
-      | 'draw'
+      | 'mark'
       | 'comment'
       | 'pods'
       | 'inspect'
@@ -6930,7 +6931,7 @@ function HtmlViewer({
   }
 
   function activateDrawTool() {
-    fireArtifactToolbarClick('draw');
+    fireArtifactToolbarClick('mark');
     const next = !drawOverlayOpen;
     if (!next) {
       setDrawOverlayOpen(false);
@@ -7334,6 +7335,7 @@ function HtmlViewer({
   ]);
 
   const handleCopyScreenshot = useCallback(async () => {
+    fireArtifactToolbarClick('screenshot');
     if (screenshotInFlightRef.current) return;
     screenshotInFlightRef.current = true;
     setExportToast({ message: t('fileViewer.screenshotCopying'), tone: 'loading' });
@@ -9409,6 +9411,11 @@ function toOwnerRelativePath(ownerFileName: string, targetPath: string): string 
   return rel || '.';
 }
 
+function isBlockedPreviewAssetScheme(assetRef: string): boolean {
+  const clean = assetRef.replace(/[\s\u0000-\u001F\u007F-\u009F]/g, '');
+  return /^(?:javascript|data):/i.test(clean);
+}
+
 function hasRelativeAssetRefs(html: string): boolean {
   const attr = /\s(?:src|href)\s*=\s*["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
@@ -9489,11 +9496,15 @@ async function fetchProjectRelativeText(
 }
 
 function resolveProjectRelativePath(ownerFileName: string, assetRef: string): string | null {
+  if (isBlockedPreviewAssetScheme(assetRef)) return null;
   if (/^(?:https?:|data:|blob:|mailto:|tel:|#|\/)/i.test(assetRef)) return null;
   try {
     const url = new URL(assetRef, `https://od.local/${baseDirFor(ownerFileName)}`);
     if (url.origin !== 'https://od.local') return null;
-    return decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    const decodedPath = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    const parts = decodedPath.split(/[/\\]/);
+    if (parts.some((part) => part === '..' || part.trim() === '..')) return null;
+    return decodedPath;
   } catch {
     return null;
   }

@@ -8,6 +8,7 @@
 // per-event prop types below.
 
 import type {
+  AnalyticsConfigureGlobals,
   TrackingConfigureAvailability,
   TrackingConfigureType,
 } from './public-params.js';
@@ -142,6 +143,15 @@ export interface AmrEntryAttribution {
   sourceProduct: 'open_design';
   sourceDetail: TrackingAmrEntrySource;
   occurredAt: string;
+  // Self-reported onboarding profile, forwarded to AMR (anchored to entryId) so
+  // AMR can segment paid conversion by who the visitor is. Open strings, not a
+  // union: onboarding keeps these open so a new option never forces a contract
+  // bump. Absent when the visitor skipped or never reached onboarding. useCase
+  // is multi-select, hence an array.
+  odRole?: string;
+  odOrgSize?: string;
+  odUseCase?: string[];
+  odSource?: string;
 }
 
 // The six tabs inside the New project modal (CSV row 7 tab_name).
@@ -1647,7 +1657,12 @@ export interface DesignToolboxClickProps {
 //     or jumping to the add-resource surface (`resource_kind`).
 //   - `design_system_switch`: picked a design system from the composer
 //     (`design_system_id`).
-//   - `working_dir_switch`: changed the project's local-storage working dir.
+//   - `working_dir` / `working_dir_recent` / `working_dir_clear`: the
+//     working-dir picker under the composer — picking a new folder, re-selecting
+//     one from the "Recent folders" submenu, or clearing the bound dir. Fires on
+//     the click itself (intent), identical timing/semantics to the home
+//     composer's `working_dir*` elements, so one dashboard counts the action
+//     across both surfaces.
 //   - `agent_selector_open` / `agent_select` / `agent_model_select`: the CLI/
 //     agent/model dropdown (`agent_id` / `model_id`).
 //   - `context_remove`: removed a staged context chip (`resource_kind` +
@@ -1660,7 +1675,9 @@ export interface ComposerBarClickProps {
     | 'plus_pick'
     | 'plus_add'
     | 'design_system_switch'
-    | 'working_dir_switch'
+    | 'working_dir'
+    | 'working_dir_recent'
+    | 'working_dir_clear'
     | 'agent_selector_open'
     | 'agent_select'
     | 'agent_model_select'
@@ -1874,8 +1891,14 @@ export interface ArtifactToolbarClickProps {
     | 'reload'
     | 'preview'
     | 'source'
+    // Copies a screenshot of the current preview to the clipboard (does not
+    // start a run). Tracked so the preview-export tool's usage is measurable.
+    | 'screenshot'
     | 'tweaks'
-    | 'draw'
+    // The Mark (mark-pen) annotation tool. Renamed from `draw` to match the
+    // product label users see; the draw-overlay sub-toolbar keeps area
+    // `draw_toolbar`.
+    | 'mark'
     | 'comment'
     | 'pods'
     | 'inspect'
@@ -2171,6 +2194,7 @@ export interface SettingsConnectorsClickProps {
     | 'save_key'
     | 'clear'
     | 'get_api_key'
+    | 'gate_card'
     | 'provider_chip'
     | 'search_connectors';
   connector_id?: string;
@@ -2531,7 +2555,26 @@ export interface RunCreatedProps {
   entry_from?:
     | 'new_project'
     | 'chat_composer'
+    // Preview-annotation entries: `comment` (comment/board pin flow) and
+    // `mark` (Mark draw-overlay flow). Both run against an existing artifact.
+    | 'comment'
+    | 'mark'
+    // `next_step`: composer seeded by a guided Next-step action (best-effort,
+    // tagged on the following send). `question_answer`: submitting answers to
+    // an inline `<question-form>` clarification.
+    | 'next_step'
+    | 'question_answer'
     | TrackingDesignSystemRunEntryFrom;
+  // Session-dimension run context (0-based `turn_index` within the browser
+  // analytics session, `is_first_run` === turn_index 0). Lets the dashboard
+  // sequence a session's runs and read "did this session reach an artifact,
+  // and on which turn?". Optional: omitted when the client could not compute
+  // them (e.g. storage unavailable).
+  turn_index?: number;
+  is_first_run?: boolean;
+  // True when the project already had a generated artifact when this run
+  // started (project-scoped) — i.e. the run is an edit, not a first creation.
+  has_existing_artifact?: boolean;
   project_source?: TrackingProjectSource;
   project_id: string;
   conversation_id: string | null;
@@ -3294,11 +3337,7 @@ export interface DeriveConfigureGlobalsInput {
 
 export function deriveConfigureGlobals(
   input: DeriveConfigureGlobalsInput,
-): {
-  has_available_configure_cli: boolean;
-  configure_type: TrackingConfigureType;
-  configure_availability: TrackingConfigureAvailability;
-} {
+): AnalyticsConfigureGlobals {
   const agents = input.agents ?? [];
   // The AMR runtime is bundled with the app, so its agent row must not
   // count as a user-configured local CLI: with it included every install
@@ -3349,6 +3388,14 @@ export function deriveConfigureGlobals(
     has_available_configure_cli: hasAvailableCli,
     configure_type: configureType,
     configure_availability: configureAvailability,
+    // Independent per-path runnable flags (no cascade masking — see
+    // AnalyticsConfigureGlobals). `cli_runnable` mirrors
+    // `has_available_configure_cli`; `byok_runnable` uses the actually-saved
+    // key signal (not the `mode === 'api'` fallback, which can be true with no
+    // key yet); `amr_runnable` is sign-in.
+    cli_runnable: hasAvailableCli,
+    byok_runnable: byokConfigured,
+    amr_runnable: amrAuthorized,
   };
 }
 
