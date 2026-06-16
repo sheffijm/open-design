@@ -47,6 +47,8 @@ jobs:
           OD_PLAYWRIGHT_TIMEOUT: 90000
         run: |
           pnpm -C e2e exec tsx scripts/playwright.ts clean
+          # Advisory full visual capture for PR review comments. This should
+          # keep P2 coverage; the blocking subset lives in visual-pr-verify.
           pnpm -C e2e exec playwright test -c playwright.visual.config.ts
 
       - name: Write capture manifest
