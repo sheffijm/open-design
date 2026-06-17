@@ -3635,6 +3635,7 @@ export function SettingsDialog({
                                         skipInitialRefresh
                                         signInLabel={t('settings.amrAuthorize')}
                                         showConsoleAction={amrCardStatus?.loggedIn === true}
+                                        iconOnlySignOut
                                         amrEntrySourceDetail="settings_amr_authorize"
                                         revealPendingCancelAction={amrRevealPendingCancelAction}
                                         onStatusChange={setAmrCardStatus}
