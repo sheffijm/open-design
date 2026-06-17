@@ -15,6 +15,7 @@ import {
   fetchProjectFiles,
   fetchProjectDesignSystemPackageAudit,
   fetchDesignSystemRevisions,
+  importProjectFigma,
   openFolderDialog,
   startDesignSystemTokenContractRebuildJob,
   updateDesignSystemRevisionStatus,
@@ -216,13 +217,11 @@ const GITHUB_CONNECTOR_ID = 'github';
 const CONNECTOR_CALLBACK_MESSAGE_TYPE = 'open-design:connector-connected';
 const GITHUB_CONNECTOR_STATUS_TIMEOUT_MS = 5000;
 const LOCAL_CODE_UPLOAD_ROOT = 'context/local-code';
-const FIGMA_CONTEXT_ROOT = 'context/figma';
 const ASSET_UPLOAD_ROOT = 'assets';
 const SOURCE_CONTEXT_MANIFEST_PATH = 'context/source-context.md';
 const MAX_LOCAL_CODE_UPLOAD_FILES = 120;
 const MAX_LOCAL_CODE_FILE_BYTES = 1024 * 1024;
 const MAX_FIGMA_CONTEXT_FILES = 10;
-const MAX_FIGMA_PARSE_BYTES = 512 * 1024;
 const MAX_ASSET_UPLOAD_FILES = 80;
 const MAX_ASSET_FILE_BYTES = 12 * 1024 * 1024;
 
@@ -971,7 +970,7 @@ export function DesignSystemCreationFlow({
             />
             <DropZone
               label="Upload .fig"
-              helper="Parsed locally; only a summary is added."
+              helper="Decoded on your machine into real tokens, components & assets — no Figma account."
               prompt="Drop .fig here or browse"
               accept=".fig"
               names={state.figFiles}
@@ -3916,20 +3915,9 @@ interface StagedLocalCodeContext {
 }
 
 interface StagedFigmaContext {
+  /** Paths to each `.fig`'s decoded `figma/.../DESIGN-context.md` snapshot. */
   summaryPaths: string[];
   skippedCount: number;
-}
-
-interface FigmaLocalSummary {
-  name: string;
-  size: number;
-  lastModified: number;
-  parseBytes: number;
-  colors: string[];
-  textStyles: string[];
-  namedLayers: string[];
-  componentHints: string[];
-  readableSample: string;
 }
 
 interface StagedAssetContext {
@@ -4071,104 +4059,30 @@ async function stageFigmaFiles(projectId: string, files: File[]): Promise<Staged
   if (files.length === 0) return { summaryPaths: [], skippedCount: 0 };
   const selected = selectFigmaFiles(files);
   const summaryPaths: string[] = [];
+  let failed = 0;
+  let index = 0;
   for (const file of selected) {
-    const summary = await summarizeFigmaFile(file);
-    const desiredName = `${FIGMA_CONTEXT_ROOT}/${safeContextFileName(resourceRelativePath(file), 'figma-file')}`;
-    const written = await writeProjectTextFile(projectId, desiredName, renderFigmaSummary(summary));
-    if (written) {
-      summaryPaths.push(written.name);
+    // Decode each `.fig` on the daemon (offline, no Figma account) into a real
+    // `figma/` snapshot — node tree, tokens, assets, thumbnail, and an
+    // agent-facing DESIGN-context.md. Distinct subdirs keep multiple files
+    // from overwriting each other; a single file uses the default `figma/`.
+    const base = safeContextFileName(resourceRelativePath(file), `figma-${index}`).replace(/\.fig$/i, '');
+    const outcome = await importProjectFigma(
+      projectId,
+      file,
+      selected.length > 1 ? { subdir: `figma-${base}` } : undefined,
+    );
+    if (outcome.ok) {
+      summaryPaths.push(outcome.result.contextPath);
+    } else {
+      failed += 1;
     }
+    index += 1;
   }
   return {
     summaryPaths,
-    skippedCount: Math.max(0, files.length - selected.length),
+    skippedCount: Math.max(0, files.length - selected.length) + failed,
   };
-}
-
-async function summarizeFigmaFile(file: File): Promise<FigmaLocalSummary> {
-  const parseBytes = Math.min(file.size, MAX_FIGMA_PARSE_BYTES);
-  let readable = '';
-  try {
-    readable = await file.slice(0, parseBytes).text();
-  } catch {
-    readable = '';
-  }
-  const normalized = readable
-    .replace(/[^\t\n\r\x20-\x7e]+/g, ' ')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-  const namedLayers = uniqueMatches(normalized, /"name"\s*:\s*"([^"]{2,80})"/g, 40);
-  const textStyles = uniqueMatches(
-    normalized,
-    /"(?:fontFamily|fontPostScriptName|fontName|family|styleName)"\s*:\s*"([^"]{2,80})"/g,
-    30,
-  );
-  const colors = Array.from(new Set(normalized.match(/#[0-9a-fA-F]{6,8}\b/g) ?? [])).slice(0, 40);
-  const componentHints = namedLayers
-    .filter((name) => /(button|card|modal|dialog|input|nav|tab|menu|toast|badge|avatar|table|list|toolbar|sidebar)/i.test(name))
-    .slice(0, 30);
-  return {
-    name: resourceRelativePath(file),
-    size: file.size,
-    lastModified: file.lastModified,
-    parseBytes,
-    colors,
-    textStyles,
-    namedLayers,
-    componentHints,
-    readableSample: normalized.slice(0, 1600),
-  };
-}
-
-function uniqueMatches(text: string, pattern: RegExp, limit: number): string[] {
-  const values: string[] = [];
-  const seen = new Set<string>();
-  for (const match of text.matchAll(pattern)) {
-    const value = match[1]?.trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    values.push(value);
-    if (values.length >= limit) break;
-  }
-  return values;
-}
-
-function renderFigmaSummary(summary: FigmaLocalSummary): string {
-  return [
-    `# Figma Source Summary: ${summary.name}`,
-    '',
-    'The original .fig source was parsed locally in the browser. This markdown summary is the only Figma-derived context copied into the design-system project.',
-    '',
-    '## File',
-    '',
-    `- Name: ${summary.name}`,
-    `- Size: ${formatBytes(summary.size)}`,
-    `- Last modified: ${summary.lastModified ? new Date(summary.lastModified).toISOString() : 'unknown'}`,
-    `- Local parse window: ${formatBytes(summary.parseBytes)}`,
-    '',
-    '## Extracted Signals',
-    '',
-    summary.colors.length ? `Colors:\n${summary.colors.map((color) => `- ${color}`).join('\n')}` : 'Colors: no readable color tokens found.',
-    '',
-    summary.textStyles.length ? `Text styles and font names:\n${summary.textStyles.map((style) => `- ${style}`).join('\n')}` : 'Text styles and font names: no readable text-style tokens found.',
-    '',
-    summary.componentHints.length ? `Component-like layer names:\n${summary.componentHints.map((name) => `- ${name}`).join('\n')}` : 'Component-like layer names: no obvious component names found.',
-    '',
-    summary.namedLayers.length ? `Readable layer names:\n${summary.namedLayers.map((name) => `- ${name}`).join('\n')}` : 'Readable layer names: no readable layer names found.',
-    '',
-    '## Readable Sample',
-    '',
-    summary.readableSample
-      ? `\`\`\`text\n${summary.readableSample}\n\`\`\``
-      : 'No readable text sample was available from the local parse window. Ask for screenshots, exports, or a Figma link if visual evidence is required.',
-    '',
-  ].join('\n');
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 102.4) / 10} KB`;
-  return `${Math.round(bytes / (1024 * 102.4)) / 10} MB`;
 }
 
 async function stageAssetFiles(projectId: string, files: File[]): Promise<StagedAssetContext> {
@@ -4292,10 +4206,10 @@ function buildCreationAgentPrompt(
       ? `${stagedLocalCode.skippedCount} local code files were skipped because they were too large, duplicate, generated, or outside the focused upload limit.`
       : '',
     stagedFigma?.summaryPaths.length
-      ? `Use the locally parsed Figma summaries in \`${FIGMA_CONTEXT_ROOT}/\`: ${stagedFigma.summaryPaths.join(', ')}. Treat these as evidence extracted from .fig files; the original .fig files were not uploaded.`
+      ? `Each .fig was decoded into a real design snapshot — read the context briefs first: ${stagedFigma.summaryPaths.join(', ')}. They sit beside \`figma/tree.json\`, \`figma/tokens.json\`, \`figma/assets/\`, and a \`figma/thumbnail.png\` preview. Bind the system to these real tokens, type, and components.`
       : '',
     stagedFigma?.skippedCount
-      ? `${stagedFigma.skippedCount} .fig files were skipped because they were duplicate or outside the focused parse limit.`
+      ? `${stagedFigma.skippedCount} .fig files were skipped (duplicate or failed to decode).`
       : '',
     stagedAssets?.uploadedPaths.length
       ? `Use uploaded brand assets in \`${ASSET_UPLOAD_ROOT}/\`: ${stagedAssets.uploadedPaths.slice(0, 20).join(', ')}${stagedAssets.uploadedPaths.length > 20 ? `, and ${stagedAssets.uploadedPaths.length - 20} more` : ''}.`
@@ -4389,13 +4303,13 @@ function buildSourceContextManifest(
   sections.push('', '## Design And Brand Resources', '');
   sections.push(state.figFiles.length ? `Figma files selected:\n${state.figFiles.map((name) => `- ${name}`).join('\n')}` : 'Figma files selected: none.');
   if (figmaSummaries.length > 0) {
-    sections.push('', `Locally parsed Figma summaries under \`${FIGMA_CONTEXT_ROOT}/\`:`);
+    sections.push('', 'Decoded Figma snapshots (tree + tokens + assets + preview); start from each context brief:');
     sections.push(...figmaSummaries.map((filePath) => `- ${filePath}`));
   } else {
-    sections.push('', `Locally parsed Figma summaries under \`${FIGMA_CONTEXT_ROOT}/\`: none.`);
+    sections.push('', 'Decoded Figma snapshots: none.');
   }
   if (skippedFigma > 0) {
-    sections.push(`${skippedFigma} .fig files were skipped because they were duplicate or outside the focused parse limit.`);
+    sections.push(`${skippedFigma} .fig files were skipped (duplicate or failed to decode).`);
   }
   sections.push(state.assetFiles.length ? `Fonts, logos, and assets selected:\n${state.assetFiles.map((name) => `- ${name}`).join('\n')}` : 'Fonts, logos, and assets selected: none.');
   if (uploadedAssets.length > 0) {

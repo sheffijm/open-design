@@ -459,41 +459,49 @@ async function cropToRect(tabDataUrl, rect, viewportWidth, dpr) {
   return blobToDataUrl(out);
 }
 
-// Screenshot the picked element (cropped from the visible tab) + store its
-// outerHTML + metadata as one enriched image asset.
-async function captureElement(payload) {
+// Capture the picked element as ONE self-contained HTML asset. The content
+// script marks the element with `data-od-clip-target` on the live DOM, then
+// capture.js prunes the page to just that element (keeping the page CSS so its
+// cascade resolves) and returns scoped HTML + the resources to inline. No
+// screenshot, no separate `.element.html` markup sidecar — a single HTML file
+// that opens, shares, and distributes as the element, styled as it was on the
+// page. The worker inlines the element's own images exactly like a page capture.
+async function captureElementHtml(payload) {
+  const includeImages = !payload || payload.includeImages !== false;
   const tab = await activeTab();
-  // Only pull the bar out of frame when it overlaps the crop region (the content
-  // script decides). Otherwise it stays visible with its spinner — no blink —
-  // while the bar is hidden for just the screenshot itself, not the whole save.
-  const hideBar = Boolean(payload.hideBar);
-  if (hideBar) await sendToTab(tab.id, { type: 'odClipper:hideForCapture' });
-  let tabDataUrl;
-  try {
-    tabDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-  } finally {
-    if (hideBar) await sendToTab(tab.id, { type: 'odClipper:restoreAfterCapture' });
-  }
-  const cropped = await cropToRect(tabDataUrl, payload.rect || {}, payload.viewportWidth, payload.dpr);
+  // A DOM snapshot, not a pixel screenshot: capture.js strips our own on-page UI
+  // by id, so the bar never needs to leave the frame and keeps its progress strip.
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['capture.js'] });
+  const [out] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: (o) => window.__odCaptureElement(o),
+    args: [{ includeImages, marker: 'data-od-clip-target' }],
+  });
+  const cap = out && out.result;
+  if (!cap || !cap.html) throw new Error('element capture failed');
+  const { map } = await buildResourceMap(cap.resources, includeImages);
+  const html = inlineHtml(cap.html, map);
   const meta = payload.meta || {};
   const r = await ingest({
-    dataUrl: cropped,
-    kind: 'image',
+    text: html,
+    kind: 'html',
+    mime: 'text/html',
     sourceUrl: payload.sourceUrl || tab.url,
     sourceTitle: payload.sourceTitle || tab.title,
     tags: ['element', meta.tag].filter(Boolean),
-    elementHtml: typeof payload.elementHtml === 'string' ? payload.elementHtml : undefined,
-    metadata: { element: meta },
+    // The HTML asset IS the markup now, so there is no sidecar to advertise —
+    // the lightweight element summary still rides along for the Library badge.
+    metadata: { element: { ...meta, hasHtml: false } },
   });
   return { deduped: Boolean(r.deduped) };
 }
 
-// Screenshot a user-dragged region (cropped from the visible tab). Same crop
-// path as element capture, minus the element markup/metadata.
+// Screenshot a user-dragged region (cropped from the visible tab). A flat pixel
+// asset — unlike element capture, which saves the picked node as live HTML.
 async function captureRegion(payload) {
   const tab = await activeTab();
-  // Same as captureElement: hide the bar for the screenshot only if it would
-  // land inside the cropped region.
+  // Hide the bar for the screenshot only if it would land inside the cropped
+  // region; otherwise it stays put with its progress strip.
   const hideBar = Boolean(payload.hideBar);
   if (hideBar) await sendToTab(tab.id, { type: 'odClipper:hideForCapture' });
   let tabDataUrl;
@@ -541,7 +549,7 @@ async function ingestImages(payload) {
 // reload — it's the one progress surface a page navigation can't take down.
 const CAPTURE_TYPES = new Set([
   'captureScreenshot', 'capturePageToLibrary', 'downloadFigma',
-  'captureDesignSystemToLibrary', 'captureElement', 'captureRegion',
+  'captureDesignSystemToLibrary', 'captureElementHtml', 'captureRegion',
   'ingestImages', 'grabImages',
 ]);
 
@@ -609,8 +617,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, deduped: r.deduped, partialImages: r.partialImages });
           break;
         }
-        case 'captureElement': {
-          const r = await captureElement(msg);
+        case 'captureElementHtml': {
+          const r = await captureElementHtml(msg);
           sendResponse({ ok: true, deduped: r.deduped });
           break;
         }

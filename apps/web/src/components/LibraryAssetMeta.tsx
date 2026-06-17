@@ -24,9 +24,12 @@ export const SOURCE_LABELS: Record<LibrarySourceKind, string> = {
 
 /**
  * The badge identity an asset reads as. It is the storage `kind` for everything
- * except clipper element-pick captures: those are stored as `image` assets
- * (a screenshot) enriched with `metadata.element`, but should read as `element`
- * so the badge does not mislabel a captured DOM node as a plain picture.
+ * except clipper element-pick captures: those are stored as `html` assets
+ * (a self-contained snapshot of the picked node) enriched with `metadata.element`,
+ * but should read as `element` so the badge does not mislabel a captured DOM
+ * node as a plain HTML page. (Legacy element clips were `image` screenshots; the
+ * `metadata.element` marker, not the storage kind, is what makes a clip read as
+ * `element`.)
  */
 export type BadgeKind = LibraryAssetKind | 'element';
 
@@ -45,10 +48,12 @@ export const KIND_META: Record<BadgeKind, { label: string; tint: string }> = {
 
 /**
  * The captured DOM element summary for an element-pick clip, or `null` for any
- * other asset. Element clips are `image` assets carrying `metadata.element`.
+ * other asset. Element clips are `html` assets (a self-contained snapshot of the
+ * picked node) — or, for legacy captures, `image` screenshots — both carrying
+ * `metadata.element`. Presence of that marker, not the storage kind, identifies
+ * a clip, so this works across both shapes.
  */
 export function elementMetaOf(asset: LibraryAsset): LibraryElementMeta | null {
-  if (asset.kind !== 'image') return null;
   const element = (asset.metadata as { element?: LibraryElementMeta } | undefined)?.element;
   return element ?? null;
 }
@@ -64,8 +69,8 @@ export type KindFilterValue = BadgeKind | '';
 /**
  * Whether an asset matches a badge-aware kind filter. Filtering keys off
  * {@link badgeKind} rather than the raw storage `kind`, so an element-pick clip
- * — stored as an `image` enriched with `metadata.element` — is matched by the
- * `element` filter and excluded from the plain `image` filter. `''` matches
+ * — an `html` snapshot enriched with `metadata.element` — is matched by the
+ * `element` filter and excluded from the plain `html` filter. `''` matches
  * every asset. This is the single rule shared by the Library grid and the
  * "Import from library" picker so both surfaces agree on what each chip shows.
  */
@@ -89,6 +94,15 @@ export function originProjectId(asset: LibraryAsset): string | null {
   if (asset.originProjectId) return asset.originProjectId;
   const fromSource = asset.sources?.find((s) => s.projectId)?.projectId;
   return fromSource ?? null;
+}
+
+/**
+ * The design system an asset belongs to (the `user:`-prefixed id), from its
+ * provenance — drives the card's "Open design system" jump-link. Present on
+ * assets the reconcile sync registered for a design system.
+ */
+export function originDesignSystemId(asset: LibraryAsset): string | null {
+  return asset.sources?.find((s) => s.designSystemId)?.designSystemId ?? null;
 }
 
 /** Best display title for an asset, falling back through its provenance. */

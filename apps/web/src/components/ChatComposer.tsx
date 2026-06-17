@@ -54,6 +54,7 @@ import { buildVisualAnnotationAttachment, commentTargetDisplayName } from '../co
 import { Icon, type IconName } from "./Icon";
 import { ComposerPlusMenu } from './ComposerPlusMenu';
 import { LibraryPicker } from './LibraryPicker';
+import { FigmaImportModal } from './FigmaImportModal';
 import { assetTitle, elementMetaOf } from './LibraryAssetMeta';
 import type { LibraryAsset, LibraryElementMeta } from '@open-design/contracts';
 import {
@@ -399,6 +400,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     const [staged, setStaged] = useState<ChatAttachment[]>([]);
     const nextAttachmentOrderRef = useRef(0);
     const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
+    const [figmaModalOpen, setFigmaModalOpen] = useState(false);
     const [stagedVisualComments, setStagedVisualComments] = useState<ChatCommentAttachment[]>([]);
     const streamingAnnotationSendPendingRef = useRef(false);
     // Remembers the entry_from that the deferred streaming send must carry once
@@ -2414,6 +2416,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                 });
                 setLibraryPickerOpen(true);
               }}
+              onImportFigma={projectId ? () => {
+                trackChatPanelClick(analytics.track, {
+                  page_name: 'chat_panel',
+                  area: 'chat_panel',
+                  element: 'figma_import',
+                });
+                setFigmaModalOpen(true);
+              } : undefined}
               toolboxLabel={t('chat.designToolbox.title')}
               renderToolbox={(close) => (
                 <DesignToolboxPanel
@@ -2598,6 +2608,26 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
           <LibraryPicker
             onClose={() => setLibraryPickerOpen(false)}
             onConfirm={(assets) => addAssetsFromLibrary(assets)}
+          />
+        ) : null}
+        {figmaModalOpen && projectId ? (
+          <FigmaImportModal
+            onClose={() => setFigmaModalOpen(false)}
+            resolveProjectId={async () => projectId}
+            onImported={(result) => {
+              // Prefill the composer with the reshape prompt; the user reviews
+              // and sends to build the page from the decoded snapshot.
+              setDraft(result.suggestedPrompt);
+              editorRef.current?.setText(result.suggestedPrompt);
+              editorRef.current?.focus();
+            }}
+            onFigmaUrl={(url, notes) => {
+              const prompt = `Migrate the Figma file at ${url} into a responsive webpage using its design system.${notes ? ` ${notes}` : ''}`;
+              setDraft(prompt);
+              editorRef.current?.setText(prompt);
+              editorRef.current?.focus();
+              setFigmaModalOpen(false);
+            }}
           />
         ) : null}
       </div>

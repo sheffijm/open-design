@@ -75,7 +75,6 @@ import {
   exportReactComponentAsHtml,
   exportReactComponentAsZip,
   captureHostIframeSnapshot,
-  captureViewSnapshot,
   imageDataUrlToBlob,
   openSandboxedPreviewInNewTab,
   prepareImageExportTarget,
@@ -945,7 +944,6 @@ interface Props {
   liveHtml?: string;
   filesRefreshKey?: number;
   isDeck?: boolean;
-  onExportAsPptx?: ((fileName: string) => void) | undefined;
   streaming?: boolean;
   commentQueueOnSend?: boolean;
   commentSendDisabled?: boolean;
@@ -978,7 +976,6 @@ export function FileViewer({
   liveHtml,
   filesRefreshKey = 0,
   isDeck,
-  onExportAsPptx,
   streaming,
   commentQueueOnSend = false,
   commentSendDisabled = false,
@@ -1023,7 +1020,6 @@ export function FileViewer({
         liveHtml={liveHtml}
         filesRefreshKey={filesRefreshKey}
         isDeck={rendererMatch.renderer.id === 'deck-html'}
-        onExportAsPptx={onExportAsPptx}
         streaming={Boolean(streaming)}
         commentQueueOnSend={commentQueueOnSend}
         commentSendDisabled={commentSendDisabled}
@@ -4421,7 +4417,6 @@ function HtmlViewer({
   liveHtml,
   filesRefreshKey = 0,
   isDeck,
-  onExportAsPptx,
   streaming,
   commentQueueOnSend = false,
   commentSendDisabled = false,
@@ -4442,7 +4437,6 @@ function HtmlViewer({
   liveHtml?: string;
   filesRefreshKey?: number;
   isDeck: boolean;
-  onExportAsPptx?: ((fileName: string) => void) | undefined;
   streaming: boolean;
   commentQueueOnSend?: boolean;
   commentSendDisabled?: boolean;
@@ -4556,6 +4550,17 @@ function HtmlViewer({
       finish('failed', err instanceof Error ? err.name : 'UNKNOWN');
       failToast();
     }
+  };
+  // Drives the loading toast through per-slide capture progress for the
+  // programmatic PDF / PPTX exporters (apps/web/src/runtime/exports.ts).
+  const onExportProgress: ExportProgress = (done, total) => {
+    setExportToast({
+      message:
+        total > 1
+          ? t('fileViewer.exportSlideProgress', { current: done, total })
+          : t('fileViewer.exportingProgress'),
+      tone: 'loading',
+    });
   };
   // P0 helpers — keep the artifact_id + artifact_kind derivation in one place
   // so each per-button onClick stays a one-liner. We compute lazily inside the
@@ -7339,7 +7344,6 @@ function HtmlViewer({
     rendererId === 'html';
   const canShare = source !== null && isShareableArtifact;
   const canDownload = source !== null && (isShareableArtifact || isMarkdownArtifact);
-  const canPptx = canShare && isDeckArtifact && Boolean(onExportAsPptx) && !streaming;
   const showPptxExport = canShare && isDeckArtifact;
   const showMarkdownExport = source !== null && isMarkdownArtifact;
   const showImageExport = canShare;
@@ -7452,11 +7456,6 @@ function HtmlViewer({
       if (!activeIframe) return null;
       await waitForIframeLoadOrTimeout(activeIframe, 250);
       await waitForAnimationFrame();
-      // Pure web: the html2canvas export-capture bridge is more reliable than
-      // the SVG-foreignObject path (no black/blank frames). Fall through to it
-      // only if the bridge is absent or fails.
-      const bridgeSnap = await captureViewSnapshot(activeIframe, { deck: effectiveDeck });
-      if (bridgeSnap) return bridgeSnap;
       return requestPreviewSnapshotWithRetry(activeIframe);
     }
 
@@ -7484,15 +7483,12 @@ function HtmlViewer({
     const restoreVisibility = temporarilyExposeIframeForSnapshot(srcDocIframe);
     try {
       await waitForAnimationFrame();
-      const bridgeSnap = await captureViewSnapshot(srcDocIframe, { deck: effectiveDeck });
-      if (bridgeSnap) return bridgeSnap;
       return requestPreviewSnapshotWithRetry(srcDocIframe);
     } finally {
       restoreVisibility();
     }
   }, [
     activateSrcDocSnapshotTransport,
-    effectiveDeck,
     srcDocShellReady,
     useLazySrcDocTransport,
     useUrlLoadPreview,
@@ -8547,7 +8543,7 @@ function HtmlViewer({
                       setDownloadMenuOpen(false);
                       fireShareExport('pdf', () => exportProjectAsPdf({
                         deck: effectiveDeck,
-                        fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
+                        fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck, onProgress: onExportProgress }),
                         filePath: file.name,
                         projectId,
                         title: exportTitle,
@@ -8558,28 +8554,38 @@ function HtmlViewer({
                     <span>{t('fileViewer.exportPdf')}</span>
                   </button>
                   {showPptxExport ? (
-                    <button
-                      type="button"
-                      className="share-menu-item"
-                      role="menuitem"
-                      disabled={!canPptx}
-                      title={
-                        onExportAsPptx
-                          ? streaming
-                            ? t('fileViewer.exportPptxBusy')
-                            : t('fileViewer.exportPptxHint')
-                          : t('fileViewer.exportPptxNa')
-                      }
-                      onClick={() => {
-                        setDownloadMenuOpen(false);
-                        fireShareExport('pptx', () => {
-                          if (onExportAsPptx) onExportAsPptx(file.name);
-                        });
-                      }}
-                    >
-                      <span className="share-menu-icon"><RemixIcon name="file-ppt-line" size={15} /></span>
-                      <span>{t('fileViewer.exportPptx')}</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="share-menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setDownloadMenuOpen(false);
+                          fireShareExport('pptx', () => exportArtifactAsPptx(source ?? '', exportTitle, {
+                            deck: effectiveDeck,
+                            onProgress: onExportProgress,
+                          }));
+                        }}
+                      >
+                        <span className="share-menu-icon"><RemixIcon name="file-ppt-line" size={15} /></span>
+                        <span>{t('fileViewer.exportPptxImages')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="share-menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setDownloadMenuOpen(false);
+                          fireShareExport('pptx', () => exportArtifactAsPptxEditable(source ?? '', exportTitle, {
+                            deck: effectiveDeck,
+                            onProgress: onExportProgress,
+                          }));
+                        }}
+                      >
+                        <span className="share-menu-icon"><RemixIcon name="file-ppt-line" size={15} /></span>
+                        <span>{t('fileViewer.exportPptxEditable')}</span>
+                      </button>
+                    </>
                   ) : null}
                   {showImageExport ? (
                     <button

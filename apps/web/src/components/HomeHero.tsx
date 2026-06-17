@@ -158,6 +158,8 @@ interface Props {
   stagedFiles?: File[];
   onAddFiles?: (files: File[]) => void;
   onRemoveFile?: (index: number) => void;
+  /** Opens the "Import from Figma" dialog; omit to hide the menu entry. */
+  onImportFigma?: () => void;
   pluginOptions: InstalledPluginRecord[];
   pluginsLoading: boolean;
   skillOptions?: SkillSummary[];
@@ -265,6 +267,7 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
     designSystems = EMPTY_DESIGN_SYSTEMS,
     stagedFiles = EMPTY_STAGED_FILES,
     onAddFiles = () => undefined,
+    onImportFigma,
     onRemoveFile = () => undefined,
     pluginOptions,
     pluginsLoading,
@@ -1456,6 +1459,14 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
                 });
                 setLibraryPickerOpen(true);
               }}
+              onImportFigma={onImportFigma ? () => {
+                trackHomeChatComposerClick(analytics.track, {
+                  page_name: 'home',
+                  area: 'chat_composer',
+                  element: 'figma_import',
+                });
+                onImportFigma();
+              } : undefined}
             />
             {libraryPickerOpen ? (
               <LibraryPicker

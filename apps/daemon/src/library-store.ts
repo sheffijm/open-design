@@ -322,6 +322,43 @@ export function getLibraryAsset(db: SqliteDb, id: string): LibraryAssetRecord | 
   return normalizeAsset(raw, listLibraryAssetSources(db, raw.id));
 }
 
+/**
+ * The referenced asset that already mirrors a project file, keyed by its origin
+ * (`origin_project_id` + `rel_path`). The reconcile sync uses this to skip files
+ * it has already indexed *without* reading/hashing their bytes — the cheap guard
+ * that keeps auto-reconcile-on-open near-free on a large workspace. Rides the
+ * existing `idx_library_assets_origin` index.
+ */
+export function findReferencedAssetByOrigin(
+  db: SqliteDb,
+  originProjectId: string,
+  relPath: string,
+): LibraryAssetRecord | null {
+  const raw = db
+    .prepare(
+      `SELECT ${ASSET_COLS} FROM library_assets
+        WHERE origin_project_id = ? AND rel_path = ? LIMIT 1`,
+    )
+    .get(originProjectId, relPath) as RawAssetRow | undefined;
+  if (!raw) return null;
+  return normalizeAsset(raw, listLibraryAssetSources(db, raw.id));
+}
+
+/**
+ * Whether a `design-system` source row already exists for a design system id.
+ * The reconcile sync registers exactly one card per design system, so this is
+ * its "already synced?" short-circuit (no manifest read / preview hashing).
+ */
+export function hasDesignSystemSource(db: SqliteDb, designSystemId: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM library_asset_sources
+        WHERE design_system_id = ? AND source_kind = 'design-system' LIMIT 1`,
+    )
+    .get(designSystemId);
+  return Boolean(row);
+}
+
 export function deleteLibraryAsset(db: SqliteDb, id: string): void {
   db.prepare(`DELETE FROM library_assets WHERE id = ?`).run(id);
 }
@@ -370,9 +407,13 @@ export function listLibraryAssets(db: SqliteDb, filter: LibraryAssetFilter = {})
   const limit = Number.isFinite(filter.limit) ? Math.max(1, Math.min(Number(filter.limit), 1000)) : 500;
   const raws = db
     .prepare(
+      // Order by archive date first so the grid/timeline reflect when an
+      // artifact was made (synced rows carry the file's own mtime as
+      // archived_date), with created_at as the within-day tiebreak. Matches
+      // idx_library_assets_archived.
       `SELECT ${ASSET_COLS} FROM library_assets a
        ${whereSql}
-       ORDER BY a.created_at DESC
+       ORDER BY a.archived_date DESC, a.created_at DESC
        LIMIT ${limit}`,
     )
     .all(...args) as RawAssetRow[];

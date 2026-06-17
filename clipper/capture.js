@@ -1,10 +1,18 @@
 // Open Design web clipper page-capture runtime.
 //
 // Injected on demand by the service worker via
-// `chrome.scripting.executeScript({ files: ['capture.js'] })`, then invoked
-// through `window.__odCapture(opts)`. It runs in the page (the extension's
-// isolated content-script world — full DOM + layout access) and produces, in
-// ONE pass, two artifacts:
+// `chrome.scripting.executeScript({ files: ['capture.js'] })`. It runs in the
+// page (the extension's isolated content-script world — full DOM + layout
+// access) and exposes two entry points:
+//
+//   • `window.__odCapture(opts)` — full-page snapshot (the two artifacts below).
+//   • `window.__odCaptureElement(opts)` — a single picked element captured as a
+//     self-contained `html` snapshot: the page's CSS is kept so the element's
+//     cascade resolves, but the DOM is pruned to just the element (and its
+//     ancestor chain), so opening the saved file shows that one element styled
+//     as it was on the page. One HTML file, easy to share/distribute.
+//
+// The full-page pass produces, in ONE go, two artifacts:
 //
 //   1. `html`  — a self-contained, high-fidelity snapshot of the page:
 //                readable stylesheets inlined, scripts stripped, every URL
@@ -82,9 +90,11 @@
 
   // --- self-contained HTML -------------------------------------------------
 
-  function buildHtml(resources, includeImages) {
+  // Clone <html>, strip the bits a saved snapshot must never carry (live
+  // scripts, our own on-page UI, the page's <base>). Shared by the full-page
+  // and single-element capture paths.
+  function cloneDocument() {
     const clone = document.documentElement.cloneNode(true);
-
     // Strip scripts (the Library renders snapshots sandboxed; live JS only
     // mutates the DOM after load and would never run there anyway).
     clone.querySelectorAll('script, noscript').forEach((n) => n.remove());
@@ -92,9 +102,18 @@
     clone.querySelectorAll('[id^="od-clipper-"]').forEach((n) => n.remove());
     // Drop any existing <base>; we inject our own from the live baseURI.
     clone.querySelectorAll('base').forEach((n) => n.remove());
+    return clone;
+  }
 
-    // Inline readable stylesheets in place of their <link>. Live <link
-    // rel=stylesheet> elements map 1:1 (document order) to those in the clone.
+  // Inline readable stylesheets in place of their <link>, and absolutize the
+  // page's inline <style> blocks. Live <link rel=stylesheet> elements map 1:1
+  // (document order) to those in the clone, so this must run BEFORE any pruning
+  // that could shift that alignment. `collectImageUrls` controls whether the
+  // stylesheets' `url()` assets are queued for inlining: a full-page capture
+  // wants them, but a single-element clip leaves page-wide CSS imagery as live
+  // URLs (resolved against <base>) so a small element doesn't drag in the whole
+  // site's background art.
+  function inlineStylesheets(clone, resources, collectImageUrls) {
     const liveLinks = Array.from(document.querySelectorAll('link[rel~="stylesheet"]'));
     const cloneLinks = Array.from(clone.querySelectorAll('link[rel~="stylesheet"]'));
     liveLinks.forEach((live, i) => {
@@ -112,7 +131,7 @@
         const style = document.createElement('style');
         style.setAttribute('data-od-inlined', '');
         const css = absolutizeCss(cssText, base);
-        collectCssUrls(css, resources);
+        if (collectImageUrls) collectCssUrls(css, resources);
         style.textContent = css;
         target.replaceWith(style);
       } else if (target.getAttribute('href')) {
@@ -121,15 +140,20 @@
     });
 
     // Inline <style> elements that the CSSOM exposes but that contain relative
-    // url()s — absolutize them and harvest their resources.
+    // url()s — absolutize them and (optionally) harvest their resources.
     clone.querySelectorAll('style:not([data-od-inlined])').forEach((style) => {
       if (!style.textContent) return;
       const css = absolutizeCss(style.textContent, document.baseURI);
-      collectCssUrls(css, resources);
+      if (collectImageUrls) collectCssUrls(css, resources);
       style.textContent = css;
     });
+  }
 
-    // Absolutize element URLs + inline-style url()s, and harvest image refs.
+  // Absolutize element URLs + inline-style url()s on the (possibly pruned) clone,
+  // and harvest the image refs that elements carry in their own markup (<img>
+  // src and inline `style` background-image). These belong to whatever subtree
+  // survives, so they are inlined for both capture paths.
+  function absolutizeUrls(clone, resources, includeImages) {
     clone.querySelectorAll('*').forEach((el) => {
       for (const attr of ['src', 'href', 'poster']) {
         const v = el.getAttribute && el.getAttribute(attr);
@@ -150,8 +174,11 @@
         el.setAttribute('style', css);
       }
     });
+  }
 
-    // Inject <base> so any URL we didn't rewrite still resolves.
+  // Inject <base> so any URL we didn't rewrite still resolves against the live
+  // page, then serialize with a doctype.
+  function serializeClone(clone) {
     const head = clone.querySelector('head') || clone;
     const base = document.createElement('base');
     base.setAttribute('href', document.baseURI);
@@ -161,6 +188,48 @@
       ? `<!DOCTYPE ${document.doctype.name}>`
       : '<!DOCTYPE html>';
     return `${doctype}\n${clone.outerHTML}`;
+  }
+
+  function buildHtml(resources, includeImages) {
+    const clone = cloneDocument();
+    inlineStylesheets(clone, resources, includeImages);
+    absolutizeUrls(clone, resources, includeImages);
+    return serializeClone(clone);
+  }
+
+  // --- single-element capture ----------------------------------------------
+  //
+  // Walk up from the marked element, deleting every off-path sibling so only
+  // the chain <html> → … → target (and the target's own subtree) survives.
+  // <head> is preserved at the documentElement level so the inlined stylesheets
+  // — and the cascade/inheritance the element depends on — stay intact. The
+  // result is a self-contained HTML document of just the picked element, styled
+  // exactly as it sat on the page.
+  function pruneToElementPath(root, target) {
+    let node = target;
+    while (node && node.parentNode && node !== root) {
+      const parent = node.parentNode;
+      for (const sib of Array.from(parent.childNodes)) {
+        if (sib === node) continue;
+        if (sib.nodeType === Node.ELEMENT_NODE && sib.tagName === 'HEAD') continue;
+        parent.removeChild(sib);
+      }
+      node = parent;
+    }
+  }
+
+  function buildElementHtml(marker, resources, includeImages) {
+    const clone = cloneDocument();
+    // Full page CSS is kept (so the element's cascade resolves) but its url()
+    // assets are NOT queued — only the element's own markup imagery is inlined.
+    inlineStylesheets(clone, resources, false);
+    const target = clone.querySelector(`[${marker}]`);
+    if (target) {
+      pruneToElementPath(clone, target);
+      target.removeAttribute(marker);
+    }
+    absolutizeUrls(clone, resources, includeImages);
+    return serializeClone(clone);
   }
 
   // --- Figma IR ------------------------------------------------------------
@@ -460,6 +529,34 @@
       figmaIr: figma ? figma.ir : null,
       figmaNodeCount: figma ? figma.nodeCount : 0,
       figmaTruncated: figma ? figma.truncated : false,
+      resources: list,
+      title: document.title,
+      url: location.href,
+    };
+  };
+
+  // Single-element capture. The content script marks the picked element with the
+  // `marker` attribute on the LIVE DOM before calling this; we read it off the
+  // clone, prune to that element, and hand the worker a self-contained HTML
+  // snapshot of just that element plus the resource list to inline. The worker
+  // removes the live marker afterwards.
+  window.__odCaptureElement = function (opts) {
+    const options = opts || {};
+    const includeImages = options.includeImages !== false;
+    const marker = typeof options.marker === 'string' && options.marker ? options.marker : 'data-od-clip-target';
+    const resources = new Set();
+    let html = '';
+    try {
+      html = buildElementHtml(marker, resources, includeImages);
+    } catch (e) {
+      const el = document.querySelector(`[${marker}]`);
+      html = el
+        ? `<!DOCTYPE html>\n<html><head><meta charset="utf-8"><base href="${document.baseURI}"></head><body>${el.outerHTML}</body></html>`
+        : '';
+    }
+    const list = Array.from(resources).filter(isHttp).slice(0, MAX_RESOURCES);
+    return {
+      html,
       resources: list,
       title: document.title,
       url: location.href,

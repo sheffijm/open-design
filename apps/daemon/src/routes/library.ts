@@ -44,6 +44,7 @@ import {
   writeElementSidecar,
   writeFigmaSidecar,
 } from '../library.js';
+import { reconcileLibrary, type ReconcileLibraryResult } from '../library-sync.js';
 import { ensureProjectSubdir } from '../projects.js';
 import {
   confirmPairing,
@@ -120,7 +121,7 @@ export function registerLibraryRoutes(app: Express, ctx: RegisterLibraryRoutesDe
   const { db } = ctx;
   const { sendApiError, createSseResponse, requireLocalDaemonRequest, isLocalSameOrigin, resolvedPortRef } =
     ctx.http;
-  const { LIBRARY_DIR, PROJECTS_DIR } = ctx.paths;
+  const { LIBRARY_DIR, PROJECTS_DIR, USER_DESIGN_SYSTEMS_DIR } = ctx.paths;
   const { getProject, insertProject } = ctx.projectStore;
   const { writeProjectFile } = ctx.projectFiles;
   const { insertConversation } = ctx.conversations;
@@ -171,6 +172,36 @@ export function registerLibraryRoutes(app: Express, ctx: RegisterLibraryRoutesDe
       }
     }
     return elementRelPath ? { relPath, elementRelPath } : { relPath };
+  }
+
+  // Reconcile design systems + agent project deliverables into the Library as
+  // referenced rows. Throttled so opening the Library (which lists assets) keeps
+  // it current without re-scanning on every keystroke-driven re-fetch; a single
+  // in-flight pass is shared by concurrent callers. `force` (the Sync button /
+  // `od library sync`) bypasses the throttle.
+  const RECONCILE_THROTTLE_MS = 10_000;
+  let lastReconcileAt = 0;
+  let reconcileInFlight: Promise<ReconcileLibraryResult> | null = null;
+  const EMPTY_RECONCILE: ReconcileLibraryResult = {
+    designSystems: 0,
+    projectAssets: 0,
+    deduped: 0,
+    total: 0,
+  };
+  async function runReconcile(force: boolean): Promise<ReconcileLibraryResult> {
+    if (reconcileInFlight) return reconcileInFlight;
+    if (!force && Date.now() - lastReconcileAt < RECONCILE_THROTTLE_MS) {
+      return EMPTY_RECONCILE;
+    }
+    reconcileInFlight = reconcileLibrary(db, {
+      LIBRARY_DIR,
+      PROJECTS_DIR,
+      USER_DESIGN_SYSTEMS_DIR,
+    }).finally(() => {
+      lastReconcileAt = Date.now();
+      reconcileInFlight = null;
+    });
+    return reconcileInFlight;
   }
 
   // Live ingest/enrichment feed. Clipper captures flow through this route, so
@@ -377,7 +408,11 @@ export function registerLibraryRoutes(app: Express, ctx: RegisterLibraryRoutesDe
 
   // --- assets --------------------------------------------------------------
 
-  app.get('/api/library/assets', (req, res) => {
+  app.get('/api/library/assets', async (req, res) => {
+    // Keep the Library current with design systems / agent output before
+    // listing, so an opened grid already shows them. Throttled + best-effort —
+    // never blocks the list on a reconcile error.
+    await runReconcile(false).catch(() => {});
     const q = req.query;
     const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length ? v : undefined);
     // Build conditionally — exactOptionalPropertyTypes rejects explicit
@@ -394,6 +429,18 @@ export function registerLibraryRoutes(app: Express, ctx: RegisterLibraryRoutesDe
     if (q.limit) filter.limit = Number(q.limit);
     const assets = listLibraryAssets(db, filter).map(toPublicAsset);
     res.json({ assets });
+  });
+
+  // Force a full reconcile pass (the web "Sync" button + `od library sync`).
+  // Backfills design systems and agent deliverables that predate this feature,
+  // and is the explicit "pull in everything now" entry point. Loopback-only.
+  app.post('/api/library/sync', requireLocalDaemonRequest, async (_req, res) => {
+    try {
+      const summary = await runReconcile(true);
+      res.json(summary);
+    } catch (err) {
+      return sendApiError(res, 500, 'LIBRARY_SYNC_FAILED', err instanceof Error ? err.message : String(err));
+    }
   });
 
   app.get('/api/library/assets/:id', (req, res) => {

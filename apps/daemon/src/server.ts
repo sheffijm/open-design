@@ -1,5 +1,5 @@
 // @ts-nocheck
-import type { DesktopExportPdfInput, DesktopExportPdfResult } from '@open-design/sidecar-proto';
+import type { DesktopExportArtifactInput, DesktopExportArtifactResult, DesktopExportPdfInput, DesktopExportPdfResult } from '@open-design/sidecar-proto';
 import express from 'express';
 import multer from 'multer';
 import JSZip from 'jszip';
@@ -311,7 +311,7 @@ import { buildDocumentPreview } from './document-preview.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
 import { loadCraftSections } from './craft.js';
 import { skillCwdAliasSegment, stageActiveSkill } from './cwd-aliases.js';
-import { buildDesktopPdfExportInput } from './pdf-export.js';
+import { buildDesktopArtifactExportInput, buildDesktopPdfExportInput } from './pdf-export.js';
 import { generateMedia } from './media.js';
 import { listElevenLabsVoiceOptions } from './elevenlabs-voices.js';
 import { searchResearch, ResearchError } from './research/index.js';
@@ -4057,6 +4057,7 @@ export function createSseResponse(
 }
 
 export type DesktopPdfExporter = (input: DesktopExportPdfInput) => Promise<DesktopExportPdfResult>;
+export type DesktopArtifactExporter = (input: DesktopExportArtifactInput) => Promise<DesktopExportArtifactResult>;
 
 // Loosely typed shape — we only access `namespace`, `base`, `mode`, and
 // `source` from the runtime context when building the diagnostics export.
@@ -4070,6 +4071,7 @@ export interface DaemonRuntimeContext {
 }
 
 export interface StartServerOptions {
+  desktopArtifactExporter?: DesktopArtifactExporter | null;
   desktopPdfExporter?: DesktopPdfExporter | null;
   host?: string;
   port?: number;
@@ -4420,6 +4422,7 @@ export async function startServer({
   host = normalizeDaemonBindHost(process.env.OD_BIND_HOST),
   returnServer = false,
   desktopPdfExporter = null,
+  desktopArtifactExporter = null,
   runtime = null,
 }: StartServerOptions = {}) {
   host = normalizeDaemonBindHost(host);
@@ -5715,7 +5718,9 @@ export async function startServer({
     buildProjectArchive,
     buildBatchArchive,
     buildDesktopPdfExportInput,
+    buildDesktopArtifactExportInput,
     desktopPdfExporter,
+    desktopArtifactExporter,
     daemonUrlRef,
     sanitizeArchiveFilename,
   };
@@ -7236,9 +7241,14 @@ export async function startServer({
           return sendApiError(res, 400, 'BAD_REQUEST', 'invalid project id');
         }
         const file = (req as { file?: { buffer?: Buffer; originalname?: string } }).file;
-        const body = (req.body ?? {}) as { figmaUrl?: unknown; notes?: unknown };
+        const body = (req.body ?? {}) as { figmaUrl?: unknown; notes?: unknown; subdir?: unknown };
         const notes = typeof body.notes === 'string' ? body.notes : undefined;
         const figmaUrl = typeof body.figmaUrl === 'string' ? body.figmaUrl.trim() : '';
+        // Optional snapshot subdir so multiple `.fig` imports into one project
+        // (e.g. the design-system flow) don't overwrite each other.
+        const subdir = typeof body.subdir === 'string' && body.subdir.trim()
+          ? body.subdir.replace(/[^a-z0-9._-]/gi, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 64) || undefined
+          : undefined;
 
         if (!file?.buffer || file.buffer.length === 0) {
           if (figmaUrl) {
@@ -7261,6 +7271,7 @@ export async function startServer({
           label: file.originalname || 'figma-import.fig',
         };
         if (notes) importOpts.notes = notes;
+        if (subdir) importOpts.subdir = subdir;
         const result = await importFigmaFromBytes(new Uint8Array(file.buffer), importOpts);
         return res.json(result);
       } catch (err) {

@@ -6,6 +6,7 @@ import type {
   ConnectorDetailResponse,
   ConnectorListResponse,
   ConnectorStatusResponse,
+  FigmaImportResult,
   ImportGitHubDesignSystemRequest,
   ImportGitHubDesignSystemResponse,
   ImportShadcnDesignSystemRequest,
@@ -1855,6 +1856,42 @@ export async function uploadProjectFile(
   }
 }
 
+// Offline `.fig` import. Uploads the Figma file to the daemon, which decodes
+// it in-process (no Figma account) and stages a `figma/` snapshot into the
+// project. Returns the inventory + a ready-to-send reshape prompt, or an
+// error string the caller can surface.
+export async function importProjectFigma(
+  projectId: string,
+  file: File,
+  opts?: { notes?: string; subdir?: string },
+): Promise<{ ok: true; result: FigmaImportResult } | { ok: false; error: string }> {
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    if (opts?.notes && opts.notes.trim()) form.append('notes', opts.notes.trim());
+    if (opts?.subdir && opts.subdir.trim()) form.append('subdir', opts.subdir.trim());
+    const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/figma/import`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!resp.ok) {
+      let message = `import failed (${resp.status})`;
+      try {
+        const body = (await resp.json()) as { error?: { message?: string } | string };
+        const text = typeof body.error === 'string' ? body.error : body.error?.message;
+        if (text) message = text;
+      } catch {
+        /* keep the status-only message */
+      }
+      return { ok: false, error: message };
+    }
+    const result = (await resp.json()) as FigmaImportResult;
+    return { ok: true, result };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // Multi-file project upload used by the chat composer's paste / drop /
 // picker. Each file lands flat in the project folder; the response is
 // reshaped into ChatAttachments so the composer can stage them without a
@@ -2299,6 +2336,7 @@ import type {
   LibraryEditAsPageResponse,
   LibraryIngestResponse,
   LibraryPairingStartResponse,
+  LibrarySyncResponse,
 } from '@open-design/contracts';
 import { LIBRARY_UPLOAD_MAX_BYTES, isLibraryUploadMimeAllowed } from '@open-design/contracts';
 
@@ -2486,6 +2524,26 @@ export async function deleteLibraryAsset(id: string): Promise<boolean> {
     return resp.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Force a Library reconcile (`POST /api/library/sync`) — pulls design systems
+ * and agent-produced project deliverables into the Library as referenced assets.
+ * Powers the Library toolbar "Sync" button. Returns the counts of what was newly
+ * indexed, or null on error.
+ */
+export async function syncLibrary(): Promise<LibrarySyncResponse | null> {
+  try {
+    const resp = await fetch('/api/library/sync', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    if (!resp.ok) return null;
+    return (await resp.json()) as LibrarySyncResponse;
+  } catch {
+    return null;
   }
 }
 

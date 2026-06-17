@@ -47,9 +47,14 @@ nothing to misconfigure.
   Figma import JSON for the OD Figma plugin — see `../figma-plugin/`), *Pick
   element → capture*, *Pick images*, or *Capture screenshot* (visible tab).
 - **Pick element** → a DevTools-style picker: hover to highlight any element,
-  click to save it as a **screenshot cropped to that element plus its outerHTML
-  and metadata** (tag, selector, size). Esc cancels. The saved Library card is an
-  image whose preview also exposes the element's HTML.
+  click to save it as a **single self-contained HTML snapshot of that element**.
+  The page's stylesheets are kept (so the element's cascade resolves and it stays
+  styled), the element's own images are inlined as data URIs, and the rest of the
+  page is pruned away — leaving the element where it sat, ready to open. Esc
+  cancels. The saved Library card is **one HTML file** you can open, share, or
+  distribute as the element; its preview shows the live element with its
+  selector + size (tag, selector, dimensions) noted beneath. No separate
+  screenshot-plus-markup pair — just the HTML.
 - **Pick images** → an on-page overlay grid of every image on the page with
   checkboxes, *Select all* / *Clear*, and *Save N to Library* — so you choose
   exactly which images to save instead of grabbing them all.

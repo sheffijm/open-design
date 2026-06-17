@@ -796,12 +796,14 @@
     return meta;
   }
 
-  // Screenshot the visible tab and crop to the element. The picker is torn down
-  // first; the bar wears its progress strip (startBusy) through the whole save
-  // and only leaves the frame for the screenshot itself when it would land inside the
-  // crop (hideBar → captureElement in background.js). So in the common case the
-  // bar never blinks — it just shows it's working — instead of vanishing for the
-  // entire capture-and-save round-trip as it used to.
+  // Capture the picked element as ONE self-contained HTML asset (styles + its
+  // own images inlined) — no screenshot, no separate markup, so the saved card
+  // is a single HTML file that opens and shares as the element. We mark the live
+  // element so capture.js (run by the worker) can find and prune the page to it,
+  // and ALWAYS clear the marker afterwards so we never leave a stray attribute
+  // on the page. The bar keeps its progress strip through the save (capture.js
+  // strips our own UI, so nothing needs to leave the frame).
+  const ELEMENT_MARKER = 'data-od-clip-target';
   async function commitCapture(el) {
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -810,33 +812,24 @@
       return;
     }
     const meta = describeElement(el, rect);
-    const html = (el.outerHTML || '').slice(0, 200000);
-    const payloadRect = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    el.setAttribute(ELEMENT_MARKER, '');
     endElementPick();
     startBusy('element');
-    const hideBar = barOverlapsRect(payloadRect);
-    // Two frames so our torn-down picker surface is off the compositor before the
-    // worker screenshots.
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     let res;
     try {
       res = await chrome.runtime.sendMessage({
-        type: 'captureElement',
-        rect: payloadRect,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-        dpr: window.devicePixelRatio || 1,
-        elementHtml: html,
+        type: 'captureElementHtml',
         meta,
         sourceUrl: location.href,
         sourceTitle: document.title,
-        hideBar,
       });
     } catch (err) {
       console.warn('[Open Design] element capture failed', err);
       stopBusy();
       toast(t('extensionErrorReload'));
       return;
+    } finally {
+      el.removeAttribute(ELEMENT_MARKER);
     }
     stopBusy();
     if (!res || !res.ok) {

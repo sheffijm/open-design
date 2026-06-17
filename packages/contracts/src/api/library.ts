@@ -173,20 +173,23 @@ export interface LibraryIngestRequest {
   /** Node count of `figmaCapture`, supplied so the daemon never parses the IR. */
   figmaNodeCount?: number;
   /**
-   * Clipper element-pick only: the captured element's `outerHTML`. Stored as a
-   * `.element.html` sidecar of the screenshot asset (kept out of the asset row
-   * so the grid list stays lean) and served from
-   * `/api/library/assets/:id/element`. The lightweight summary travels in
-   * `metadata.element` (see {@link LibraryElementMeta}).
+   * Legacy clipper element-pick only: the captured element's `outerHTML`, stored
+   * as a `.element.html` sidecar of the screenshot asset and served from
+   * `/api/library/assets/:id/element`. Current element captures are instead saved
+   * as a single self-contained `html` asset (the markup IS the asset), so they
+   * ship no `elementHtml` and set `metadata.element.hasHtml = false`; this field
+   * remains only for screenshots captured by older clipper builds.
    */
   elementHtml?: string;
 }
 
 /**
- * Summary of a captured DOM element, stored at `metadata.element` on the
- * screenshot asset produced by the clipper's element picker. Its presence gates
- * the Library preview's "Element HTML" panel; the full markup lives in the
- * `.element.html` sidecar (fetched on demand).
+ * Summary of a captured DOM element, stored at `metadata.element` by the
+ * clipper's element picker. Current captures attach it to a self-contained
+ * `html` asset (rendered directly in the Library preview); legacy captures
+ * attached it to an `image` screenshot whose `.element.html` sidecar held the
+ * full markup (gated by {@link hasHtml}). Its presence is what makes a clip read
+ * as an `element` in the Library, regardless of the underlying storage kind.
  */
 export interface LibraryElementMeta {
   /** Lowercased tag name (e.g. `section`). */
@@ -270,10 +273,12 @@ export interface LibraryApplyRequest {
   /** Optional subdirectory inside the project to copy into. */
   dir?: string;
   /**
-   * When true and the asset is a clipper element-pick capture (an `image`
-   * asset carrying `metadata.element` + a `.element.html` sidecar), also copy
-   * the captured markup into the project as a companion `.element.html` file so
-   * the user/agent can consume the element's HTML, not just its screenshot.
+   * Legacy element-pick captures only: when true and the asset is an older
+   * `image` screenshot carrying `metadata.element` + a `.element.html` sidecar,
+   * also copy the captured markup into the project as a companion
+   * `.element.html` file. Current element captures are already self-contained
+   * `html` assets whose copied file IS the markup, so this is a harmless no-op
+   * for them (no sidecar to materialize).
    */
   includeElement?: boolean;
 }
@@ -300,6 +305,25 @@ export interface LibraryEditAsPageResponse {
   conversationId: string;
   /** Path of the editable HTML file relative to the project root. */
   relPath: string;
+}
+
+/**
+ * Result of a Library reconcile pass (`POST /api/library/sync`, the web "Sync"
+ * button, and `od library sync`). Reconcile registers *referenced* Library rows
+ * for design systems and agent-produced project deliverables so the Library
+ * mirrors everything a user has made, not just clips/uploads. It is idempotent —
+ * re-running it does not duplicate rows — so the counts report what this pass
+ * newly indexed (`*Added`) versus what was already present (`deduped`).
+ */
+export interface LibrarySyncResponse {
+  /** Design-system cards newly registered this pass. */
+  designSystems: number;
+  /** Project deliverable assets newly registered this pass. */
+  projectAssets: number;
+  /** Referenced rows skipped because their origin file was already indexed. */
+  deduped: number;
+  /** Total Library rows newly registered this pass (`designSystems + projectAssets`). */
+  total: number;
 }
 
 // ---------------------------------------------------------------------------

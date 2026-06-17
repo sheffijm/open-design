@@ -1339,42 +1339,6 @@ async function captureArtifactSlides(
   return slides;
 }
 
-/**
- * Capture a single PNG of the CURRENT on-screen view of an existing preview
- * iframe through the export-capture bridge (html2canvas, more reliable than the
- * SVG-foreignObject snapshot path). Returns null if the bridge is unavailable
- * or the capture fails, so callers can fall back.
- */
-export async function captureViewSnapshot(
-  iframe: HTMLIFrameElement | null,
-  opts: { deck: boolean } = { deck: false },
-): Promise<PreviewSnapshot | null> {
-  const win = iframe?.contentWindow;
-  if (!win) return null;
-  let snap: PreviewSnapshot | null = null;
-  try {
-    await runExportCapture(
-      win,
-      {
-        id: `view-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        mode: 'image',
-        deck: opts.deck,
-        single: true,
-        scale: opts.deck ? 1 : 2,
-        delay: 200,
-        h2cUrl: html2canvasUrl(),
-      },
-      (slide) => {
-        if (slide.dataUrl) snap = { dataUrl: slide.dataUrl, w: slide.w, h: slide.h };
-      },
-      30_000,
-    );
-  } catch {
-    return null;
-  }
-  return snap;
-}
-
 /** Programmatic, client-side PDF: image-per-slide (deck) or paginated full page. */
 export async function exportArtifactAsPdf(
   html: string,

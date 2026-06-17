@@ -1140,6 +1140,9 @@ export interface HomeChatComposerClickProps {
     // Opening the "Import from library" picker from the home composer's "+"
     // menu. Mirrors the chat_panel composer's `element: 'library'`.
     | 'library'
+    // Opening the "Import from Figma" modal from the home composer's "+" menu
+    // (offline .fig decode). Mirrors the chat_panel composer's `figma_import`.
+    | 'figma_import'
     // Local-storage / working-dir picker under the home composer; `task_chip`
     // is the task-type rail (原型 / 幻灯片 / HyperFrames / 视频 / …).
     | 'working_dir'
@@ -1616,6 +1619,9 @@ export interface ChatPanelClickProps {
     | 'composer_settings'
     | 'attachment'
     | 'library'
+    // Opening the "Import from Figma" modal from the chat composer's "+" menu
+    // (offline .fig decode). Sits beside `library` as a sibling import source.
+    | 'figma_import'
     | 'send'
     | 'mention_popover_trigger'
     | 'resources_popover_trigger';

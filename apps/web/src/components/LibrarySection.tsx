@@ -28,6 +28,7 @@ import {
   fetchLibraryAssets,
   fetchLibraryAssetAsFile,
   libraryAssetRawUrl,
+  syncLibrary,
   type LibraryAssetQuery,
 } from '../providers/registry';
 import { useInView } from './plugins-home/useInView';
@@ -44,6 +45,7 @@ import {
   kindLabel,
   kindTint,
   matchesKindFilter,
+  originDesignSystemId,
   originProjectId,
   primarySource,
   type KindFilterValue,
@@ -361,6 +363,7 @@ const LibraryCard = memo(function LibraryCard({
 }: LibraryCardProps) {
   const src = primarySource(asset);
   const projectId = originProjectId(asset);
+  const designSystemId = originDesignSystemId(asset);
   const title = assetTitle(asset);
   return (
     <figure
@@ -441,7 +444,26 @@ const LibraryCard = memo(function LibraryCard({
         </span>
       </figcaption>
       <div className={styles.cardActions}>
-        {asset.kind === 'html' ? (
+        {/* Jump back to an asset's origin. A synced design-system / project
+            asset links to where it lives; a clipper html capture (no origin)
+            still offers "Edit as page"; otherwise the external source. */}
+        {designSystemId ? (
+          <button
+            type="button"
+            className={styles.linkBtn}
+            onClick={() => navigate({ kind: 'design-system-detail', designSystemId })}
+          >
+            Open design system
+          </button>
+        ) : projectId ? (
+          <button
+            type="button"
+            className={styles.linkBtn}
+            onClick={() => onOpenProject(projectId, asset.relPath)}
+          >
+            Open project
+          </button>
+        ) : asset.kind === 'html' ? (
           <button
             type="button"
             className={styles.linkBtn}
@@ -449,10 +471,6 @@ const LibraryCard = memo(function LibraryCard({
             disabled={editing}
           >
             {editing ? 'Opening…' : 'Edit as page'}
-          </button>
-        ) : projectId ? (
-          <button type="button" className={styles.linkBtn} onClick={() => onOpenProject(projectId)}>
-            Open project
           </button>
         ) : asset.sourceUrl ? (
           <a className={styles.linkBtn} href={asset.sourceUrl} target="_blank" rel="noreferrer">
@@ -472,6 +490,7 @@ const LibraryCard = memo(function LibraryCard({
 export function LibrarySection({ active, onOpenProject }: Props) {
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [kind, setKind] = useState('');
   const [source, setSource] = useState('');
   const [search, setSearch] = useState('');
@@ -545,6 +564,19 @@ export function LibrarySection({ active, onOpenProject }: Props) {
     setAssets(next.filter((a) => matchesKindFilter(a, kind as KindFilterValue)));
     setLoading(false);
   }, [query, kind]);
+
+  // Force a reconcile (design systems + agent deliverables → referenced Library
+  // rows), then reload so the freshly-indexed assets appear. The throttle lives
+  // on the daemon; this is the explicit "pull everything in now" action.
+  const runSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      await syncLibrary();
+      await load();
+    } finally {
+      setSyncing(false);
+    }
+  }, [load]);
 
   // Fetch when the tab becomes active or filters change.
   useEffect(() => {
@@ -1134,6 +1166,17 @@ export function LibrarySection({ active, onOpenProject }: Props) {
         <Button variant="ghost" className={styles.refreshBtn} onClick={() => void load()} aria-busy={loading}>
           <Icon name="refresh" size={15} className={loading ? styles.spin : undefined} />
           Refresh
+        </Button>
+        <Button
+          variant="ghost"
+          className={styles.refreshBtn}
+          onClick={() => void runSync()}
+          aria-busy={syncing}
+          disabled={syncing}
+          title="Pull design systems and agent-generated artifacts into the Library"
+        >
+          <Icon name="refresh" size={15} className={syncing ? styles.spin : undefined} />
+          {syncing ? 'Syncing…' : 'Sync'}
         </Button>
         <Button className={styles.uploadBtn} onClick={() => openUpload()}>
           <Icon name="upload" size={15} />

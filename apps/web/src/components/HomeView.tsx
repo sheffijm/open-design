@@ -36,10 +36,13 @@ import {
 } from '../analytics/events';
 import {
   applyPlugin,
+  createProject,
   listPlugins,
+  patchProject,
   renderPluginBriefTemplate,
   resolvePluginQueryFallback,
 } from '../state/projects';
+import { FigmaImportModal } from './FigmaImportModal';
 import { fetchMcpServers } from '../state/mcp';
 import { takeHomeComposerAssetSeed } from '../state/libraryHandoff';
 import { useI18n, useT } from '../i18n';
@@ -300,6 +303,7 @@ export function HomeView({
   const [mcpLoading, setMcpLoading] = useState(true);
   const [prompt, setPrompt] = useState('');
   const [promptEditedByUser, setPromptEditedByUser] = useState(false);
+  const [figmaModalOpen, setFigmaModalOpen] = useState(false);
   const examplePromptInfoRef = useRef<ExamplePromptInfo | null>(null);
   const handleExamplePromptStatusChange = useCallback((info: ExamplePromptInfo | null) => {
     examplePromptInfoRef.current = info;
@@ -1608,6 +1612,7 @@ export function HomeView({
         stagedFiles={stagedFiles}
         onAddFiles={stageFiles}
         onRemoveFile={removeStagedFile}
+        onImportFigma={() => setFigmaModalOpen(true)}
         pluginOptions={plugins}
         pluginsLoading={pluginsLoading}
         skillOptions={selectableSkills}
@@ -1731,6 +1736,49 @@ export function HomeView({
                 plugin_id: detailsRecord.sourceMarketplaceEntryName ?? detailsRecord.id,
                 plugin_type: detailsRecord.marketplaceTrust ?? 'official',
               })}
+          />
+        ) : null}
+        {figmaModalOpen ? (
+          <FigmaImportModal
+            onClose={() => setFigmaModalOpen(false)}
+            resolveProjectId={async () => {
+              // The homepage has no project yet; create a bare one to decode
+              // the Figma file into, then navigate into it.
+              try {
+                const { project } = await createProject({
+                  name: 'Imported from Figma',
+                  skillId: null,
+                  designSystemId: null,
+                });
+                return project.id;
+              } catch {
+                return null;
+              }
+            }}
+            onImported={(result, projectId) => {
+              void (async () => {
+                await patchProject(projectId, { pendingPrompt: result.suggestedPrompt });
+                setFigmaModalOpen(false);
+                onOpenProject(projectId);
+              })();
+            }}
+            onFigmaUrl={(url, notes) => {
+              void (async () => {
+                const reshapePrompt = `Migrate the Figma file at ${url} into a responsive webpage using its design system.${notes ? ` ${notes}` : ''}`;
+                try {
+                  const { project } = await createProject({
+                    name: 'Imported from Figma',
+                    skillId: null,
+                    designSystemId: null,
+                    pendingPrompt: reshapePrompt,
+                  });
+                  setFigmaModalOpen(false);
+                  onOpenProject(project.id);
+                } catch {
+                  setFigmaModalOpen(false);
+                }
+              })();
+            }}
           />
         ) : null}
       </AnimatePresence>

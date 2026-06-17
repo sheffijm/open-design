@@ -33,6 +33,7 @@ export interface Dict {
   // Common
   'common.cancel': string;
   'chat.selectFromLibrary': string;
+  'chat.importFigma': string;
   'designFiles.library.label': string;
   'designFiles.library.title': string;
   'libraryPicker.title': string;
@@ -2701,6 +2702,12 @@ export interface Dict {
   'fileViewer.exportHtml': string;
   'fileViewer.exportMd': string;
   'fileViewer.exportImage': string;
+  'fileViewer.exportPptxImages': string;
+  'fileViewer.exportPptxEditable': string;
+  'fileViewer.exportingProgress': string;
+  'fileViewer.exportSlideProgress': string;
+  'fileViewer.exportFailed': string;
+  'fileViewer.exportDone': string;
   'fileViewer.exportImageFailed': string;
   'fileViewer.exportImageModalSubtitle': string;
   'fileViewer.exportImageFormatLabel': string;

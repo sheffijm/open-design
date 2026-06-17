@@ -82,6 +82,11 @@ const residualAllowedExactPaths = new Set([
   "apps/packaged/esbuild.config.mjs",
   // Browser service workers must be served as JavaScript files.
   "apps/web/public/od-notifications-sw.js",
+  // Vendored html2canvas UMD build, loaded at runtime by the programmatic
+  // export-capture bridge inside the sandboxed (opaque-origin) preview iframe
+  // via <script src>. It must ship as a browser-loadable .js asset; it is a
+  // third-party dependency artifact, never project-owned source.
+  "apps/web/public/html2canvas.min.js",
   // Shared nav enhancer for the landing-page static `/community/` pages,
   // which are verbatim HTML served straight from `public/` (not Astro-
   // compiled). It must ship as a browser-loadable `.js` asset, same as the

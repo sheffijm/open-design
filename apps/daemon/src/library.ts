@@ -267,6 +267,13 @@ export interface RegisterLibraryAssetInput {
   sourceUrl?: string | undefined;
   sourceTitle?: string | undefined;
   tags?: string[] | undefined;
+  /**
+   * When the asset was originally captured/produced (unix ms). Drives
+   * `capturedAt` + the `archivedDate` timeline bucket. Defaults to now; the
+   * reconcile sync passes a design system's update time or a project file's
+   * mtime so the timeline reflects when the artifact was made, not synced.
+   */
+  capturedAt?: number | undefined;
   /** referenced-only metadata. */
   originProjectId?: string | undefined;
   relPath?: string | undefined;
@@ -320,6 +327,9 @@ export async function registerLibraryAsset(
   const kind = input.kind ?? kindForMime(mime);
   const dims = kind === 'image' ? sniffImageDimensions(bytes) : null;
   const now = Date.now();
+  // The artifact's own time (DS update / file mtime) when the caller supplies
+  // it, so the timeline buckets by creation rather than sync time; else now.
+  const capturedAt = Number.isFinite(input.capturedAt) ? Number(input.capturedAt) : now;
   const id = randomUUID();
 
   let filePath: string | undefined;
@@ -343,8 +353,8 @@ export async function registerLibraryAsset(
     sourceUrl: input.sourceUrl,
     sourceTitle: input.sourceTitle,
     sourceDomain: domain,
-    capturedAt: now,
-    archivedDate: archivedDateFor(now),
+    capturedAt,
+    archivedDate: archivedDateFor(capturedAt),
     filePath,
     originProjectId: input.originProjectId,
     relPath: input.relPath,

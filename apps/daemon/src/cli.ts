@@ -226,6 +226,15 @@ const SHARE_STRING_FLAGS = new Set([
 const SHARE_BOOLEAN_FLAGS = new Set([
   'help', 'h', 'json',
 ]);
+// Defined near the top because `runFigma` is reachable through the
+// top-of-file SUBCOMMAND_MAP dispatch during module evaluation; a `const`
+// further down would still be in TDZ when the handler reads it.
+const FIGMA_STRING_FLAGS = new Set([
+  'daemon-url', 'project', 'file', 'figma-url', 'notes', 'prompt', 'prompt-file',
+]);
+const FIGMA_BOOLEAN_FLAGS = new Set([
+  'help', 'h', 'json', 'build',
+]);
 // Hoisted because `runAutomation` is reachable through the top-of-file
 // SUBCOMMAND_MAP dispatch, which runs during module evaluation —
 // any `const` declared further down would still be in TDZ when
@@ -289,7 +298,104 @@ const SUBCOMMAND_MAP = {
   config: runConfig,
   library: runLibrary,
   figma: runFigma,
+  export: runExport,
 };
+
+const EXPORT_STRING_FLAGS = new Set([
+  'daemon-url', 'project', 'format', 'out', 'image-format', 'title', 'file',
+]);
+const EXPORT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'deck']);
+const EXPORT_FORMATS = ['pdf', 'pptx', 'pptx-editable', 'image'];
+
+function printExportHelp() {
+  console.log(`Usage:
+  od export <file> --project <id> --format <fmt> [options]
+
+Programmatic export of an HTML/deck artifact to PDF, PPTX, or image. Runs
+entirely from the rendered design (no model/agent calls). Rasterization uses
+the desktop runtime's bundled Chromium, so a desktop/packaged runtime must be
+reachable; otherwise the command reports that the renderer is unavailable.
+
+Formats:  ${EXPORT_FORMATS.join(', ')}
+
+Options:
+  --project <id>           Project id (required)
+  --format <fmt>           One of: ${EXPORT_FORMATS.join(' | ')} (required)
+  --out <path>             Write the file here (defaults to the suggested name)
+  --image-format <fmt>     png | jpeg | webp (for --format image)
+  --deck                   Treat the artifact as a multi-slide deck
+  --title <title>          Title used for metadata / default filename
+  --json                   Print a machine-readable result envelope
+  --daemon-url <url>       Override daemon URL
+
+Examples:
+  od export deck.html --project p1 --format pptx --out deck.pptx
+  od export index.html --project p1 --format pdf --out page.pdf
+  od export slide.html --project p1 --format image --image-format png --out slide.png`);
+}
+
+async function runExport(args) {
+  if (args.length === 0 || args[0] === 'help' || args.includes('--help') || args.includes('-h')) {
+    printExportHelp();
+    process.exit(args.length === 0 ? 2 : 0);
+  }
+  let flags;
+  try {
+    flags = parseFlags(args, { string: EXPORT_STRING_FLAGS, boolean: EXPORT_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const pos = positionalArgs(args, EXPORT_STRING_FLAGS);
+  const file = flags.file || pos[0];
+  const projectId = flags.project;
+  const format = flags.format;
+  if (!file || !projectId || !format) {
+    printExportHelp();
+    process.exit(2);
+  }
+  if (!EXPORT_FORMATS.includes(format)) {
+    console.error(`invalid --format: ${format} (expected ${EXPORT_FORMATS.join(' | ')})`);
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  const resp = await fetch(`${base}/api/projects/${encodeURIComponent(projectId)}/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      fileName: file,
+      format,
+      deck: flags.deck === true,
+      ...(flags['image-format'] ? { imageFormat: flags['image-format'] } : {}),
+      ...(flags.title ? { title: flags.title } : {}),
+    }),
+  });
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  let out = flags.out;
+  if (!out) {
+    const cd = resp.headers.get('content-disposition') || '';
+    const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    const plain = /filename="([^"]+)"/i.exec(cd);
+    if (star && star[1]) {
+      try { out = decodeURIComponent(star[1]); } catch { out = plain && plain[1] ? plain[1] : null; }
+    } else if (plain && plain[1]) {
+      out = plain[1];
+    }
+    if (!out) {
+      const ext = format === 'image'
+        ? (flags['image-format'] === 'jpeg' ? 'jpg' : 'png')
+        : format === 'pdf' ? 'pdf' : 'pptx';
+      out = `artifact.${ext}`;
+    }
+  }
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(out, buffer);
+  if (flags.json) {
+    return process.stdout.write(JSON.stringify({ ok: true, out, bytes: buffer.length, format }, null, 2) + '\n');
+  }
+  console.log(`wrote ${out} (${buffer.length} bytes)`);
+}
 
 if (argv[0] === 'mcp' && argv[1] === 'live-artifacts') {
   try {
@@ -399,6 +505,11 @@ function printRootHelp() {
       Bundle daemon/web/desktop logs, machine info, and recent crash reports
       into a zip for support tickets. Same output as Settings → About →
       Export diagnostics.
+
+  od export <file> --project <id> --format <pdf|pptx|pptx-editable|image> [--out <path>]
+      Programmatically export an HTML/deck artifact to PDF, PPTX, or image
+      (no model/agent calls). Mirrors the web Download menu; rasterization uses
+      the desktop runtime's bundled Chromium.
 
   "$OD_NODE_BIN" "$OD_BIN" tools ...
       Recommended agent-runtime form; avoids relying on user PATH for od or node.
@@ -4730,6 +4841,123 @@ async function runShare(args) {
   }
 }
 
+function printFigmaUsage() {
+  console.log(`Usage:
+  od figma import --project <id> --file <path.fig> [--notes "<text>"]
+                  [--build] [--prompt "<text>" | --prompt-file <path|->] [--json]
+  od figma import --project <id> --figma-url <url> [--notes "<text>"] [--json]
+
+Imports a Figma design into a project. A .fig file is decoded fully offline
+(no Figma account); a Figma URL runs through the od-figma-migration scenario
+(OAuth). Either way it stages a figma/ snapshot the agent reshapes into a
+webpage.
+
+Flags:
+  --project <id>       Target project id (required).
+  --file <path.fig>    Local .fig to decode offline.
+  --figma-url <url>    Figma file URL (https://figma.com/(file|design)/<key>).
+  --notes "<text>"     Design brief folded into the reshape prompt.
+  --build              After import, start a run that builds the webpage.
+  --prompt / --prompt-file   Override the build prompt (file or - for stdin).
+  --daemon-url <url>   Open Design daemon HTTP base.
+  --json               Emit raw JSON.`);
+}
+
+async function runFigma(args) {
+  const sub = args.find((a) => !a.startsWith('-'));
+  if (!sub || sub === 'help' || args.includes('--help') || args.includes('-h')) {
+    printFigmaUsage();
+    process.exit(sub ? 0 : 2);
+  }
+  if (sub !== 'import') {
+    console.error(`unknown subcommand: od figma ${sub}`);
+    printFigmaUsage();
+    process.exit(2);
+  }
+  const idx = args.indexOf(sub);
+  const rest = [...args.slice(0, idx), ...args.slice(idx + 1)];
+  const flags = parseFlags(rest, { string: FIGMA_STRING_FLAGS, boolean: FIGMA_BOOLEAN_FLAGS });
+  const base = (await cliDaemonUrl(flags)).replace(/\/$/, '');
+
+  if (!flags.project) {
+    console.error('--project <id> is required');
+    process.exit(2);
+  }
+  const file = flags.file;
+  const figmaUrl = flags['figma-url'];
+  if (!file && !figmaUrl) {
+    console.error('one of --file <path.fig> or --figma-url <url> is required');
+    process.exit(2);
+  }
+
+  // Figma URL → the existing migration scenario (OAuth lives in the run
+  // pipeline). Start it through the same /api/runs path `od run start` uses.
+  if (figmaUrl && !file) {
+    const runBody = {
+      projectId: flags.project,
+      pluginId: 'od-figma-migration',
+      pluginInputs: { figmaUrl, ...(flags.notes ? { notes: flags.notes } : {}) },
+    };
+    const runResp = await fetch(`${base}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(runBody),
+    });
+    const runData = await runResp.json().catch(() => ({}));
+    if (!runResp.ok) {
+      console.error(`POST /api/runs failed: ${runResp.status} ${JSON.stringify(runData)}`);
+      process.exit(1);
+    }
+    if (flags.json) return process.stdout.write(JSON.stringify(runData, null, 2) + '\n');
+    console.log(`[figma] migration run started ${runData.runId}`);
+    return;
+  }
+
+  // Offline .fig path → multipart upload to the import endpoint.
+  let bytes;
+  try {
+    bytes = readFileSync(file);
+  } catch (err) {
+    console.error(`cannot read ${file}: ${err.message}`);
+    process.exit(2);
+  }
+  const form = new FormData();
+  form.append('file', new Blob([bytes]), basename(file));
+  if (flags.notes) form.append('notes', String(flags.notes));
+  const resp = await fetch(`${base}/api/projects/${encodeURIComponent(flags.project)}/figma/import`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json();
+
+  if (flags.json && !flags.build) {
+    return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+  }
+  const inv = data.inventory ?? {};
+  console.log(`[figma] imported "${data.label}" → ${data.snapshotDir}/`);
+  console.log(`  ${inv.decoded ? 'decoded' : 'assets-only'}: ${inv.nodeCount} nodes, ${inv.pageCount} pages, ${inv.frameCount} frames, ${inv.componentCount} components`);
+  console.log(`  ${(inv.colors ?? []).length} colors, ${(inv.fonts ?? []).length} fonts, ${inv.assetCount} assets${inv.hasThumbnail ? ', + preview' : ''}`);
+  for (const w of inv.warnings ?? []) console.log(`  ! ${w}`);
+
+  if (flags.build) {
+    const override = await readPromptFromFlags(flags);
+    const message = override || data.suggestedPrompt;
+    const runResp = await fetch(`${base}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectId: flags.project, message }),
+    });
+    const runData = await runResp.json().catch(() => ({}));
+    if (!runResp.ok) {
+      console.error(`build run failed: ${runResp.status} ${JSON.stringify(runData)}`);
+      process.exit(1);
+    }
+    if (flags.json) return process.stdout.write(JSON.stringify({ ...data, build: runData }, null, 2) + '\n');
+    console.log(`[figma] build run started ${runData.runId}`);
+  }
+}
+
 function normalizeChatSessionModeFlag(value) {
   if (value == null) return undefined;
   const mode = String(value).trim().toLowerCase();
@@ -6335,6 +6563,7 @@ Commands:
   apply <id>                Copy an asset into a project's design files. Requires --project.
   edit-as-page <id>         Turn a captured html asset into a new editable OD project (prints projectId).
   figma <id>                Export an html asset's OD Figma capture IR (clipper-captured pages).
+  sync                      Pull design systems + agent-generated project artifacts into the Library.
   pair                      Mint a browser-extension pairing code.
 
 Options:
@@ -6532,6 +6761,20 @@ async function runLibrary(args) {
           return;
         }
         process.stdout.write(ir.endsWith('\n') ? ir : ir + '\n');
+        return;
+      }
+      case 'sync': {
+        const resp = await fetch(`${base}/api/library/sync`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        });
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return writeJson(data);
+        console.log(
+          `Synced ${data.total} new (${data.designSystems} design systems, ${data.projectAssets} project assets; ${data.deduped} already indexed).`,
+        );
         return;
       }
       case 'pair': {

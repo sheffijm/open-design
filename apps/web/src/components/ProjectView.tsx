@@ -163,7 +163,6 @@ import {
   removeAttachedComment,
 } from '../comments';
 import { filterImplicitProducedFiles } from '../produced-files';
-import { buildPptxExportPrompt } from '../lib/build-pptx-export-prompt';
 import { AvatarMenu } from './AvatarMenu';
 import { EntrySettingsMenu } from './EntrySettingsMenu';
 import { HandoffButton } from './HandoffButton';
@@ -4660,20 +4659,6 @@ export function ProjectView({
     projectFiles,
   ]);
 
-  const handleExportAsPptx = useCallback(
-    (fileName: string) => {
-      if (currentConversationActionDisabled) return;
-      const prompt = buildPptxExportPrompt(fileName);
-      const attachment: ChatAttachment = {
-        path: fileName,
-        name: fileName,
-        kind: 'file',
-      };
-      void handleSend(prompt, [attachment], []);
-    },
-    [currentConversationActionDisabled, handleSend],
-  );
-
   const handleNewConversation = useCallback(async () => {
     if (creatingConversationRef.current) return;
     // Only block if we're sure the current conversation is empty:
@@ -5882,7 +5867,6 @@ export function ProjectView({
             void refreshWorkspaceItems();
           }}
           isDeck={isDeck}
-          onExportAsPptx={handleExportAsPptx}
           streaming={currentConversationActionDisabled}
           commentQueueOnSend={commentQueueOnSend}
           commentSendDisabled={currentConversationQueueDisabled}

@@ -131,6 +131,10 @@ export interface ComposerPlusMenuProps {
   /** Opens the "Select from library" picker; omit to hide the row. */
   onSelectFromLibrary?: () => void;
 
+  /** Opens the "Import from Figma" dialog (offline .fig decode or a Figma
+   *  URL → webpage); omit to hide the row. */
+  onImportFigma?: () => void;
+
   /**
    * Optional "Design toolbox" row, rendered LAST. Only the project composer
    * passes this; the home composer omits it. The returned node is shown in a
@@ -186,6 +190,7 @@ export function ComposerPlusMenu({
   onAttachFiles,
   attachLoading,
   onSelectFromLibrary,
+  onImportFigma,
   renderToolbox,
   toolboxLabel,
   triggerTestId,
@@ -416,6 +421,21 @@ export function ComposerPlusMenu({
             >
               <Icon name="layers-filled" size={15} className="plus-menu__item-icon" />
               <span>{t('chat.selectFromLibrary')}</span>
+            </button>
+          ) : null}
+          {onImportFigma ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="plus-menu__item"
+              data-testid="composer-plus-figma"
+              onClick={() => {
+                close();
+                onImportFigma();
+              }}
+            >
+              <Icon name="import" size={15} className="plus-menu__item-icon" />
+              <span>{t('chat.importFigma')}</span>
             </button>
           ) : null}
           <PlusSubmenuRow

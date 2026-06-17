@@ -173,10 +173,13 @@ function Stage({ asset }: { asset: LibraryAsset }) {
 }
 
 /**
- * Element-pick captures are image assets enriched with `metadata.element`; this
- * surfaces the captured element's selector/size and lazily loads its outerHTML
- * (the `.element.html` sidecar) for inspection + copy. Inline-styled so it stays
- * self-contained against the modal's stylesheet.
+ * Element-pick captures carry `metadata.element`; this surfaces the captured
+ * element's selector/size beneath the rendered preview. Current clips are
+ * self-contained `html` assets (the stage iframe already renders the element),
+ * so there is no separate markup to load — the "Show HTML" affordance only
+ * appears for legacy `image` screenshots that still have an `.element.html`
+ * sidecar (`element.hasHtml`). Inline-styled so it stays self-contained against
+ * the modal's stylesheet.
  */
 function ElementPanel({ asset }: { asset: LibraryAsset }) {
   const element = elementMetaOf(asset);
@@ -362,7 +365,7 @@ export function LibraryPreviewModal({
           ) : null}
         </div>
 
-        {asset.kind === 'image' ? <ElementPanel asset={asset} /> : null}
+        <ElementPanel asset={asset} />
 
         <footer className={styles.foot}>
           <div className={styles.facts}>
