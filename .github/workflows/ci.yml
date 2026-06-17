@@ -477,7 +477,7 @@ jobs:
     name: UI P0 smoke
     needs: [change_scopes]
     if: ${{ github.event_name == 'pull_request' && needs.change_scopes.outputs.ui_p0_pr_required == 'true' && !github.event.pull_request.draft }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
 
     steps:
@@ -522,7 +522,7 @@ jobs:
     name: UI P0 (${{ matrix.name }})
     needs: [change_scopes]
     if: ${{ github.event_name == 'pull_request' && needs.change_scopes.outputs.ui_p0_pr_required == 'true' && !github.event.pull_request.draft }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -581,7 +581,7 @@ jobs:
     name: Strict PR visual tests
     needs: [change_scopes]
     if: ${{ github.event_name == 'pull_request' && needs.change_scopes.outputs.visual_validation_required == 'true' && !github.event.pull_request.draft }}
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
 
     steps:
@@ -636,7 +636,7 @@ jobs:
     name: Docker image build
     needs: [change_scopes]
     if: ${{ github.event_name == 'pull_request' && needs.change_scopes.outputs.docker_validation_required == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read
