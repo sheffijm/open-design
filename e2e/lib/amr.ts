@@ -6,9 +6,15 @@ import { dirname, join } from 'node:path';
 
 export type FakeVelaOptions = {
   assistantText?: string;
+  endpoints?: VelaEndpoints;
   failAuthAtPrompt?: boolean;
   failBalanceAtPrompt?: boolean;
   requireLoginConfig?: boolean;
+};
+
+export type VelaEndpoints = {
+  apiUrl: string;
+  linkUrl: string;
 };
 
 export type FakeAmrRecoveryRequest = {
@@ -56,9 +62,10 @@ export async function writeFakeVelaBin(root: string, options: FakeVelaOptions = 
   return bin;
 }
 
-export async function startFakeAmrRecoveryApi(): Promise<FakeAmrRecoveryApi> {
+export async function startFakeAmrRecoveryApi(endpoints?: VelaEndpoints): Promise<FakeAmrRecoveryApi> {
   const requests: FakeAmrRecoveryRequest[] = [];
   const contexts = new Map<string, FakeRecoveryContext>();
+  const listenUrl = endpoints ? new URL(endpoints.apiUrl) : null;
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -149,10 +156,14 @@ export async function startFakeAmrRecoveryApi(): Promise<FakeAmrRecoveryApi> {
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      server.off('error', reject);
-      resolve();
-    });
+    server.listen(
+      listenUrl?.port ? Number(listenUrl.port) : 0,
+      listenUrl?.hostname || '127.0.0.1',
+      () => {
+        server.off('error', reject);
+        resolve();
+      },
+    );
   });
 
   const address = server.address() as AddressInfo;
@@ -172,15 +183,15 @@ export async function startFakeAmrRecoveryApi(): Promise<FakeAmrRecoveryApi> {
 export async function seedVelaLoginConfig(
   homeDir: string,
   options: {
-    apiUrl?: string;
+    endpoints?: VelaEndpoints;
     profile?: string;
     email?: string;
-    linkUrl?: string;
     runtimeKey?: string;
     controlKey?: string;
   } = {},
 ): Promise<string> {
   const profile = options.profile ?? 'local';
+  const endpoints = options.endpoints ?? defaultVelaEndpoints();
   const configDir = join(homeDir, '.amr');
   const file = join(configDir, 'config.json');
   await mkdir(configDir, { recursive: true });
@@ -192,8 +203,8 @@ export async function seedVelaLoginConfig(
           [profile]: {
             runtimeKey: options.runtimeKey ?? 'fake-runtime-key',
             controlKey: options.controlKey ?? 'fake-control-key',
-            apiUrl: options.apiUrl ?? 'http://localhost:18080',
-            linkUrl: options.linkUrl ?? 'http://localhost:18081',
+            apiUrl: endpoints.apiUrl,
+            linkUrl: endpoints.linkUrl,
             user: {
               id: 'fake-user-id',
               email: options.email ?? 'e2e@example.com',
@@ -240,6 +251,7 @@ function writeJson(res: ServerResponse, status: number, body: Record<string, unk
 }
 
 function renderFakeVelaScript(options: FakeVelaOptions): string {
+  const endpoints = options.endpoints ?? defaultVelaEndpoints();
   return `#!/usr/bin/env node
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -291,8 +303,8 @@ if (argv[2] === 'login') {
       [profile]: {
         runtimeKey: 'fake-runtime-key-0000000000000000000000',
         controlKey: 'fake-control-key-0000000000000000000000',
-        apiUrl: env.VELA_API_URL || 'http://localhost:18080',
-        linkUrl: env.VELA_LINK_URL || 'http://localhost:18081',
+        apiUrl: ${JSON.stringify(endpoints.apiUrl)},
+        linkUrl: ${JSON.stringify(endpoints.linkUrl)},
         user: { id: 'fake-user-id', email: env.FAKE_VELA_LOGIN_USER_EMAIL || 'e2e@example.com', plan: 'free' },
       },
     },
@@ -402,4 +414,11 @@ function handle(msg) {
   }
 }
 `;
+}
+
+function defaultVelaEndpoints(): VelaEndpoints {
+  return {
+    apiUrl: 'http://localhost:18080',
+    linkUrl: 'http://localhost:18081',
+  };
 }

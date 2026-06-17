@@ -8,16 +8,17 @@ import { startFakeAmrRecoveryApi, writeFakeVelaBin } from '@/amr';
 import { createAmrProject, putAmrAppConfig } from '@/vitest/amr';
 import { listMessages } from '@/vitest/messages';
 import { readRunEvents, startRun, waitForRunTerminal } from '@/vitest/runs';
-import { createSmokeSuite } from '@/vitest/smoke-suite';
+import { createSmokeSuite } from '@/vitest/suite';
 
 describe('AMR insufficient balance run failures', () => {
   test('fails the run with a recovery overlay when fake vela reports insufficient balance', { timeout: 180_000 }, async () => {
     const suite = await createSmokeSuite('amr-insufficient-balance');
-    const recoveryApi = await startFakeAmrRecoveryApi();
+    const recoveryApi = await startFakeAmrRecoveryApi(suite.amr);
 
     try {
       await suite.with.toolsDev(async ({ webUrl }) => {
         const velaBin = await writeFakeVelaBin(join(suite.scratchDir, 'fake-vela-balance'), {
+          endpoints: suite.amr,
           failBalanceAtPrompt: true,
           requireLoginConfig: false,
         });
@@ -26,10 +27,8 @@ describe('AMR insufficient balance run failures', () => {
           agentId: 'amr',
           agentCliEnv: {
             amr: {
-              VELA_API_URL: recoveryApi.url,
               VELA_BIN: velaBin,
-              VELA_LINK_URL: 'http://localhost:18081',
-              VELA_RUNTIME_KEY: 'fake-runtime-key',
+              ...suite.amr.runtimeEnv(),
             },
           },
         });

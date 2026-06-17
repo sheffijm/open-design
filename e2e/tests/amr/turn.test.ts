@@ -27,8 +27,8 @@
  *      `~/.amr/config.json` resolution path.
  */
 
-import { mkdir, writeFile, chmod } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
@@ -37,7 +37,7 @@ import { startFakeAmrRecoveryApi } from '@/amr';
 import { requestJson } from '@/vitest/http';
 import { listMessages } from '@/vitest/messages';
 import { startRun, waitForRunStatus } from '@/vitest/runs';
-import { createSmokeSuite } from '@/vitest/smoke-suite';
+import { createSmokeSuite } from '@/vitest/suite';
 
 type ProjectResponse = {
   conversationId: string;
@@ -89,8 +89,8 @@ if (argv[2] === 'login') {
       [profile]: {
         runtimeKey: 'fake-runtime-key-0000000000000000000000',
         controlKey: 'fake-control-key-0000000000000000000000',
-        apiUrl: env.VELA_API_URL || 'http://localhost:18080',
-        linkUrl: env.VELA_LINK_URL || 'http://localhost:18081',
+        apiUrl: env.VELA_API_URL || env.FAKE_VELA_API_URL || 'http://localhost:18080',
+        linkUrl: env.VELA_LINK_URL || env.FAKE_VELA_LINK_URL || 'http://localhost:18081',
         user: { id: 'fake-user-id', email: 'e2e@example.com', plan: 'free' },
       },
     },
@@ -201,7 +201,7 @@ describe('AMR chat-run end-to-end', () => {
     // tools-dev daemon boot + chat run lifecycle needs the same headroom
     // as the dialog/* smoke specs (~3 minutes for cold spawn + run).
     const suite = await createSmokeSuite('amr-turn');
-    const recoveryApi = await startFakeAmrRecoveryApi();
+    const recoveryApi = await startFakeAmrRecoveryApi(suite.amr);
 
     try {
       await suite.with.toolsDev(async ({ webUrl }) => {
@@ -220,8 +220,8 @@ describe('AMR chat-run end-to-end', () => {
                 local: {
                   runtimeKey: 'fake-runtime-key',
                   controlKey: 'fake-control-key',
-                  apiUrl: recoveryApi.url,
-                  linkUrl: 'http://localhost:18081',
+                  apiUrl: suite.amr.apiUrl,
+                  linkUrl: suite.amr.linkUrl,
                   user: { id: 'fake-user-id', email: 'e2e@example.com', plan: 'free' },
                 },
               },
@@ -238,10 +238,10 @@ describe('AMR chat-run end-to-end', () => {
           body: {
             agentCliEnv: {
               amr: {
-                VELA_API_URL: recoveryApi.url,
+                FAKE_VELA_API_URL: suite.amr.apiUrl,
+                FAKE_VELA_LINK_URL: suite.amr.linkUrl,
                 VELA_BIN: velaBin,
-                VELA_LINK_URL: 'http://localhost:18081',
-                VELA_RUNTIME_KEY: 'fake-runtime-key',
+                ...suite.amr.runtimeEnv(),
               },
             },
             agentId: 'amr',
@@ -268,7 +268,6 @@ describe('AMR chat-run end-to-end', () => {
         const conversationId = project.conversationId;
 
         const t0 = Date.now();
-        const userMessageId = `user-${t0}`;
         const assistantMessageId = `assistant-${t0}`;
 
         const run = await startRun(webUrl, {

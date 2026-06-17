@@ -86,6 +86,7 @@ export interface ChatSseAmrRecoveryPayload {
 export type DaemonAgentPayload =
   | { type: 'status'; label: string; model?: string; ttftMs?: number; detail?: string }
   | { type: 'text_delta'; delta: string }
+  | { type: 'conversation_title'; title: string }
   | { type: 'thinking_delta'; delta: string }
   | { type: 'thinking_start' }
   | LiveArtifactSsePayload

@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from '@/playwright/suite';
 import type { Page } from '@playwright/test';
 
 import { seedVelaLoginConfig, startFakeAmrRecoveryApi, writeFakeVelaBin } from '@/amr';
@@ -339,7 +339,9 @@ async function setupAmrWorkspace(
   const root = join(tmpdir(), `open-design-amr-ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const homeDir = join(root, 'home');
   const recoveryApi = await startFakeAmrRecoveryApi();
+  const amrEndpoints = { apiUrl: recoveryApi.url, linkUrl: 'http://localhost:18081' };
   const velaBin = await writeFakeVelaBin(join(root, 'bin'), {
+    endpoints: amrEndpoints,
     ...(options.assistantText !== undefined ? { assistantText: options.assistantText } : {}),
     ...(options.failAuthAtPrompt !== undefined ? { failAuthAtPrompt: options.failAuthAtPrompt } : {}),
     ...(options.failBalanceAtPrompt !== undefined ? { failBalanceAtPrompt: options.failBalanceAtPrompt } : {}),
@@ -348,8 +350,8 @@ async function setupAmrWorkspace(
   await mkdir(homeDir, { recursive: true });
   if (options.seedLoginConfig !== false) {
     await seedVelaLoginConfig(homeDir, {
-      apiUrl: recoveryApi.url,
       email: 'ui-amr@example.com',
+      endpoints: amrEndpoints,
       profile: options.profile ?? 'local',
     });
   }
