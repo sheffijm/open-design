@@ -688,9 +688,14 @@ describe('ProjectView conversation run isolation', () => {
   });
 
   it('seeds a fresh conversation from the active conversation when messages are loaded', async () => {
+    const seededAssistant: ChatMessage = {
+      ...succeededAssistant,
+      id: 'assistant-seeded',
+      content: 'Keep the oversized headline and serif body copy.',
+    };
     conversationAMessages = [
       { id: 'user-a', role: 'user', content: 'Keep the editorial grid and muted palette.', createdAt: 1 },
-      runningAssistant,
+      seededAssistant,
     ];
 
     renderProjectView();
@@ -705,7 +710,62 @@ describe('ProjectView conversation run isolation', () => {
       undefined,
       {
         seedFromConversationId: 'conv-a',
-        seedMessages: conversationAMessages,
+        seedMessages: [
+          { id: 'user-a', role: 'user', content: 'Keep the editorial grid and muted palette.', createdAt: 1 },
+          seededAssistant,
+        ],
+      },
+    );
+  });
+
+  it('seeds a fresh conversation with the latest visible messages when content changes without length changes', async () => {
+    const userMessage: ChatMessage = {
+      id: 'user-a',
+      role: 'user',
+      content: 'Keep the editorial grid and muted palette.',
+      createdAt: 1,
+    };
+    const initialAssistant: ChatMessage = {
+      ...succeededAssistant,
+      id: 'assistant-seeded',
+      content: 'Initial draft',
+    };
+    conversationAMessages = [userMessage, initialAssistant];
+
+    renderProjectView();
+
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-a'));
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-summary').textContent).toContain('Initial draft'),
+    );
+
+    const updatedAssistant: ChatMessage = {
+      ...initialAssistant,
+      content: 'Updated visible draft',
+    };
+    conversationAMessages = [userMessage, updatedAssistant];
+
+    fireEvent.click(screen.getByTestId('conversation-select-conv-b'));
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-b'));
+    if (!resolveConversationBMessages) throw new Error('Expected conv-b message load to be pending');
+    resolveConversationBMessages([]);
+    await waitFor(() => expect(screen.getByTestId('streaming-state').textContent).toBe('idle'));
+
+    fireEvent.click(screen.getByTestId('conversation-select-conv-a'));
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-a'));
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-summary').textContent).toContain('Updated visible draft'),
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation'));
+
+    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
+    expect(createConversation).toHaveBeenCalledWith(
+      'project-1',
+      undefined,
+      {
+        seedFromConversationId: 'conv-a',
+        seedMessages: [userMessage, updatedAssistant],
       },
     );
   });
