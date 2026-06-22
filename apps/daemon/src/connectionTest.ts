@@ -42,7 +42,10 @@ import { createCopilotStreamHandler } from './copilot-stream.js';
 import { createJsonEventStreamHandler } from './runtimes/json-event-stream.js';
 import { agentCliEnvForAgent, validateAgentCliEnv } from './app-config.js';
 import {
+  antigravityAuthGuidance,
+  antigravityQuotaGuidance,
   classifyAgentAuthFailure,
+  classifyAgentServiceFailure,
   cursorAuthGuidance,
   probeAgentAuthStatus,
 } from './runtimes/auth.js';
@@ -1909,6 +1912,10 @@ async function testAgentConnectionInternal(
   }
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'od-conn-test-'));
+  const agentLogFilePath =
+    input.agentId === 'antigravity'
+      ? path.join(tempDir, 'agy-connection-test.log')
+      : null;
   let child: AgentChild | null = null;
   let childExit: Promise<AgentChildExit> | null = null;
   let childClosed = false;
@@ -2074,6 +2081,7 @@ async function testAgentConnectionInternal(
         {
           cwd: tempDir,
           ...(promptFile ? { promptFilePath: promptFile.path } : {}),
+          ...(agentLogFilePath ? { agentLogFilePath } : {}),
         },
       );
       // Connection tests should validate the adapter's core CLI path, not
@@ -2286,6 +2294,11 @@ async function testAgentConnectionInternal(
       }
       const stderrTail = sink.getStderrTail().trim();
       const rawStdoutTail = sink.getRawStdoutTail().trim();
+      const agentLogTail = agentLogFilePath
+        ? await fsp.readFile(agentLogFilePath, 'utf8')
+            .then((text) => text.trim().slice(-400))
+            .catch(() => '')
+        : '';
       if (input.agentId === 'opencode' && exitedCleanly && rawStdoutTail) {
         const recoveredText = extractOpenCodeTextFromRawStdout(rawStdoutTail).trim();
         if (recoveredText) {
@@ -2303,6 +2316,7 @@ async function testAgentConnectionInternal(
         rawStdoutTail || buffered
           ? `stdout: ${(rawStdoutTail || buffered).slice(-200)}`
           : null,
+        agentLogTail ? `log: ${agentLogTail.slice(-200)}` : null,
       ]
         .filter(Boolean)
         .join(' · ');
@@ -2343,6 +2357,63 @@ async function testAgentConnectionInternal(
             signal: winner.signal,
           }),
         };
+      }
+      if (input.agentId === 'antigravity') {
+        const serviceFailure = classifyAgentServiceFailure(rawDetail);
+        if (serviceFailure === 'RATE_LIMITED') {
+          console.warn(
+            `[test:agent] ${def.name} → rate_limited: ${redactSecrets(rawDetail)}`,
+          );
+          return {
+            ok: false,
+            kind: 'rate_limited',
+            latencyMs,
+            model,
+            agentName: def.name,
+            detail: antigravityQuotaGuidance(),
+            diagnostics: buildDiagnostics({
+              phase: 'connection_smoke_test',
+              exitCode: winner.code,
+              signal: winner.signal,
+            }),
+          };
+        }
+        if (serviceFailure === 'UPSTREAM_UNAVAILABLE') {
+          console.warn(
+            `[test:agent] ${def.name} → upstream_unavailable: ${redactSecrets(rawDetail)}`,
+          );
+          return {
+            ok: false,
+            kind: 'upstream_unavailable',
+            latencyMs,
+            model,
+            agentName: def.name,
+            detail: redactSecrets(rawDetail || 'Antigravity reported an upstream provider error.'),
+            diagnostics: buildDiagnostics({
+              phase: 'connection_smoke_test',
+              exitCode: winner.code,
+              signal: winner.signal,
+            }),
+          };
+        }
+        if (serviceFailure === 'AGENT_AUTH_REQUIRED' || exitedCleanly) {
+          console.warn(
+            `[test:agent] ${def.name} → auth_required: ${redactSecrets(rawDetail || 'empty clean exit')}`,
+          );
+          return {
+            ok: false,
+            kind: 'agent_auth_required',
+            latencyMs,
+            model,
+            agentName: def.name,
+            detail: antigravityAuthGuidance(),
+            diagnostics: buildDiagnostics({
+              phase: 'connection_smoke_test',
+              exitCode: winner.code,
+              signal: winner.signal,
+            }),
+          };
+        }
       }
       const claudeDiagnostic = diagnoseClaudeCliFailure({
         agentId: input.agentId,
