@@ -235,6 +235,36 @@ describe('persistCapturedAgentSession', () => {
     expect(resolveAgentResumeContext(db, { conversationId: 'conv-1', agentId: 'pi' }).isResuming)
       .toBe(false);
   });
+
+  // Regression for the resume identity guard: pi-rpc persists via this capture
+  // path, so it must store model/cwd/lastMessageId too — otherwise the next pi
+  // turn sees a null cursor (`missing_cursor`) and reseeds forever, silently
+  // disabling pi's existing follow-up-session path (reported by @nettee).
+  it('persists the resume identity so a successful pi turn still resumes next turn', () => {
+    const db = seed();
+    upsertMessage(db, 'conv-1', { id: 'asst-1', role: 'assistant', content: 'pi reply' });
+
+    const result = persistCapturedAgentSession(db, {
+      conversationId: 'conv-1',
+      agentId: 'pi',
+      sessionId: '/tmp/current.jsonl',
+      stablePromptHash: 'hash-1',
+      model: null,
+      cwd: '/work/proj',
+      lastMessageId: 'asst-1',
+    });
+    expect(result).toBe('stored');
+
+    const ctx = resolveAgentResumeContext(db, {
+      conversationId: 'conv-1',
+      agentId: 'pi',
+      currentModel: null,
+      currentCwd: '/work/proj',
+    });
+    expect(ctx.isResuming).toBe(true);
+    expect(ctx.resumeSessionId).toBe('/tmp/current.jsonl');
+    expect(ctx.invalidationReason).toBeNull();
+  });
 });
 
 describe('hashStableInstructions', () => {

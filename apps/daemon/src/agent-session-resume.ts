@@ -131,6 +131,13 @@ export function persistCapturedAgentSession(
     agentId: string;
     sessionId: string | null;
     stablePromptHash?: string | null;
+    // Resume identity (see resolveAgentResumeContext). Must be stored alongside
+    // the captured session so the next turn can verify the session is still
+    // safe to resume; omitting them leaves a null cursor that the guard treats
+    // as `missing_cursor` and reseeds every turn.
+    model?: string | null;
+    cwd?: string | null;
+    lastMessageId?: string | null;
   },
 ): CapturedAgentSessionResult {
   if (!input.conversationId) return 'skipped';
@@ -140,6 +147,9 @@ export function persistCapturedAgentSession(
       agentId: input.agentId,
       sessionId: input.sessionId,
       stablePromptHash: input.stablePromptHash ?? null,
+      model: input.model ?? null,
+      cwd: input.cwd ?? null,
+      lastMessageId: input.lastMessageId ?? null,
     });
     return 'stored';
   }

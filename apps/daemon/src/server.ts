@@ -8168,6 +8168,9 @@ export async function startServer({
             agentId: def.id,
             sessionId: sessionPath,
             stablePromptHash: currentStableHash,
+            model: run.model ?? null,
+            cwd: effectiveCwd,
+            lastMessageId: run.assistantMessageId ?? null,
           });
         }
       }
