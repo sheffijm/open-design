@@ -67,14 +67,23 @@ export async function renderDeckSlides(
       `(${prepareDeck.toString()})(${JSON.stringify(SLIDE_SELECTOR)}, ${JSON.stringify(HIDE_CHROME_SELECTOR)})`,
       true,
     )) as number;
+
+    // No `.slide` sections — this is an ordinary page (e.g. a website), not a
+    // deck. Capture the whole document at its natural size instead of forcing a
+    // 1920x1080 slide. This is what image export of a non-deck artifact wants.
     if (!Number.isInteger(count) || count < 1) {
-      return { ok: false, error: "no slides found in deck" };
+      return await capturePage(window);
     }
 
+    // Deck: pin the 1920x1080 stage, then render every slide (or just the one
+    // requested by image export).
+    await window.webContents.executeJavaScript(`(${pinDeckStage.toString()})()`, true);
+    const indices =
+      input.index != null && input.index >= 0 && input.index < count ? [input.index] : range(count);
     const slides: string[] = [];
     let width = SLIDE_W;
     let height = SLIDE_H;
-    for (let i = 0; i < count; i++) {
+    for (const i of indices) {
       await window.webContents.executeJavaScript(
         `(${showSlide.toString()})(${JSON.stringify(SLIDE_SELECTOR)}, ${i})`,
         true,
@@ -92,12 +101,45 @@ export async function renderDeckSlides(
       height = size.height;
       slides.push(image.toDataURL());
     }
-    return { ok: true, slides, width, height };
+    return { ok: true, slides, width, height, mode: "deck" };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
     if (!window.isDestroyed()) window.destroy();
   }
+}
+
+// Ordinary (non-deck) page: capture the whole document at a fixed desktop width
+// and its full natural height, so the image is viewport-independent and shows
+// the entire page (not just the visible fold). Capped so we never exceed
+// Chromium's max capture texture.
+const PAGE_W = 1440;
+const PAGE_MAX_H = 8000;
+
+async function capturePage(window: BrowserWindow): Promise<DesktopRenderSlidesResult> {
+  window.setContentSize(PAGE_W, 1080);
+  await nextFrames(window);
+  const measured = (await window.webContents.executeJavaScript(
+    "Math.ceil(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0))",
+    true,
+  )) as number;
+  const height = Math.max(1, Math.min(Number.isFinite(measured) ? measured : 1080, PAGE_MAX_H));
+  window.setContentSize(PAGE_W, height);
+  await nextFrames(window);
+  const image = await window.webContents.capturePage({ x: 0, y: 0, width: PAGE_W, height });
+  const size = image.getSize();
+  return { ok: true, slides: [image.toDataURL()], width: size.width, height: size.height, mode: "page" };
+}
+
+function range(n: number): number[] {
+  return Array.from({ length: n }, (_, i) => i);
+}
+
+async function nextFrames(window: BrowserWindow): Promise<void> {
+  await window.webContents.executeJavaScript(
+    "new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(function(){r(true)})})})",
+    true,
+  );
 }
 
 function injectBaseHref(doc: string, baseHref: string | undefined): string {
@@ -122,14 +164,18 @@ function prepareDeck(slideSelector: string, hideSelector: string): number {
   document.querySelectorAll(hideSelector).forEach((el) => {
     (el as HTMLElement).style.setProperty("display", "none", "important");
   });
-  // Pin the deck to an exact 1920x1080 stage so layout is deterministic and
-  // independent of the host window's content rounding.
+  return document.querySelectorAll(slideSelector).length;
+}
+
+// Deck-only: pin to an exact 1920x1080 stage so each slide captures
+// deterministically. NOT applied in page mode — an ordinary page must keep its
+// natural width/height.
+function pinDeckStage(): void {
   const style = document.createElement("style");
   style.textContent =
     "html,body{margin:0!important;padding:0!important;width:1920px!important;height:1080px!important;overflow:hidden!important}" +
     ".deck{width:1920px!important;height:1080px!important}";
   document.head.appendChild(style);
-  return document.querySelectorAll(slideSelector).length;
 }
 
 function showSlide(slideSelector: string, index: number): void {

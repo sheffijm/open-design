@@ -70,12 +70,15 @@ import {
   exportAsPdf,
   exportProjectAsHtml,
   exportProjectAsPdf,
+  exportProjectAsPptx,
   exportProjectAsZip,
+  exportProjectImageDataUrl,
   copyImageDataUrlToClipboard,
   exportReactComponentAsHtml,
   exportReactComponentAsZip,
   captureHostIframeSnapshot,
   imageDataUrlToBlob,
+  isOpenDesignHostAvailable,
   openSandboxedPreviewInNewTab,
   prepareImageExportTarget,
   requestPreviewSnapshot,
@@ -7541,11 +7544,23 @@ function HtmlViewer({
     // in the browser screenshot flow (DesignBrowserPanel).
     await waitForAnimationFrame();
     await waitForAnimationFrame();
-    // Prefer the desktop compositor screenshot of the visible preview region:
-    // it returns the real rendered pixels (fonts, external CSS, gradients,
-    // images) and is never tainted, so it cannot produce the black/blank frames
-    // the in-iframe SVG-foreignObject bridge does. Works for both srcDoc and
-    // URL-load previews. Falls through to the bridge on pure web (no host).
+    // Prefer the daemon's off-screen render (desktop only): it produces a
+    // fixed-size, viewport-independent PNG — a deck slide at 1920x1080 or an
+    // ordinary page at natural size — and, rendering the artifact alone in a
+    // hidden window, can never capture Open Design's own UI (the format modal).
+    if (isOpenDesignHostAvailable() && projectId && file.name) {
+      const rendered = await exportProjectImageDataUrl({
+        projectId,
+        fileName: file.name,
+        ...(effectiveDeck ? { index: slideState?.active ?? 0 } : {}),
+      });
+      if (rendered) return rendered;
+    }
+
+    // Fallback: desktop compositor screenshot of the visible preview region.
+    // Returns real rendered pixels and is never tainted, unlike the in-iframe
+    // SVG-foreignObject bridge. Used on pure web (no host) or if the render
+    // above is unavailable. Works for both srcDoc and URL-load previews.
     const visibleIframe = iframeRef.current ?? srcDocPreviewIframeRef.current;
     const hostSnapshot = await captureHostIframeSnapshot(visibleIframe);
     if (hostSnapshot) return hostSnapshot;
@@ -8733,13 +8748,27 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setDownloadMenuOpen(false);
-                      fireShareExport('pdf', () => exportProjectAsPdf({
-                        deck: effectiveDeck,
-                        fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
-                        filePath: file.name,
-                        projectId,
-                        title: exportTitle,
-                      }));
+                      fireShareExport('pdf', async () => {
+                        // Desktop: pixel-perfect screenshot PDF (matches the
+                        // preview, same renderer as PPTX/image). Fall back to
+                        // the vector print path on web or on failure.
+                        if (isOpenDesignHostAvailable()) {
+                          const res = await exportProjectAsPptx({
+                            projectId,
+                            fileName: file.name,
+                            title: exportTitle,
+                            format: 'pdf',
+                          });
+                          if (res.ok) return;
+                        }
+                        await exportProjectAsPdf({
+                          deck: effectiveDeck,
+                          fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
+                          filePath: file.name,
+                          projectId,
+                          title: exportTitle,
+                        });
+                      });
                     }}
                   >
                     <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>

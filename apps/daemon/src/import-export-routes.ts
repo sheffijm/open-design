@@ -422,7 +422,7 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
   // daemon yet, so a web-only deployment gets a clear 501.
   async function handleScreenshotExport(
     res: Response,
-    format: 'pptx' | 'pdf',
+    format: 'pptx' | 'pdf' | 'image',
     projectId: string,
     body: any,
   ) {
@@ -435,7 +435,7 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
       );
     }
     try {
-      const { fileName, title, scale } = body || {};
+      const { fileName, title, scale, index } = body || {};
       if (typeof fileName !== 'string' || fileName.length === 0) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'fileName required');
       }
@@ -447,6 +447,10 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
       };
       if (typeof title === 'string') renderOptions.title = title;
       if (typeof scale === 'number' && Number.isFinite(scale)) renderOptions.scale = scale;
+      // Only image export targets a single slide (the one the user is viewing).
+      if (format === 'image' && typeof index === 'number' && Number.isInteger(index) && index >= 0) {
+        renderOptions.index = index;
+      }
       const { input, title: resolvedTitle, defaultFilename } =
         await buildDeckRenderInput(renderOptions);
       const rendered = await desktopSlideRenderer(input);
@@ -458,20 +462,38 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
           rendered.error || 'desktop renderer returned no slides',
         );
       }
+      // PPTX is slide-based: an ordinary page (no `.slide` sections) has no
+      // slide model, so refuse rather than emit a one-giant-slide deck.
+      if (format === 'pptx' && rendered.mode === 'page') {
+        return sendApiError(
+          res,
+          422,
+          'BAD_REQUEST',
+          'this artifact is not a slide deck — export it as PDF or an image instead',
+        );
+      }
       const pngs = decodeSlideDataUrls(rendered.slides);
-      const buffer =
-        format === 'pdf'
-          ? await buildScreenshotPdf(pngs)
-          : await buildScreenshotPptx(pngs, { title: resolvedTitle });
-      const filename = `${defaultFilename}.${format}`;
+      let buffer: Buffer;
+      let contentType: string;
+      let ext: string;
+      if (format === 'pptx') {
+        buffer = await buildScreenshotPptx(pngs, { title: resolvedTitle });
+        contentType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        ext = 'pptx';
+      } else if (format === 'pdf') {
+        buffer = await buildScreenshotPdf(pngs);
+        contentType = 'application/pdf';
+        ext = 'pdf';
+      } else {
+        // image: a single PNG (the requested slide, or the whole page).
+        buffer = pngs[0]!;
+        contentType = 'image/png';
+        ext = 'png';
+      }
+      const filename = `${defaultFilename}.${ext}`;
       const asciiFallback =
-        filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_') || `deck.${format}`;
-      res.setHeader(
-        'Content-Type',
-        format === 'pdf'
-          ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      );
+        filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_') || `deck.${ext}`;
+      res.setHeader('Content-Type', contentType);
       res.setHeader(
         'Content-Disposition',
         `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
@@ -637,6 +659,14 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
   // what you see" counterpart that shares the slide renderer with PPTX.
   app.post('/api/projects/:id/export/pdf-image', async (req, res) => {
     await handleScreenshotExport(res, 'pdf', req.params.id, req.body);
+  });
+
+  // Programmatic image export: a single pixel-perfect PNG. For a deck it renders
+  // the requested slide (`index`) at 1920x1080; for an ordinary page it renders
+  // the whole document at natural size. Viewport-independent — unlike the
+  // host-compositor snapshot, the size never depends on the preview pane.
+  app.post('/api/projects/:id/export/image', async (req, res) => {
+    await handleScreenshotExport(res, 'image', req.params.id, req.body);
   });
 
   // Export endpoint: serves an HTML body with every same-project

@@ -22,6 +22,10 @@ import {
   printHostPdf,
 } from '@open-design/host';
 
+// Re-exported so app components can gate desktop-only export paths without
+// importing the host package directly.
+export { isOpenDesignHostAvailable } from '@open-design/host';
+
 const DESIGN_HANDOFF_FILENAME = 'DESIGN-HANDOFF.md';
 const DESIGN_MANIFEST_FILENAME = 'DESIGN-MANIFEST.json';
 
@@ -896,6 +900,45 @@ export async function exportProjectAsPptx(opts: {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+// Programmatic image export: render a single pixel-perfect PNG via the daemon
+// (off-screen Electron Chromium), independent of the preview pane size. For a
+// deck pass the current slide `index`; for an ordinary page omit it (the whole
+// document is captured at natural size). Returns a {dataUrl,w,h} snapshot
+// compatible with the existing image-export pipeline, or null if unavailable.
+export async function exportProjectImageDataUrl(opts: {
+  projectId: string;
+  fileName: string;
+  index?: number;
+}): Promise<PreviewSnapshot | null> {
+  const url = `/api/projects/${encodeURIComponent(opts.projectId)}/export/image`;
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        fileName: opts.fileName,
+        ...(typeof opts.index === 'number' ? { index: opts.index } : {}),
+      }),
+    });
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    const dataUrl = await blobToDataUrl(blob);
+    const img = await loadImageFromDataUrl(dataUrl);
+    return { dataUrl, w: img.naturalWidth, h: img.naturalHeight };
+  } catch {
+    return null;
+  }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('blob read failed'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 // Exported for unit tests. Pure string transform with no DOM dependency.

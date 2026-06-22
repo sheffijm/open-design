@@ -250,12 +250,19 @@ export type DesktopExportPdfResult = {
 export type DesktopRenderSlidesInput = {
   baseHref?: string;
   html: string;
+  // When set, render only the slide at this index (deck mode) — used by image
+  // export to capture the single slide the user is viewing.
+  index?: number;
   scale?: number;
 };
 
+// `mode` reports what the renderer found: `deck` = one PNG per 1920x1080 slide;
+// `page` = a single full-document PNG at natural size (the artifact has no
+// `.slide` sections, e.g. an ordinary website).
 export type DesktopRenderSlidesResult = {
   error?: string;
   height?: number;
+  mode?: "deck" | "page";
   ok: boolean;
   slides?: string[];
   width?: number;
@@ -663,13 +670,17 @@ function normalizeDesktopExportPdfInput(input: unknown): DesktopExportPdfInput {
 
 function normalizeDesktopRenderSlidesInput(input: unknown): DesktopRenderSlidesInput {
   const value = assertObject(input, "desktop render slides input");
-  assertKnownKeys(value, ["baseHref", "html", "scale"], "desktop render slides input");
+  assertKnownKeys(value, ["baseHref", "html", "index", "scale"], "desktop render slides input");
   if (value.scale != null && (typeof value.scale !== "number" || !Number.isFinite(value.scale) || value.scale <= 0)) {
     throw new Error("desktop render slides scale must be a positive number");
+  }
+  if (value.index != null && (typeof value.index !== "number" || !Number.isInteger(value.index) || value.index < 0)) {
+    throw new Error("desktop render slides index must be a non-negative integer");
   }
   return {
     ...(value.baseHref == null ? {} : { baseHref: normalizeNonEmptyString(value.baseHref, "desktop render slides baseHref") }),
     html: normalizeNonEmptyString(value.html, "desktop render slides html"),
+    ...(value.index == null ? {} : { index: value.index }),
     ...(value.scale == null ? {} : { scale: value.scale }),
   };
 }

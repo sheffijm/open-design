@@ -15,6 +15,7 @@ import { readProjectFile } from './projects.js';
 export interface BuildDeckRenderInputOptions {
   daemonUrl: string;
   fileName: string;
+  index?: number;
   projectId: string;
   projectsRoot: string;
   scale?: number;
@@ -44,6 +45,7 @@ export async function buildDeckRenderInput(
     input: {
       baseHref: rawBaseHref(options.daemonUrl, options.projectId, options.fileName),
       html: file.buffer.toString('utf8'),
+      ...(options.index == null ? {} : { index: options.index }),
       ...(options.scale == null ? {} : { scale: options.scale }),
     },
   };
