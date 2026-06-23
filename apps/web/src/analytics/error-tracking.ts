@@ -137,10 +137,21 @@ const FETCH_FAILURE_MESSAGES = new Set([
   'NetworkError when attempting to fetch resource.', // Firefox
 ]);
 
-// True when the exception originated in packaged desktop app code, which is
-// served from the `od://` scheme. We key off the stack origin rather than
-// `window.location` so the decision is tied to where the failing call
-// actually ran, and so it's deterministic to test.
+// A frame originates in packaged desktop app code when its (pre-scrub) path
+// is either:
+//   - served from the `od://` scheme — the packaged renderer, all platforms;
+//   - a `file://` path inside the macOS app bundle, i.e. it contains
+//     `.app/Contents/Resources` (source-mapped frames; scrub.ts rewrites
+//     these for privacy — see `scrubFilePath`). We match the bundle marker
+//     rather than a channel-specific app name so `Open Design Beta.app` /
+//     `Open Design Preview.app` builds are covered too.
+function isPackagedFramePath(path: string): boolean {
+  return path.startsWith('od://') || path.includes('.app/Contents/Resources');
+}
+
+// True when the exception originated in packaged desktop app code. We key off
+// the stack origin rather than `window.location` so the decision is tied to
+// where the failing call actually ran, and so it's deterministic to test.
 function originatesInPackagedApp(list: Array<Record<string, unknown>>): boolean {
   const stacktrace = list[0]?.stacktrace as
     | { frames?: Array<Record<string, unknown>> }
@@ -148,7 +159,7 @@ function originatesInPackagedApp(list: Array<Record<string, unknown>>): boolean 
   const frames = stacktrace?.frames ?? [];
   return frames.some((frame) => {
     const path = typeof frame.abs_path === 'string' ? frame.abs_path : frame.filename;
-    return typeof path === 'string' && path.startsWith('od://');
+    return typeof path === 'string' && isPackagedFramePath(path);
   });
 }
 

@@ -330,6 +330,35 @@ describe('error-tracking', () => {
     );
   });
 
+  // Packaged exceptions don't only arrive as od:// frames — source-mapped
+  // frames surface as `file:///…/<Channel>.app/Contents/Resources/…` (the
+  // shape scrub.ts rewrites). Those packaged fetch failures must be dropped
+  // too, otherwise part of the noise path leaks through.
+  it('drops packaged fetch noise from file:// app-bundle stack frames', () => {
+    setExceptionTrackingContext({
+      apiKey: 'phc_test',
+      host: 'https://us.i.posthog.com',
+      distinctId: 'user-bundle',
+    });
+
+    const bundled = new TypeError('Failed to fetch');
+    bundled.stack = [
+      'TypeError: Failed to fetch',
+      '    at fetchProjects (file:///Applications/Open Design.app/Contents/Resources/apps/web/src/state/projects.ts:88:14)',
+    ].join('\n');
+    reportHandledException(bundled);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Beta/preview channels use a different app-bundle name — still dropped.
+    const beta = new TypeError('Failed to fetch');
+    beta.stack = [
+      'TypeError: Failed to fetch',
+      '    at fetchProjects (file:///Applications/Open Design Beta.app/Contents/Resources/apps/web/src/state/projects.ts:88:14)',
+    ].join('\n');
+    reportHandledException(beta);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   // AbortError is NOT blanket-dropped: it isn't necessarily fetch-lifecycle
   // cancellation and was never a measured noise source. It flows through.
   it('does not drop AbortError', () => {
