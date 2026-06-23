@@ -1,6 +1,10 @@
 import type { LiveArtifactRefreshStatus } from '../api/live-artifacts.js';
 import type { SseErrorPayload } from '../errors.js';
 import type { SseTransportEvent } from './common.js';
+import type {
+  TrackingRunFailureCategory,
+  TrackingRunFailureUserAction,
+} from '../analytics/events.js';
 
 export type LiveArtifactSseAction = 'created' | 'updated' | 'deleted';
 export type LiveArtifactRefreshSsePhase = 'started' | 'succeeded' | 'failed';
@@ -76,6 +80,13 @@ export interface ChatSseEndPayload {
    *  runtime). Lets the chat offer a Continue affordance without a separate
    *  run-status fetch. Mirrors ChatRunStatusResponse.resumable. */
   resumable?: boolean;
+  /** Structured failure classification for a `failed`/`canceled` run, so the
+   *  chat can render the unified failure card straight off the terminal event
+   *  without a separate run-status fetch. Mirrors
+   *  ChatRunStatusResponse.failureCategory / .userAction. Null/absent on
+   *  success. */
+  failureCategory?: TrackingRunFailureCategory | null;
+  userAction?: TrackingRunFailureUserAction | null;
 }
 
 export type DaemonAgentPayload =
