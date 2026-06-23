@@ -107,7 +107,7 @@ export interface DesignKit {
   sourceUrl?: string;
   projectId?: string;
   editable: boolean;
-  /** True only when modules can be written back (a writable brand.json exists). */
+  /** True when modules can be written back to the backing project. */
   canUpload: boolean;
   logoSrc?: string | null;
   logoAlternates: string[];
@@ -172,11 +172,77 @@ function hasLayout(layout: KitLayout | undefined): boolean {
   );
 }
 
-function hasTypography(typography: DesignKit['typography']): boolean {
-  return Boolean(typography.display || typography.body || typography.mono);
+/**
+ * Overlay a DESIGN.md edit onto an extracted kit module-by-module, field-by-field.
+ *
+ * A DESIGN.md draft is almost always a *partial* override of the richer
+ * `brand.json` the extractor produced: the user adds a display font, or tweaks
+ * the imagery style, and leaves everything else implicit. These helpers treat a
+ * missing/empty overlay slot as "keep what was extracted" so a partial edit can
+ * never silently drop the untouched `brand.json` data (body/mono fonts, imagery
+ * samples, the other voice/layout fields).
+ */
+function mergeTypography(
+  base: DesignKit['typography'],
+  overlay: DesignKit['typography'],
+): DesignKit['typography'] {
+  return {
+    display: overlay.display ?? base.display,
+    body: overlay.body ?? base.body,
+    mono: overlay.mono ?? base.mono,
+  };
 }
 
-function mergeBrandKitWithDesignMd(
+function mergeVoice(
+  base: BrandVoice | undefined,
+  overlay: BrandVoice | undefined,
+): BrandVoice | undefined {
+  if (!overlay) return base;
+  if (!base) return overlay;
+  return {
+    adjectives: overlay.adjectives.length > 0 ? overlay.adjectives : base.adjectives,
+    tone: overlay.tone.trim() ? overlay.tone : base.tone,
+    messagingPillars:
+      overlay.messagingPillars.length > 0 ? overlay.messagingPillars : base.messagingPillars,
+    vocabulary: {
+      use: overlay.vocabulary.use.length > 0 ? overlay.vocabulary.use : base.vocabulary.use,
+      avoid:
+        overlay.vocabulary.avoid.length > 0 ? overlay.vocabulary.avoid : base.vocabulary.avoid,
+    },
+  };
+}
+
+function mergeImagery(
+  base: KitImagery | undefined,
+  overlay: KitImagery | undefined,
+): KitImagery | undefined {
+  if (!overlay) return base;
+  if (!base) return overlay;
+  return {
+    style: overlay.style.trim() ? overlay.style : base.style,
+    subjects: overlay.subjects.length > 0 ? overlay.subjects : base.subjects,
+    treatment: overlay.treatment.trim() ? overlay.treatment : base.treatment,
+    avoid: overlay.avoid.length > 0 ? overlay.avoid : base.avoid,
+    // DESIGN.md never carries harvested image samples; keep the extracted ones.
+    samples: base.samples.length > 0 ? base.samples : overlay.samples,
+  };
+}
+
+function mergeLayout(
+  base: KitLayout | undefined,
+  overlay: KitLayout | undefined,
+): KitLayout | undefined {
+  if (!overlay) return base;
+  if (!base) return overlay;
+  return {
+    radius: overlay.radius.trim() ? overlay.radius : base.radius,
+    borderWeight: overlay.borderWeight.trim() ? overlay.borderWeight : base.borderWeight,
+    spacing: overlay.spacing.trim() ? overlay.spacing : base.spacing,
+    postureRules: overlay.postureRules.length > 0 ? overlay.postureRules : base.postureRules,
+  };
+}
+
+export function mergeBrandKitWithDesignMd(
   kit: DesignKit,
   designMd: string,
   opts: ParsedKitOptions,
@@ -184,13 +250,7 @@ function mergeBrandKitWithDesignMd(
   if (!designMd.trim()) return kit;
   const parsed = parseDesignMd(designMd);
   const mdKit = parsedToKit(parsed, opts);
-  const typography = hasTypography(mdKit.typography) ? mdKit.typography : kit.typography;
-  const mdImagery = mdKit.imagery
-    ? {
-        ...mdKit.imagery,
-        samples: kit.imagery?.samples ?? [],
-      }
-    : undefined;
+  const typography = mergeTypography(kit.typography, mdKit.typography);
   return {
     ...kit,
     name: parsed.name.trim() || kit.name,
@@ -199,9 +259,9 @@ function mergeBrandKitWithDesignMd(
     colors: mdKit.colors.length > 0 ? mdKit.colors : kit.colors,
     typography,
     fonts: fontList(typography),
-    voice: mdKit.voice ?? kit.voice,
-    imagery: mdImagery && hasImagery(mdImagery) ? mdImagery : kit.imagery,
-    layout: mdKit.layout ?? kit.layout,
+    voice: mergeVoice(kit.voice, mdKit.voice),
+    imagery: mergeImagery(kit.imagery, mdKit.imagery),
+    layout: mergeLayout(kit.layout, mdKit.layout),
   };
 }
 
@@ -393,7 +453,7 @@ export function parsedToKit(parsed: ParsedDesignMd, opts: ParsedKitOptions): Des
     host: opts.host,
     projectId: opts.projectId,
     editable: opts.editable,
-    canUpload: false,
+    canUpload: opts.editable && Boolean(opts.projectId),
     logoSrc: null,
     logoAlternates: [],
     colors,

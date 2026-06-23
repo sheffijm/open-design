@@ -8,6 +8,7 @@ import {
   downloadImageDataUrl,
   buildSandboxedPreviewDocument,
   downloadDesignSystemArchive,
+  downloadProjectArchive,
   exportAsImage,
   exportAsMd,
   exportAsPdf,
@@ -538,6 +539,45 @@ describe('downloadDesignSystemArchive', () => {
 
     expect(ok).toBe(false);
     expect(capturedBlob).toBeUndefined();
+  });
+
+  it('downloads the backing project archive with the daemon filename', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('project-zip', {
+      status: 200,
+      headers: {
+        'content-type': 'application/zip',
+        'content-disposition': "attachment; filename=\"Project.zip\"; filename*=UTF-8''Project.zip",
+      },
+    })));
+
+    const ok = await downloadProjectArchive({
+      projectId: 'project 123',
+      fallbackTitle: 'Fallback Project',
+    });
+
+    expect(ok).toBe(true);
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project%20123/archive');
+    expect(capturedFilename).toBe('Project.zip');
+    expect(await capturedBlob!.text()).toContain('project-zip');
+  });
+
+  it('passes an optional root when downloading a project subfolder archive', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('folder-zip', {
+      status: 200,
+      headers: {
+        'content-type': 'application/zip',
+      },
+    })));
+
+    const ok = await downloadProjectArchive({
+      projectId: 'project-1',
+      fallbackTitle: 'Fallback Project',
+      root: '/system/',
+    });
+
+    expect(ok).toBe(true);
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/archive?root=system');
+    expect(capturedFilename).toBe('system.zip');
   });
 });
 

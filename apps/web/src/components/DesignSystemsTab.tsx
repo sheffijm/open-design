@@ -20,6 +20,7 @@ import {
 import { BRAND_REFERENCES } from '../runtime/brand-references';
 import { takeDesignSystemFocus } from '../runtime/brands';
 import {
+  deleteProjectFile,
   deleteDesignSystemDraft,
   fetchDesignSystem,
   fetchDesignSystemShowcase,
@@ -28,11 +29,12 @@ import {
   updateDesignSystemDraft,
   writeProjectTextFile,
 } from '../providers/registry';
-import { downloadDesignSystemArchive } from '../runtime/exports';
+import { downloadDesignSystemArchive, downloadProjectArchive } from '../runtime/exports';
 import { useDesignKit } from '../runtime/design-kit';
 import {
   deleteBrandImage,
   deleteBrandLogo,
+  replaceDesignMdColorAtIndex,
   updateBrandColor,
 } from '../runtime/kit-edit';
 import { useKitModuleUpload } from '../runtime/kit-upload';
@@ -919,6 +921,7 @@ function DesignSystemDetail({
   const [downloadFailed, setDownloadFailed] = useState(false);
   const initialDesignMdRef = useRef<string | null>(null);
   const initialBrandJsonRef = useRef<string | null>(null);
+  const initialBrandJsonLoadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -946,7 +949,10 @@ function DesignSystemDetail({
     if (!projectId) return;
     let cancelled = false;
     void fetchProjectFileText(projectId, 'brand.json', { cache: 'no-store' }).then((text) => {
-      if (!cancelled && initialBrandJsonRef.current === null) initialBrandJsonRef.current = text;
+      if (!cancelled && !initialBrandJsonLoadedRef.current) {
+        initialBrandJsonRef.current = text;
+        initialBrandJsonLoadedRef.current = true;
+      }
     });
     return () => {
       cancelled = true;
@@ -955,6 +961,7 @@ function DesignSystemDetail({
 
   const { uploading, uploadModule } = useKitModuleUpload({
     projectId,
+    title: system.title,
     onUploaded: () => {
       setReloadKey((k) => k + 1);
       void onSystemsRefresh?.();
@@ -979,10 +986,13 @@ function DesignSystemDetail({
     setDownloading(true);
     setDownloadFailed(false);
     try {
-      const ok = await downloadDesignSystemArchive({
-        designSystemId: system.id,
-        fallbackTitle: system.title,
-      });
+      const ok =
+        await downloadDesignSystemArchive({
+          designSystemId: system.id,
+          fallbackTitle: system.title,
+        }) || (projectId
+          ? await downloadProjectArchive({ projectId, fallbackTitle: system.title })
+          : false);
       setDownloadFailed(!ok);
     } finally {
       setDownloading(false);
@@ -1018,6 +1028,8 @@ function DesignSystemDetail({
       await writeProjectTextFile(projectId, 'DESIGN.md', originalMd);
       if (initialBrandJsonRef.current !== null) {
         await writeProjectTextFile(projectId, 'brand.json', initialBrandJsonRef.current);
+      } else if (initialBrandJsonLoadedRef.current) {
+        await deleteProjectFile(projectId, 'brand.json');
       }
     }
     setDesignMdBody(originalMd);
@@ -1028,7 +1040,12 @@ function DesignSystemDetail({
   async function changeKitColor(index: number, hex: string) {
     if (!projectId) return;
     const ok = await updateBrandColor(projectId, index, hex);
-    if (!ok) return;
+    if (!ok) {
+      const nextBody = replaceDesignMdColorAtIndex(designMdBody || detail?.body || '', index, hex);
+      if (!nextBody) return;
+      await saveDesignMd(nextBody);
+      return;
+    }
     setReloadKey((k) => k + 1);
     await onSystemsRefresh?.();
   }

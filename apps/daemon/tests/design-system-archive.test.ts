@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
@@ -78,6 +78,30 @@ describe('buildUserDesignSystemArchive', () => {
   it('returns null for non-user ids (presets are not downloadable here)', async () => {
     expect(await buildUserDesignSystemArchive(root, 'airbnb')).toBeNull();
     expect(await buildUserDesignSystemArchive(root, 'user:does-not-exist')).toBeNull();
+  });
+
+  it('never follows a symlink out of the design-system root into the ZIP', async () => {
+    // A crafted package drops a symlink that points at a daemon-readable file
+    // outside its own directory. The archive must not follow it — otherwise the
+    // download becomes an arbitrary-file-read exfiltration path.
+    const secret = path.join(root, 'outside-secret.txt');
+    await writeFile(secret, 'TOP SECRET DAEMON FILE');
+    await symlink(secret, path.join(root, dirId, 'leak.txt'));
+
+    const archive = await buildUserDesignSystemArchive(root, `user:${dirId}`);
+    expect(archive).not.toBeNull();
+
+    const zip = await JSZip.loadAsync(archive!.buffer);
+    const entries = Object.values(zip.files).filter((entry) => !entry.dir);
+    const names = entries.map((entry) => entry.name);
+
+    // The symlink entry itself is excluded...
+    expect(names).not.toContain('leak.txt');
+    // ...and the secret it pointed at never leaks into any archived file.
+    for (const entry of entries) {
+      const content = await entry.async('string');
+      expect(content).not.toContain('TOP SECRET DAEMON FILE');
+    }
   });
 
   it('does not overwrite a design system that already ships its own SKILLS.md', async () => {

@@ -30,11 +30,31 @@ export async function patchBrand(projectId: string, mutate: (brand: Brand) => vo
 
 export async function updateBrandColor(projectId: string, index: number, hex: string): Promise<boolean> {
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return false;
-  return patchBrand(projectId, (brand) => {
-    const color = brand.colors?.[index];
-    if (!color) return;
-    color.hex = hex.toUpperCase();
-  });
+  const brand = await readBrand(projectId);
+  const color = brand?.colors?.[index];
+  if (!brand || !color) return false;
+  color.hex = hex.toUpperCase();
+  return writeBrand(projectId, brand);
+}
+
+export function replaceDesignMdColorAtIndex(body: string, index: number, hex: string): string | null {
+  if (index < 0 || !/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const matches = [...body.matchAll(/#[0-9a-fA-F]{8}\b|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g)];
+  const seen = new Set<string>();
+  let colorIndex = 0;
+  for (const match of matches) {
+    const token = match[0];
+    const lower = token.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    if (colorIndex === index) {
+      const start = match.index ?? -1;
+      if (start < 0) return null;
+      return `${body.slice(0, start)}${hex.toUpperCase()}${body.slice(start + token.length)}`;
+    }
+    colorIndex += 1;
+  }
+  return null;
 }
 
 export async function deleteBrandLogo(projectId: string, index: number): Promise<boolean> {

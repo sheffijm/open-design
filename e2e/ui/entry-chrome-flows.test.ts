@@ -92,7 +92,8 @@ test('[P0] @critical entry chrome exposes the primary home creation surface and 
   await expect(page.locator('.entry-brand')).toHaveCount(0);
   await expect(page.getByTestId('home-hero-input')).toBeVisible();
   await expect(page.getByTestId('home-hero-plus-trigger')).toBeVisible();
-  await expect(page.getByTestId('home-hero-submit')).toBeDisabled();
+  // Empty input can still run the active placeholder-carousel suggestion.
+  await expect(page.getByTestId('home-hero-submit')).toBeEnabled();
   const createTabs = page.getByTestId('home-hero-type-tabs');
   await expect(createTabs).toBeVisible();
   await expect(page.getByTestId('home-hero-rail-prototype')).toBeVisible();
@@ -1296,7 +1297,7 @@ test('[P0] @critical home hero input keeps Shift+Enter as a newline and submits 
   const input = page.getByTestId('home-hero-input');
   const submit = page.getByTestId('home-hero-submit');
 
-  await expect(submit).toBeDisabled();
+  await expect(submit).toBeEnabled();
   await input.click();
   await input.fill('Line one');
   await input.press('Shift+Enter');
@@ -1354,7 +1355,7 @@ test('[P0] @critical home hero attachment input stages files, enables submit, an
 
   const input = page.getByTestId('home-hero-file-input');
   const submit = page.getByTestId('home-hero-submit');
-  await expect(submit).toBeDisabled();
+  await expect(submit).toBeEnabled();
 
   await input.setInputFiles({
     name: 'brief.txt',
@@ -1369,7 +1370,7 @@ test('[P0] @critical home hero attachment input stages files, enables submit, an
 
   await page.getByRole('button', { name: /Remove brief\.txt/i }).click();
   await expect(staged).toHaveCount(0);
-  await expect(submit).toBeDisabled();
+  await expect(submit).toBeEnabled();
 });
 
 test('[P0] @critical home hero attachment-only submit uploads the file and sends it with the first message', async ({ page }) => {

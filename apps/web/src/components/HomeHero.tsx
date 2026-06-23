@@ -31,6 +31,7 @@ import type {
   McpServerConfig,
 } from '@open-design/contracts';
 import { DesignSystemPicker } from './DesignSystemPicker';
+import { SessionModeToggle } from './SessionModeToggle';
 import type { SkillSummary } from '../types';
 import { Icon, type IconName } from './Icon';
 import { useAnalytics } from '../analytics/provider';
@@ -1624,6 +1625,13 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
             ) : null}
           </div>
           <div className="home-hero__foot-right">
+            {onSessionModeChange ? (
+              <SessionModeToggle
+                mode={sessionMode}
+                onChange={onSessionModeChange}
+                disabled={submitting}
+              />
+            ) : null}
             {executionSwitcher ? (
               <div className="home-hero__execution-switcher">
                 {executionSwitcher}

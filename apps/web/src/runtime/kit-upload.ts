@@ -23,9 +23,10 @@ export interface KitModuleUpload {
 
 export function useKitModuleUpload(opts: {
   projectId?: string;
+  title?: string;
   onUploaded?: () => void;
 }): KitModuleUpload {
-  const { projectId, onUploaded } = opts;
+  const { projectId, title, onUploaded } = opts;
   const [uploading, setUploading] = useState<KitUploadModule | null>(null);
 
   const uploadModule = useCallback(
@@ -40,52 +41,28 @@ export function useKitModuleUpload(opts: {
         const uploaded = await uploadProjectFile(projectId, file, path);
         if (!uploaded) return;
 
-        // Patch brand.json so the kit view picks up the new asset. Best-effort:
-        // if there is no brand.json the file still lands in the project.
         const raw = await fetchProjectFileText(projectId, 'brand.json', { cache: 'no-store' });
-        if (raw) {
-          try {
-            const brand = JSON.parse(raw) as Brand;
-            if (module === 'logo') {
-              const prev = brand.logo?.primary ?? null;
-              brand.logo = brand.logo ?? { primary: null, alternates: [], notes: '' };
-              brand.logo.alternates = brand.logo.alternates ?? [];
-              if (prev && prev !== path && !brand.logo.alternates.includes(prev)) {
-                brand.logo.alternates = [prev, ...brand.logo.alternates];
-              }
-              brand.logo.primary = path;
-            } else if (module === 'image') {
-              brand.imagery = brand.imagery ?? {
-                style: '',
-                subjects: [],
-                treatment: '',
-                avoid: [],
-                samples: [],
-              };
-              brand.imagery.samples = brand.imagery.samples ?? [];
-              brand.imagery.samples.push({ file: path, kind: 'upload' });
-            } else {
-              const family = safe
-                .replace(/\.(otf|ttf|woff2?)$/i, '')
-                .replace(/[-_]+/g, ' ')
-                .trim() || 'Uploaded font';
-              const spec = { family, fallbacks: ['system-ui', 'sans-serif'], weights: [400] };
-              brand.typography = brand.typography ?? {};
-              if (!brand.typography.display) brand.typography.display = spec;
-              if (!brand.typography.body) brand.typography.body = spec;
-            }
-            await writeProjectTextFile(projectId, 'brand.json', JSON.stringify(brand, null, 2));
-          } catch {
-            // Malformed brand.json — leave the uploaded file in place.
+        const brand = brandFromRaw(raw, title);
+        if (module === 'logo') {
+          const prev = brand.logo.primary;
+          if (prev && prev !== path && !brand.logo.alternates.includes(prev)) {
+            brand.logo.alternates = [prev, ...brand.logo.alternates];
           }
+          brand.logo.primary = path;
+        } else if (module === 'image') {
+          brand.imagery.samples = brand.imagery.samples ?? [];
+          brand.imagery.samples.push({ file: path, kind: 'upload' });
+        } else {
+          const family = fontFamilyFromFilename(safe);
+          const spec = { family, fallbacks: ['system-ui', 'sans-serif'], weights: [400] };
+          brand.typography.display = spec;
+          brand.typography.body = spec;
         }
+        await writeProjectTextFile(projectId, 'brand.json', JSON.stringify(brand, null, 2));
         if (module === 'font') {
           const manifestRaw = await fetchProjectFileText(projectId, 'fonts/manifest.json', { cache: 'no-store' });
           const manifest = parseFontManifest(manifestRaw);
-          const family = safe
-            .replace(/\.(otf|ttf|woff2?)$/i, '')
-            .replace(/[-_]+/g, ' ')
-            .trim() || 'Uploaded font';
+          const family = fontFamilyFromFilename(safe);
           manifest.files = manifest.files.filter((entry) => entry.file !== safe);
           manifest.files.push({
             family,
@@ -101,10 +78,96 @@ export function useKitModuleUpload(opts: {
         setUploading(null);
       }
     },
-    [projectId, uploading, onUploaded],
+    [projectId, title, uploading, onUploaded],
   );
 
   return { uploading, uploadModule };
+}
+
+function defaultFontSpec(): Brand['typography']['display'] {
+  return {
+    family: 'system-ui',
+    fallbacks: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+    weights: [400, 700],
+  };
+}
+
+function emptyBrand(title?: string): Brand {
+  const font = defaultFontSpec();
+  return {
+    name: title?.trim() || 'Design system',
+    tagline: '',
+    description: '',
+    sourceUrl: '',
+    logo: { primary: null, alternates: [], notes: '' },
+    colors: [],
+    typography: { display: font, body: font },
+    voice: {
+      adjectives: [],
+      tone: '',
+      messagingPillars: [],
+      vocabulary: { use: [], avoid: [] },
+    },
+    imagery: {
+      style: '',
+      subjects: [],
+      treatment: '',
+      avoid: [],
+      samples: [],
+    },
+    layout: {
+      radius: '',
+      borderWeight: '',
+      spacing: '',
+      postureRules: [],
+    },
+  };
+}
+
+function brandFromRaw(raw: string | null, title?: string): Brand {
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<Brand>;
+      const fallback = emptyBrand(title);
+      const voice = parsed.voice ?? fallback.voice;
+      const imagery = parsed.imagery ?? fallback.imagery;
+      return {
+        ...fallback,
+        ...parsed,
+        logo: { ...fallback.logo, ...(parsed.logo ?? {}) },
+        typography: { ...fallback.typography, ...(parsed.typography ?? {}) },
+        voice: {
+          adjectives: Array.isArray(voice.adjectives) ? voice.adjectives : [],
+          tone: typeof voice.tone === 'string' ? voice.tone : '',
+          messagingPillars: Array.isArray(voice.messagingPillars) ? voice.messagingPillars : [],
+          vocabulary: {
+            use: Array.isArray(voice.vocabulary?.use) ? voice.vocabulary.use : [],
+            avoid: Array.isArray(voice.vocabulary?.avoid) ? voice.vocabulary.avoid : [],
+          },
+        },
+        imagery: {
+          style: typeof imagery.style === 'string' ? imagery.style : '',
+          subjects: Array.isArray(imagery.subjects) ? imagery.subjects : [],
+          treatment: typeof imagery.treatment === 'string' ? imagery.treatment : '',
+          avoid: Array.isArray(imagery.avoid) ? imagery.avoid : [],
+          samples: Array.isArray(imagery.samples) ? imagery.samples : [],
+        },
+        layout: { ...fallback.layout, ...(parsed.layout ?? {}) },
+        colors: Array.isArray(parsed.colors) ? parsed.colors as Brand['colors'] : [],
+      };
+    } catch {
+      // Replace malformed brand.json with a valid editable kit so the upload
+      // action has a visible result instead of silently storing an orphan file.
+    }
+  }
+  return emptyBrand(title);
+}
+
+function fontFamilyFromFilename(fileName: string): string {
+  return fileName
+    .replace(/\.(otf|ttf|woff2?)$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .trim() || 'Uploaded font';
 }
 
 interface FontManifest {

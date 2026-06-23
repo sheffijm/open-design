@@ -856,6 +856,27 @@ export async function downloadDesignSystemArchive(opts: {
   }
 }
 
+export async function downloadProjectArchive(opts: {
+  projectId: string;
+  fallbackTitle: string;
+  root?: string;
+}): Promise<boolean> {
+  const root = opts.root?.replace(/^\/+|\/+$/g, '') ?? '';
+  const url = `/api/projects/${encodeURIComponent(opts.projectId)}/archive${
+    root ? `?root=${encodeURIComponent(root)}` : ''
+  }`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`archive request failed (${resp.status})`);
+    const blob = await resp.blob();
+    triggerDownload(blob, archiveFilenameFrom(resp, opts.fallbackTitle, root));
+    return true;
+  } catch (err) {
+    console.warn('[downloadProjectArchive] failed:', err);
+    return false;
+  }
+}
+
 // Exported for unit tests. Pure string transform with no DOM dependency.
 export function archiveRootFromFilePath(filePath: string): string {
   const trimmed = (filePath || '').replace(/^\/+/, '');

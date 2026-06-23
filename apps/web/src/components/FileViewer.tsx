@@ -4313,7 +4313,7 @@ function ReactComponentViewer({
             <iframe
               data-testid="react-component-preview-frame"
               title={file.name}
-              sandbox="allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox"
+              sandbox="allow-scripts allow-downloads"
               srcDoc={srcDoc}
               style={{ width: '100%', height: '100%', border: 0 }}
             />
@@ -9088,7 +9088,7 @@ function HtmlViewer({
                           aria-hidden={useUrlLoadPreview ? undefined : true}
                           tabIndex={useUrlLoadPreview ? 0 : -1}
                           title={file.name}
-                          sandbox="allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox"
+                          sandbox="allow-scripts allow-downloads"
                           src={urlTransportSrc}
                           onLoad={() => {
                             const frame = urlPreviewIframeRef.current;
@@ -9113,7 +9113,7 @@ function HtmlViewer({
                           aria-hidden={useUrlLoadPreview ? undefined : true}
                           tabIndex={useUrlLoadPreview ? 0 : -1}
                           title={file.name}
-                          sandbox="allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox"
+                          sandbox="allow-scripts allow-downloads"
                           src={urlTransportSrc}
                           onLoad={() => {
                             const frame = urlPreviewIframeRef.current;
@@ -9139,7 +9139,7 @@ function HtmlViewer({
                         aria-hidden={useUrlLoadPreview ? true : undefined}
                         tabIndex={useUrlLoadPreview ? -1 : 0}
                         title={file.name}
-                        sandbox="allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox"
+                        sandbox="allow-scripts allow-downloads"
                         srcDoc={srcDocTransportContent}
                         onLoad={() => {
                           const frame = srcDocPreviewIframeRef.current;
@@ -9393,14 +9393,14 @@ function HtmlViewer({
           {useUrlLoadPreview ? (
             <iframe
               title="present"
-              sandbox="allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox"
+              sandbox="allow-scripts allow-downloads"
               data-od-render-mode="url-load"
               src={activePreviewSrcUrl}
             />
           ) : (
             <iframe
               title="present"
-              sandbox="allow-scripts allow-downloads allow-popups allow-popups-to-escape-sandbox"
+              sandbox="allow-scripts allow-downloads"
               data-od-render-mode="srcdoc"
               srcDoc={srcDoc}
             />

@@ -54,9 +54,13 @@ describe('TemplatePicker', () => {
 
     expect(screen.getByTestId('home-hero-template-picker').className).toContain('has-selection');
     expect(screen.getByTestId('home-hero-template-trigger').textContent).toContain('Wireframe');
-    expect(screen.getByTestId('home-hero-template-reset')).toBeTruthy();
+    const reset = screen.getByTestId('home-hero-template-reset');
+    const resetIcon = reset.querySelector('svg');
+    expect(resetIcon).not.toBeNull();
+    expect(resetIcon?.getAttribute('width')).toBe('11');
+    expect(resetIcon?.getAttribute('height')).toBe('11');
 
-    fireEvent.click(screen.getByTestId('home-hero-template-reset'));
+    fireEvent.click(reset);
     expect(onClear).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('home-hero-template-menu')).toBeNull();
 

@@ -150,7 +150,7 @@ export function TemplatePicker({
             onClear();
           }}
         >
-          <Icon name="close" size={9} />
+          <Icon name="close" size={11} strokeWidth={2.2} />
         </button>
       ) : null}
       {open ? (

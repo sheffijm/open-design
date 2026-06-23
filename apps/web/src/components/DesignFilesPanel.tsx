@@ -997,6 +997,7 @@ export function DesignFilesPanel({
                       className="df-empty-cta df-empty-cta-secondary"
                       data-testid="design-files-empty-open-browser"
                       onClick={onOpenBrowser}
+                      aria-label={t('workspace.newBrowserDescription')}
                       title={t('workspace.newBrowserDescription')}
                     >
                       <Icon name="globe" size={13} />
