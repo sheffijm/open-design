@@ -29,7 +29,15 @@ import { join } from "node:path";
 import { release } from "node:os";
 
 const DEFAULT_HOST = "https://us.i.posthog.com";
-const DEFAULT_TIMEOUT_MS = 1500;
+// Real-machine e2e (local packaged build → delete better-sqlite3 → launch →
+// query PostHog) proved a 1.5s cap silently DROPPED the event: a cold DNS+TLS
+// handshake to us.i.posthog.com from a fresh main process exceeds 1.5s, so the
+// race timed out and process.exit(1) killed the in-flight POST before it
+// landed. 5s gives the one request room to complete on a cold connection.
+// A genuinely offline machine still exits fast — fetch rejects on DNS failure,
+// so `send` resolves early and we don't burn the full bound; only a black-hole
+// network pays the full 5s, which on an already-crashing exit is acceptable.
+const DEFAULT_TIMEOUT_MS = 5000;
 const LOG_TAIL_MAX_BYTES = 16_384;
 
 export const STARTUP_FAILURE_EVENT = "packaged_runtime_failed";
