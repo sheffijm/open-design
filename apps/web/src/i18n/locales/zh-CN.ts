@@ -51,6 +51,7 @@ export const zhCN: Dict = {
   'chat.runError.retryHint.now': '可立即重试。',
   'chat.runError.retryHint.wait': '请等待几秒后再重试。',
   'chat.runError.retryHint.afterFix': '可重试；若持续失败，请检查配置。',
+  'chat.runError.cta.switchModel': '换个模型',
   'common.cancel': '取消',
   'common.save': '保存',
   'common.close': '关闭',

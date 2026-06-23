@@ -2292,6 +2292,17 @@ export function ChatPane({
                               {t('promptTemplates.retry')}
                             </button>
                           ) : null}
+                          {/* Switch model — opens the model picker (no auto-retry)
+                              for failures a different model could get past. */}
+                          {runFailureUi.offerSwitchModel && onOpenSettings ? (
+                            <button
+                              type="button"
+                              className="ghost chat-error-retry"
+                              onClick={() => onOpenSettings('execution')}
+                            >
+                              {t('chat.runError.cta.switchModel')}
+                            </button>
+                          ) : null}
                         </>
                       ) : null}
                     </div>

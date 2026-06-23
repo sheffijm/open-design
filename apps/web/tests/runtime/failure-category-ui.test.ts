@@ -26,6 +26,20 @@ describe('enrichFailureUiWithCategory', () => {
     const ui = enrichFailureUiWithCategory(generic(), 'user_cancel', 'none');
     expect(ui.titleKey).toBe('chat.runError.title.userCancel');
     expect(ui.reasonKey).toBe('chat.runError.reason.userCancel');
+    expect(ui.offerSwitchModel).toBe(false);
+  });
+
+  it('offers switch-model only for model-recoverable categories', () => {
+    expect(
+      enrichFailureUiWithCategory(generic(), 'model_unavailable', 'switch_model').offerSwitchModel,
+    ).toBe(true);
+    expect(
+      enrichFailureUiWithCategory(generic(), 'timeout', 'retry').offerSwitchModel,
+    ).toBe(true);
+    // account / cancel issues a different model can't fix:
+    expect(enrichFailureUiWithCategory(generic(), 'rate_limit', 'retry').offerSwitchModel).toBe(
+      false,
+    );
   });
 
   it('leaves the interactive AMR auth UI untouched', () => {

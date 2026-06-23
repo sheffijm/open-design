@@ -2120,6 +2120,8 @@ export interface Dict {
   'chat.runError.retryHint.now': string;
   'chat.runError.retryHint.wait': string;
   'chat.runError.retryHint.afterFix': string;
+  // PR-2: secondary "switch model" CTA (opens the model picker).
+  'chat.runError.cta.switchModel': string;
   'chat.tabComments': string;
   'chat.commentsSoon': string;
   'chat.comments.attached': string;

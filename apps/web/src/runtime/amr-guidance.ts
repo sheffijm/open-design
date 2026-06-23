@@ -119,6 +119,10 @@ export interface RunFailureUi {
   expectationKey?: keyof Dict | null;
   // Short retry guidance ("Retry now." / "Wait a few seconds, then retry.").
   retryHintKey?: keyof Dict | null;
+  // Offer a secondary "Switch model" action (opens the model picker, no
+  // auto-retry) for failures a different model could get past — set per
+  // category by enrichFailureUiWithCategory.
+  offerSwitchModel?: boolean;
   // Show a secondary plain "retry" button alongside the primary action (used
   // by the recharge case, where retry is manual after topping up).
   secondaryRetry: boolean;
@@ -305,12 +309,26 @@ const CATEGORY_COPY: Partial<Record<TrackingRunFailureCategory, CategoryCopy>> =
   },
 };
 
+// Failures a different model could plausibly get past, so the card offers a
+// "Switch model" action. Excludes auth / insufficient_balance (account issues,
+// not model issues), user_cancel, rate_limit, and process_exit. Aligned with the
+// product mapping table review (switch-model is broadly useful here).
+const SWITCH_MODEL_CATEGORIES = new Set<TrackingRunFailureCategory>([
+  'model_unavailable',
+  'prompt_too_large',
+  'upstream_unavailable',
+  'timeout',
+  'empty_output',
+  'tool_error',
+]);
+
 // Layer the daemon's structured failure classification onto the errorCode-derived
 // base UI. The base (resolveRunFailureUi) owns the interactive recovery flows
 // (AMR sign-in/recharge, Antigravity terminal, connection-drop) and is left
 // intact; this only adds a human-readable reason / expectation / retry hint for
-// the previously-generic failures, and upgrades the generic title when we have a
-// more specific one. `userAction` is reserved for PR-2b's category-specific CTAs.
+// the previously-generic failures, upgrades the generic title when we have a
+// more specific one, and offers a "Switch model" action where it could help.
+// `userAction` is reserved for PR-2b's category-specific primary CTAs.
 export function enrichFailureUiWithCategory(
   base: RunFailureUi,
   category: TrackingRunFailureCategory | null | undefined,
@@ -328,5 +346,6 @@ export function enrichFailureUiWithCategory(
     reasonKey: copy.reasonKey ?? null,
     expectationKey: copy.expectationKey ?? null,
     retryHintKey: copy.retryHintKey ?? null,
+    offerSwitchModel: SWITCH_MODEL_CATEGORIES.has(category),
   };
 }

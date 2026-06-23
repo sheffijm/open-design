@@ -51,6 +51,7 @@ export const th: Dict = {
   'chat.runError.retryHint.now': 'Retry now.',
   'chat.runError.retryHint.wait': 'Wait a few seconds, then retry.',
   'chat.runError.retryHint.afterFix': 'Retry; if it persists, check the configuration.',
+  'chat.runError.cta.switchModel': 'Switch model',
   'common.cancel': 'ยกเลิก',
   'common.save': 'บันทึก',
   'common.close': 'ปิด',
