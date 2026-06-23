@@ -438,7 +438,18 @@ export type PersistedAgentEvent =
   // `code` carries the structured API error code for `label: 'error'`
   // status events (e.g. AGENT_AUTH_REQUIRED, RATE_LIMITED). Clients use it to
   // decide error-specific affordances such as the hosted-AMR nudge.
-  | { kind: 'status'; label: string; detail?: string; code?: string }
+  // `failureCategory` / `userAction` carry the daemon's structured failure
+  // classification (mirrors ChatRunStatusResponse.failureCategory/.userAction),
+  // persisted on the error status event so the failure card renders a
+  // human-readable reason + CTA after a reload without re-fetching run status.
+  | {
+      kind: 'status';
+      label: string;
+      detail?: string;
+      code?: string;
+      failureCategory?: TrackingRunFailureCategory;
+      userAction?: TrackingRunFailureUserAction;
+    }
   | { kind: 'text'; text: string }
   | { kind: 'conversation_title'; title: string }
   | { kind: 'thinking'; text: string }

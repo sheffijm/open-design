@@ -105,7 +105,11 @@ import { playSound, showCompletionNotification } from '../utils/notifications';
 import { randomUUID } from '../utils/uuid';
 import { DEFAULT_NOTIFICATIONS } from '../state/config';
 import type { TodoItem } from '../runtime/todos';
-import { appendErrorStatusEvent } from '../runtime/chat-events';
+import {
+  appendErrorStatusEvent,
+  errorFailureClassification,
+  type ErrorStatusClassification,
+} from '../runtime/chat-events';
 import { RESUME_CONTINUE_PROMPT } from '../runtime/resume';
 import {
   buildDesignSystemPackageAuditRepairPrompt,
@@ -2468,11 +2472,16 @@ export function ProjectView({
   // rides along on the error status event so AssistantMessage can render the
   // hosted-AMR nudge for model/auth/quota failures on non-AMR agents.
   const appendAssistantErrorEvent = useCallback(
-    (messageId: string, message: string, code?: string) => {
+    (
+      messageId: string,
+      message: string,
+      code?: string,
+      classification?: ErrorStatusClassification,
+    ) => {
       if (!message) return;
       updateMessageById(
         messageId,
-        (prev) => appendErrorStatusEvent(prev, message, code),
+        (prev) => appendErrorStatusEvent(prev, message, code, classification),
         true,
       );
     },
@@ -2998,6 +3007,7 @@ export function ProjectView({
             onError: (err) => {
               const errorCode = (err as Error & { code?: string }).code;
               const resumable = (err as Error & { resumable?: boolean }).resumable === true;
+              const classification = errorFailureClassification(err);
               // A superseded reattached run must not paint a global failure
               // banner or re-finalize its message over the replacement run.
               const runMayFinalize =
@@ -3007,7 +3017,7 @@ export function ProjectView({
               unregisterTextBuffer();
               if (runMayFinalize) {
                 setError(err.message);
-                appendAssistantErrorEvent(message.id, err.message, errorCode);
+                appendAssistantErrorEvent(message.id, err.message, errorCode, classification);
                 updateMessageById(
                   message.id,
                   (prev) => ({
@@ -4013,6 +4023,7 @@ export function ProjectView({
           const endedAt = Date.now();
           const errorCode = (err as Error & { code?: string }).code;
           const resumable = (err as Error & { resumable?: boolean }).resumable === true;
+          const classification = errorFailureClassification(err);
           // A run superseded by a "send now" interrupt can still surface a
           // late disconnect error (e.g. a canceled stream that lost its
           // terminal SSE). It must not paint a global failure banner or
@@ -4025,7 +4036,7 @@ export function ProjectView({
           cancelSendTextBuffer();
           if (runMayFinalize) {
             setError(err.message);
-            appendAssistantErrorEvent(assistantId, err.message, errorCode);
+            appendAssistantErrorEvent(assistantId, err.message, errorCode, classification);
             updateAssistant((prev) => ({
               ...prev,
               endedAt,

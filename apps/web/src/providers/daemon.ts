@@ -27,6 +27,8 @@ import type {
   ResearchOptions,
   RunContextSelection,
   SseErrorPayload,
+  TrackingRunFailureCategory,
+  TrackingRunFailureUserAction,
 } from '@open-design/contracts';
 import type { StreamHandlers } from './anthropic';
 
@@ -918,6 +920,13 @@ async function consumeDaemonRun({
   // a session-resuming runtime). Carried onto the surfaced error so the chat
   // can offer a Continue affordance. See ChatRunStatusResponse.resumable.
   let endResumable = false;
+  // Structured failure classification carried on the terminal `end` event /
+  // run status (PR-1). Stamped onto the surfaced error so the failure card can
+  // render a human-readable reason + CTA. Mirrors the endResumable handling.
+  let endFailure: {
+    failureCategory?: TrackingRunFailureCategory;
+    userAction?: TrackingRunFailureUserAction;
+  } | null = null;
   let lastEventId: string | null = initialLastEventId ?? null;
   let canceled = false;
   const cancelRun = () => {
@@ -1052,7 +1061,10 @@ async function consumeDaemonRun({
             if (status && (status.status === 'failed' || status.status === 'canceled')) {
               onRunStatus?.('failed');
               handlers.onError(
-                markErrorResumable(structuredError, status.resumable === true),
+                markErrorFailureClassification(
+                  markErrorResumable(structuredError, status.resumable === true),
+                  classificationFromStatus(status),
+                ),
               );
               return;
             }
@@ -1068,6 +1080,8 @@ async function consumeDaemonRun({
             exitCode = typeof event.data.code === 'number' ? event.data.code : null;
             exitSignal = typeof event.data.signal === 'string' ? event.data.signal : null;
             if (event.data.resumable === true) endResumable = true;
+            const endClassification = classificationFromStatus(event.data);
+            if (endClassification) endFailure = endClassification;
             // `serverDeclaredSuccess` records whether the server explicitly
             // set `status: 'succeeded'` in the end payload — the local
             // `'succeeded'` fallback below does not count and must keep
@@ -1093,6 +1107,8 @@ async function consumeDaemonRun({
         // end-event success.
         serverDeclaredSuccess = status.status === 'succeeded';
         if (status.resumable === true) endResumable = true;
+        const statusClassification = classificationFromStatus(status);
+        if (statusClassification) endFailure = statusClassification;
         onRunStatus?.(endStatus);
       } else {
         onRunStatus?.('failed');
@@ -1125,7 +1141,12 @@ async function consumeDaemonRun({
         (exitSignal || (exitCode !== null && exitCode !== 0)));
     if (looksLikeFailure) {
       if (pendingStructuredError) {
-        handlers.onError(markErrorResumable(pendingStructuredError, endResumable));
+        handlers.onError(
+          markErrorFailureClassification(
+            markErrorResumable(pendingStructuredError, endResumable),
+            endFailure,
+          ),
+        );
         return;
       }
       if (shouldSuppressLifecycleExitFallback(agentId, exitCode, exitSignal, stderrBuf)) {
@@ -1138,9 +1159,12 @@ async function consumeDaemonRun({
       const fallbackTail =
         tail || (isAmrOpenCodeExitFallback(agentId, stderrBuf) ? AMR_OPENCODE_INCOMPLETE_MESSAGE : '');
       handlers.onError(
-        markErrorResumable(
-          new Error(`agent exited with ${exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`}${fallbackTail ? `\n${fallbackTail}` : ''}`),
-          endResumable,
+        markErrorFailureClassification(
+          markErrorResumable(
+            new Error(`agent exited with ${exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`}${fallbackTail ? `\n${fallbackTail}` : ''}`),
+            endResumable,
+          ),
+          endFailure,
         ),
       );
       return;
@@ -1165,6 +1189,41 @@ function isChatRunStatus(value: unknown): value is ChatRunStatus {
  *  when true so non-resumable failures stay undefined. */
 function markErrorResumable(err: Error, resumable: boolean): Error {
   if (resumable) (err as Error & { resumable?: boolean }).resumable = true;
+  return err;
+}
+
+type ErrorFailureClassification = {
+  failureCategory?: TrackingRunFailureCategory;
+  userAction?: TrackingRunFailureUserAction;
+};
+
+/** Pull the structured failure classification (PR-1) off a run status body or
+ *  SSE end payload. Returns null when neither field is present. */
+function classificationFromStatus(
+  source: {
+    failureCategory?: TrackingRunFailureCategory | null;
+    userAction?: TrackingRunFailureUserAction | null;
+  } | null | undefined,
+): ErrorFailureClassification | null {
+  if (!source) return null;
+  if (!source.failureCategory && !source.userAction) return null;
+  return {
+    ...(source.failureCategory ? { failureCategory: source.failureCategory } : {}),
+    ...(source.userAction ? { userAction: source.userAction } : {}),
+  };
+}
+
+/** Tag an error surfaced to the chat with the daemon's failure classification so
+ *  the failure card renders a human-readable reason + CTA. Mirrors
+ *  markErrorResumable; only stamps present fields. */
+function markErrorFailureClassification(
+  err: Error,
+  classification: ErrorFailureClassification | null | undefined,
+): Error {
+  if (!classification) return err;
+  const target = err as Error & ErrorFailureClassification;
+  if (classification.failureCategory) target.failureCategory = classification.failureCategory;
+  if (classification.userAction) target.userAction = classification.userAction;
   return err;
 }
 

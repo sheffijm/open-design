@@ -4,6 +4,12 @@
 // its own module so ChatPane / ProjectView / AssistantMessage can import it
 // without a circular dependency.
 
+import type { Dict } from '../i18n/types';
+import type {
+  TrackingRunFailureCategory,
+  TrackingRunFailureUserAction,
+} from '@open-design/contracts';
+
 // AMR model-gateway console wallet (account, balance, recharge).
 // `source=open_design` tags the landing page_view so vela analytics can
 // attribute the visit to Open Design (per-product revenue/traffic attribution).
@@ -98,11 +104,21 @@ export type RunFailureTitleKey =
 
 export interface RunFailureUi {
   primaryAction: RunFailurePrimaryAction;
-  // Title shown above the detail message — names the failure type.
-  titleKey: RunFailureTitleKey;
+  // Title shown above the detail message — names the failure type. Widened from
+  // RunFailureTitleKey to any Dict key so the daemon's 12 failure categories can
+  // each contribute a clearer title (see enrichFailureUiWithCategory).
+  titleKey: keyof Dict;
   // Override the gray error card's text (e.g. AMR auth / balance get a clearer
   // explanation than the raw upstream string).
   messageKey: RunFailureMessageKey;
+  // Human-readable reason for the failure, derived from the daemon's structured
+  // `failureCategory`. When set it becomes the card's main detail line; the raw
+  // error sinks into the collapsible source. Null = fall back to messageKey/raw.
+  reasonKey?: keyof Dict | null;
+  // What happens after the user acts (e.g. "Re-runs with the same input").
+  expectationKey?: keyof Dict | null;
+  // Short retry guidance ("Retry now." / "Wait a few seconds, then retry.").
+  retryHintKey?: keyof Dict | null;
   // Show a secondary plain "retry" button alongside the primary action (used
   // by the recharge case, where retry is manual after topping up).
   secondaryRetry: boolean;
@@ -214,5 +230,103 @@ export function resolveRunFailureUi(
     messageKey: null,
     secondaryRetry: false,
     showSwitchCard: promote,
+  };
+}
+
+// Human-readable copy contributed by the daemon's structured failure category,
+// layered on top of the errorCode-derived base UI (see
+// enrichFailureUiWithCategory). Only the "informational" categories appear here:
+// `auth` / `insufficient_balance` keep their interactive base UI (AMR sign-in
+// pill, recharge) untouched, so this map intentionally omits them.
+type CategoryCopy = Pick<RunFailureUi, 'reasonKey' | 'expectationKey' | 'retryHintKey'> & {
+  // Upgrades the title ONLY when the base resolver fell back to the generic one.
+  titleKey?: keyof Dict;
+};
+
+const CATEGORY_COPY: Partial<Record<TrackingRunFailureCategory, CategoryCopy>> = {
+  rate_limit: {
+    titleKey: 'chat.runError.title.rateLimited',
+    reasonKey: 'chat.runError.reason.rateLimit',
+    expectationKey: 'chat.runError.expectation.retry',
+    retryHintKey: 'chat.runError.retryHint.wait',
+  },
+  model_unavailable: {
+    titleKey: 'chat.runError.title.modelUnavailable',
+    reasonKey: 'chat.runError.reason.modelUnavailable',
+    expectationKey: 'chat.runError.expectation.switchModel',
+    retryHintKey: 'chat.runError.retryHint.now',
+  },
+  prompt_too_large: {
+    titleKey: 'chat.runError.title.promptTooLarge',
+    reasonKey: 'chat.runError.reason.promptTooLarge',
+    expectationKey: 'chat.runError.expectation.reduceContext',
+    retryHintKey: null,
+  },
+  upstream_unavailable: {
+    titleKey: 'chat.runError.title.upstreamUnavailable',
+    reasonKey: 'chat.runError.reason.upstreamUnavailable',
+    expectationKey: 'chat.runError.expectation.retry',
+    retryHintKey: 'chat.runError.retryHint.wait',
+  },
+  timeout: {
+    titleKey: 'chat.runError.title.timeout',
+    reasonKey: 'chat.runError.reason.timeout',
+    expectationKey: 'chat.runError.expectation.retry',
+    retryHintKey: 'chat.runError.retryHint.now',
+  },
+  empty_output: {
+    titleKey: 'chat.runError.title.emptyOutput',
+    reasonKey: 'chat.runError.reason.emptyOutput',
+    expectationKey: 'chat.runError.expectation.retry',
+    retryHintKey: 'chat.runError.retryHint.now',
+  },
+  tool_error: {
+    titleKey: 'chat.runError.title.toolError',
+    reasonKey: 'chat.runError.reason.toolError',
+    expectationKey: 'chat.runError.expectation.retry',
+    retryHintKey: 'chat.runError.retryHint.afterFix',
+  },
+  process_exit: {
+    titleKey: 'chat.runError.title.processExit',
+    reasonKey: 'chat.runError.reason.processExit',
+    expectationKey: 'chat.runError.expectation.retry',
+    retryHintKey: 'chat.runError.retryHint.now',
+  },
+  user_cancel: {
+    titleKey: 'chat.runError.title.userCancel',
+    reasonKey: 'chat.runError.reason.userCancel',
+    expectationKey: null,
+    retryHintKey: null,
+  },
+  unknown: {
+    reasonKey: 'chat.runError.reason.unknown',
+    expectationKey: 'chat.runError.expectation.retry',
+    retryHintKey: 'chat.runError.retryHint.now',
+  },
+};
+
+// Layer the daemon's structured failure classification onto the errorCode-derived
+// base UI. The base (resolveRunFailureUi) owns the interactive recovery flows
+// (AMR sign-in/recharge, Antigravity terminal, connection-drop) and is left
+// intact; this only adds a human-readable reason / expectation / retry hint for
+// the previously-generic failures, and upgrades the generic title when we have a
+// more specific one. `userAction` is reserved for PR-2b's category-specific CTAs.
+export function enrichFailureUiWithCategory(
+  base: RunFailureUi,
+  category: TrackingRunFailureCategory | null | undefined,
+  _userAction: TrackingRunFailureUserAction | null | undefined,
+): RunFailureUi {
+  if (!category) return base;
+  const copy = CATEGORY_COPY[category];
+  if (!copy) return base;
+  return {
+    ...base,
+    titleKey:
+      copy.titleKey && base.titleKey === 'chat.runError.title.generic'
+        ? copy.titleKey
+        : base.titleKey,
+    reasonKey: copy.reasonKey ?? null,
+    expectationKey: copy.expectationKey ?? null,
+    retryHintKey: copy.retryHintKey ?? null,
   };
 }

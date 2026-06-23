@@ -764,6 +764,12 @@
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
 }
+/* neutral — an intentional user cancel is not an error; mute the dot so the
+   card reads as informational rather than red. */
+.run-error[data-tone='neutral'] .run-error__icon {
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text-muted);
+}
 .run-error__copy { min-width: 0; flex: 1 1 auto; }
 .run-error__title {
   margin: 0;
@@ -780,6 +786,18 @@
   max-width: 64ch;
   overflow-wrap: anywhere;
 }
+/* ⑤ what happens after the user acts, and ⑥ short retry guidance — quieter
+   than the detail line so they read as supporting hints, not new errors. */
+.run-error__expectation,
+.run-error__retry-hint {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-subtle, var(--text-muted));
+  max-width: 64ch;
+  overflow-wrap: anywhere;
+}
+.run-error__retry-hint { font-weight: 500; }
 
 /* ④ — collapsible error source (code-line styled, one line when collapsed) */
 .run-error__source {

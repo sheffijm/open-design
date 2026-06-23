@@ -47,7 +47,11 @@ import {
   AMR_LOGIN_STATUS_EVENT,
   amrLoginStatusEventReason,
 } from './amrLoginPolling';
-import { amrRechargeUrlForProfile, resolveRunFailureUi } from '../runtime/amr-guidance';
+import {
+  amrRechargeUrlForProfile,
+  resolveRunFailureUi,
+  enrichFailureUiWithCategory,
+} from '../runtime/amr-guidance';
 import {
   fetchVelaLoginStatus,
   type VelaLoginStatus,
@@ -896,8 +900,19 @@ export function ChatPane({
   })();
   // Per-case failure UI (button + copy + whether to promote AMR). Only
   // meaningful for a failed run (retryAssistant present).
+  // Structured failure classification persisted on the error status event
+  // (PR-1 daemon exposure → providers/daemon.ts → appendErrorStatusEvent). Layer
+  // its human-readable reason / expectation / retry-hint onto the errorCode UI.
+  const failedRunFailureCategory =
+    failedRunErrorEvent?.kind === 'status' ? failedRunErrorEvent.failureCategory : undefined;
+  const failedRunUserAction =
+    failedRunErrorEvent?.kind === 'status' ? failedRunErrorEvent.userAction : undefined;
   const runFailureUi = retryAssistant
-    ? resolveRunFailureUi(failedRunErrorEvent?.code, retryAssistant.agentId)
+    ? enrichFailureUiWithCategory(
+        resolveRunFailureUi(failedRunErrorEvent?.code, retryAssistant.agentId),
+        failedRunFailureCategory,
+        failedRunUserAction,
+      )
     : null;
   const hasInlineAmrAuthorizeFailure = Boolean(
     retryAssistant && onRetry && runFailureUi?.primaryAction === 'authorize',
@@ -962,9 +977,14 @@ export function ChatPane({
   const failedAgentLabel =
     agentDisplayName(retryAssistant?.agentId, retryAssistant?.agentName) ??
     t('chat.runError.agentFallback');
-  const displayError = runFailureUi?.messageKey
-    ? t(runFailureUi.messageKey, { agent: failedAgentLabel })
-    : rawError;
+  // Prefer the daemon-classified human reason (PR-2), then the case-specific
+  // message override (AMR auth/balance), then the raw upstream string. The raw
+  // error always sinks into the collapsible source below regardless.
+  const displayError = runFailureUi?.reasonKey
+    ? t(runFailureUi.reasonKey)
+    : runFailureUi?.messageKey
+      ? t(runFailureUi.messageKey, { agent: failedAgentLabel })
+      : rawError;
   const errorDiagnosticText = displayError
     ? buildRunErrorDiagnosticText({
         message: displayError,
@@ -984,12 +1004,14 @@ export function ChatPane({
   // Status-dot tone for the unified card. Brand (accent) for AMR sign-in/top-up
   // — the commercial recovery path; warn (amber) for the self-healing
   // connection drop; error (red) for everything else. Purely visual.
-  const runErrorTone: 'error' | 'warn' | 'brand' =
-    runFailureUi?.primaryAction === 'authorize' || runFailureUi?.primaryAction === 'recharge'
-      ? 'brand'
-      : failedRunErrorEvent?.code === 'AGENT_CONNECTION_DROPPED'
-        ? 'warn'
-        : 'error';
+  const runErrorTone: 'error' | 'warn' | 'brand' | 'neutral' =
+    failedRunFailureCategory === 'user_cancel'
+      ? 'neutral'
+      : runFailureUi?.primaryAction === 'authorize' || runFailureUi?.primaryAction === 'recharge'
+        ? 'brand'
+        : failedRunErrorEvent?.code === 'AGENT_CONNECTION_DROPPED'
+          ? 'warn'
+          : 'error';
   const [copiedErrorDiagnostic, setCopiedErrorDiagnostic] = useState(false);
   // Collapsed by default: the error source area shows one line until expanded.
   const [errorSourceOpen, setErrorSourceOpen] = useState(false);
@@ -2082,6 +2104,14 @@ export function ChatPane({
                         <p className="run-error__title">{t(runFailureUi.titleKey)}</p>
                       ) : null}
                       <p className="run-error__desc">{displayError}</p>
+                      {/* ⑤ what happens after the user acts */}
+                      {runFailureUi?.expectationKey ? (
+                        <p className="run-error__expectation">{t(runFailureUi.expectationKey)}</p>
+                      ) : null}
+                      {/* ⑥ short retry guidance */}
+                      {runFailureUi?.retryHintKey ? (
+                        <p className="run-error__retry-hint">{t(runFailureUi.retryHintKey)}</p>
+                      ) : null}
                     </div>
                   </div>
                   {/* ④ collapsible error source */}

@@ -2091,6 +2091,35 @@ export interface Dict {
   'chat.runError.sourceLabel': string;
   'chat.runError.sourceExpandAria': string;
   'chat.runError.sourceCollapseAria': string;
+  // PR-2: titles for the daemon's failure categories that lacked one.
+  'chat.runError.title.modelUnavailable': string;
+  'chat.runError.title.promptTooLarge': string;
+  'chat.runError.title.upstreamUnavailable': string;
+  'chat.runError.title.timeout': string;
+  'chat.runError.title.emptyOutput': string;
+  'chat.runError.title.toolError': string;
+  'chat.runError.title.processExit': string;
+  'chat.runError.title.userCancel': string;
+  // PR-2: human-readable reason per failure category (card main detail line).
+  'chat.runError.reason.rateLimit': string;
+  'chat.runError.reason.modelUnavailable': string;
+  'chat.runError.reason.promptTooLarge': string;
+  'chat.runError.reason.upstreamUnavailable': string;
+  'chat.runError.reason.timeout': string;
+  'chat.runError.reason.emptyOutput': string;
+  'chat.runError.reason.toolError': string;
+  'chat.runError.reason.processExit': string;
+  'chat.runError.reason.userCancel': string;
+  'chat.runError.reason.unknown': string;
+  // PR-2: what happens after the user acts.
+  'chat.runError.expectation.retry': string;
+  'chat.runError.expectation.reduceContext': string;
+  'chat.runError.expectation.switchModel': string;
+  'chat.runError.expectation.login': string;
+  // PR-2: short retry guidance.
+  'chat.runError.retryHint.now': string;
+  'chat.runError.retryHint.wait': string;
+  'chat.runError.retryHint.afterFix': string;
   'chat.tabComments': string;
   'chat.commentsSoon': string;
   'chat.comments.attached': string;
