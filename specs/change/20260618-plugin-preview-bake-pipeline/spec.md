@@ -131,7 +131,9 @@ PRs.
 **Non-goals**
 
 - Changing the renderer itself (`bakeOne`, frame capture, ffmpeg recipe,
-  `BAKE_VERSION` semantics). The content-hash filename scheme stays.
+  `BAKE_VERSION` semantics). The deterministic-fingerprint identity stays; only
+  the *object key layout* changes (flat → `<pluginKey>/<fingerprint>/`, see
+  section 0).
 - Changing the consumer read path (`plugin-preview-bakes.ts`) beyond what GC
   safety strictly requires.
 - Adding a second physical R2 bucket or per-channel base-URL env (explicitly
@@ -142,9 +144,47 @@ PRs.
 ## Proposed design
 
 A single R2 prefix, three bake entry points differentiated by *when* they run,
-and a tag-union GC. The manifest stores **filenames only**; the URL is
-`OD_PLUGIN_PREVIEWS_BASE_URL + filename`, identical for every client — so there
-is no per-channel routing to reason about.
+and a tag-union GC. The manifest stores **relative object keys**; the URL is
+`OD_PLUGIN_PREVIEWS_BASE_URL + key`, identical for every client — so there is no
+per-channel routing to reason about.
+
+### 0. Preview artifact identity contract (added per PerishCode's review)
+
+Before the pipeline mechanics, pin down *what a preview is keyed by*. This is the
+contract everything else (coupling, GC safety, rollback) rests on.
+
+- **No manually maintained plugin version.** A preview's revision is the
+  **deterministic fingerprint** of the plugin's own preview source inputs plus
+  the declared bake inputs (`BAKE_VERSION` / preview metadata). Plugin source
+  changes invalidate that plugin's preview; broad shared changes
+  (renderer/font/CSS/design-system) do **not** implicitly invalidate it — that
+  needs an explicit `BAKE_VERSION` bump or a touch of the plugin source.
+- **Directory-layered, immutable keys** (replacing today's flat
+  `<id>.<hash>.mp4`):
+  ```
+  plugin-previews/<pluginKey>/<fingerprint>/preview.mp4
+  plugin-previews/<pluginKey>/<fingerprint>/poster.jpg
+  ```
+  - `<pluginKey>` = stable plugin id / manifest key.
+  - `<fingerprint>` = deterministic over preview source inputs + bake recipe
+    version.
+  - Keys are **immutable**: a bake must never overwrite an existing key with
+    different bytes. Same fingerprint → same keys (idempotent re-bake); changed
+    fingerprint → a new directory.
+- **`latest` lives only at the manifest layer, never as an R2 artifact.** The
+  manifest a build ships with is the only "latest" pointer; a released client
+  keeps reading the snapshot it shipped with. A mutable `latest` artifact key
+  would weaken rollback, GC safety, and release reproducibility — so we do not
+  introduce one.
+- **GC source of truth = object keys referenced by protected manifests**, not
+  filename parsing. Parsing keys is an operational aid for diagnostics, not the
+  authority for what is live.
+
+> Migration note: this changes the on-R2 layout from the current flat
+> content-hashed filename to a `<pluginKey>/<fingerprint>/` directory. Existing
+> flat objects stay referenced by already-shipped manifests until those manifests
+> age out of the protected set, so the cutover is additive (new bakes write the
+> new layout; old keys remain protected while live).
 
 ### 1. Pre-merge bake for same-repo PRs (the coupling fix)
 
@@ -174,23 +214,36 @@ The existing workflow stays but its role narrows:
     entry actually changed.
   - **Single rolling branch** (e.g. `chore/plugin-previews`): reuse the open PR
     (force-push / `gh pr edit`) instead of one branch per run. At most one open.
-- **Nightly stays** as the backstop for what point-triggered bakes miss:
-  - A post-merge run that failed (transient: daemon boot, timeout, R2 hiccup).
-  - Changes **outside the trigger paths** that still alter rendered output —
-    `design-systems/**`, `craft/**`, fonts, the daemon render pipeline, web CSS.
-    These never fire a per-file bake; only a full scheduled sweep catches the
-    hash drift.
-  - `BAKE_VERSION` bumps / renderer behavior changes that should re-bake all 125.
+- **Nightly stays** as the backstop, but only for what it can actually catch
+  given the fingerprint inputs (see "Preview artifact identity contract" below):
+  - A post-merge run that **failed** (transient: daemon boot, timeout, R2
+    hiccup) — retried on the next sweep.
+  - A `BAKE_VERSION` bump — re-bakes all 125 because the fingerprint changed.
+  - **Not** an implicit catch-all for shared-input changes. Per PerishCode's
+    review, the invalidation boundary is **explicit by design**: a fingerprint
+    covers a plugin's own preview source plus the declared bake inputs
+    (`BAKE_VERSION` / preview metadata). Broad shared changes — `design-systems/**`,
+    `craft/**`, fonts, web CSS, daemon renderer — do **not** implicitly
+    invalidate a preview, and a "full sweep" would *reuse* (same fingerprint →
+    same key) rather than detect them. When such a change *should* refresh
+    previews, that is a deliberate `BAKE_VERSION` bump or a touch of the affected
+    plugin source — not something nightly silently discovers. (This corrects an
+    earlier draft that claimed nightly catches these via "hash drift"; it does
+    not, because the fingerprint does not include those inputs.)
 
 ### 3. Release-cut full bake (authoritative snapshot)
 
 A new standalone workflow, triggered on `push` to `release/**` plus
 `workflow_dispatch`:
 
-- Run a **full bake of all 125 plugins** (closes the path-trigger blind spots
-  above), upload missing clips, commit the authoritative manifest onto the
-  release branch, and let it flow back to `main` via the **non-squash** release
-  back-merge (per root AGENTS.md).
+- Run a **full bake of all 125 plugins**, upload missing clips, commit the
+  authoritative manifest onto the release branch, and let it flow back to `main`
+  via the **non-squash** release back-merge (per root AGENTS.md). "Full" here
+  means *every plugin is evaluated*, not *every plugin is re-rendered* — a plugin
+  whose fingerprint is unchanged reuses its existing key. Release cut is the
+  natural moment to **deliberately bump `BAKE_VERSION`** if a shared
+  renderer/font/CSS/design-system change should refresh all previews; that is the
+  explicit invalidation lever, not an implicit sweep.
 - Standalone (not bolted onto the release build) because it needs the heavy bake
   env (ffmpeg + headless Chrome + daemon, up to 90 min) and must be
   independently re-runnable if it flakes.
@@ -211,11 +264,15 @@ One R2 prefix `plugin-previews/`. A weekly GC workflow computes a **protected
 set** and deletes only outside it:
 
 ```
-protected = ⋃ over every release/prerelease tag of (that tag's manifest)
-          ∪ ⋃ over every live release/** branch HEAD of (that branch's manifest)
-          ∪ (current main manifest referenced filenames)
-delete R2 objects NOT in protected AND older than a grace window (e.g. 90d)
+protected = ⋃ over every release/prerelease tag of (object keys in that tag's manifest)
+          ∪ ⋃ over every live release/** branch HEAD of (object keys in that branch's manifest)
+          ∪ (object keys in the current main manifest)
+delete R2 objects whose key is NOT in protected AND older than a grace window (e.g. 90d)
 ```
+
+The protected set is built from **object keys the protected manifests reference**
+(per section 0, manifests are the source of truth) — not from parsing key
+structure.
 
 The middle term is load-bearing: tags alone do **not** cover the long-lived
 channels that publish from non-tagged refs. Per root AGENTS.md, `nightly` is
@@ -234,10 +291,11 @@ channel references it (plus the grace window).
 
 Two safety nets make this low-risk:
 
-1. **Deterministic content hash.** A filename is
-   `sha256(html + BAKE_VERSION + motion)`-derived, so a mistakenly deleted clip
-   is **reproducible**: re-running the bake at that source state regenerates the
-   *identical* filename/URL. Deletions are recoverable, not permanent loss.
+1. **Deterministic fingerprint.** The `<fingerprint>` is derived from
+   `sha256(preview source + BAKE_VERSION + motion)` (today: `html`), so a
+   mistakenly deleted clip is **reproducible**: re-running the bake at that
+   source state regenerates the *identical* `<pluginKey>/<fingerprint>/` keys.
+   Deletions are recoverable, not permanent loss.
 2. **Age gate + dry-run.** GC only touches objects older than the grace window
    and runs dry-run-first.
 
@@ -285,12 +343,12 @@ comfortably).
   creds. Renderer runs arbitrary plugin HTML in headless Chrome — already true
   today on `main`; pre-merge does not widen the trust boundary beyond same-repo
   contributors.
-- **Release full bake re-renders a blind-spot plugin → new filename only the
-  release manifest references; `main`/staging (reading the same bucket) is fine
-  because it is one bucket** — but `main`'s manifest won't point at the new file
-  until the back-merge lands. Mitigation: the release bake uploads to the single
-  bucket, and the non-squash back-merge brings the manifest to `main`; a
-  follow-up nightly reconciles anything missed.
+- **Release cut bumps `BAKE_VERSION` → every plugin gets a new `<fingerprint>`
+  directory only the release manifest references; `main`/staging (reading the
+  same bucket) is fine because it is one bucket** — but `main`'s manifest won't
+  point at the new keys until the back-merge lands. Mitigation: the release bake
+  uploads to the single bucket, and the non-squash back-merge brings the manifest
+  to `main`; a follow-up nightly reconciles anything missed.
 - **`generatedAt` removal hides a legitimately-changed manifest.** Mitigation:
   diff only the `previews` subtree, not the whole file; add a test that a
   timestamp-only delta produces no PR but a `previews` delta does.
