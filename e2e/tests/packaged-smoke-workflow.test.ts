@@ -221,7 +221,9 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("steps.pr.outputs.draft == 'false'");
     expect(workflow).toContain('startswith("release/v")');
 
-    // The merge is bound to the exact SHA CI passed on (no post-green commit merged untested).
+    // The PR is resolved by binding to the run's SHA (not just the branch name), and the merge
+    // is bound to the exact SHA CI passed on (no post-green commit merged untested).
+    expect(workflow).toContain("select(.headRefOid == $sha)");
     expect(workflow).toContain("steps.pr.outputs.head_oid == github.event.workflow_run.head_sha");
     expect(workflow).toContain("--match-head-commit");
     expect(workflow).toContain("--squash");

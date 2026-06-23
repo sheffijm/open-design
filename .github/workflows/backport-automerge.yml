@@ -37,14 +37,18 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          row="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
-                  --json number,baseRefName,isDraft,title,author,isCrossRepository,headRefOid \
-                  --jq '[.[] | select(.baseRefName | startswith("release/v"))][0] // empty')"
+          all="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+                  --json number,baseRefName,isDraft,title,author,isCrossRepository,headRefOid)"
+          # Bind to the exact PR this CI run was for: same head branch AND head == the run's SHA,
+          # not just a branch-name match (which could resolve a different / newer PR).
+          row="$(printf '%s' "$all" | jq --arg sha "$HEAD_SHA" \
+                  '[.[] | select(.baseRefName | startswith("release/v")) | select(.headRefOid == $sha)][0] // empty')"
           if [ -z "$row" ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "No open backport PR to release/* for $BRANCH"
+            echo "No open backport PR to release/* for $BRANCH at $HEAD_SHA"
             exit 0
           fi
           {
