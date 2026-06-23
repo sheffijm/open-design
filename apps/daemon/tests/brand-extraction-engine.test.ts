@@ -1005,7 +1005,8 @@ describe('agent-driven brand extraction engine', () => {
     const project = getProject(db, result.projectId);
     expect(project?.pendingPrompt ?? '').toContain('context/input-DESIGN.md');
     expect(project?.designSystemId).toBe(detail?.meta.designSystemId);
-    expect(listTabs(db, result.projectId).browserTabs ?? []).toHaveLength(0);
+    const tabs = listTabs(db, result.projectId);
+    expect('browserTabs' in tabs ? tabs.browserTabs ?? [] : []).toHaveLength(0);
   });
 
   it('startBrandExtraction stays in extracting when the programmatic harvest fails', async () => {

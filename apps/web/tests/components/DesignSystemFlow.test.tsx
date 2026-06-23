@@ -423,7 +423,7 @@ describe('DesignSystemCreationFlow', () => {
     expect(screen.getByRole('button', { name: /^dark$/i }).getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    expect(screen.getByDisplayValue(designMd)).toBeTruthy();
+    expect((screen.getByPlaceholderText(/name: Heritage/i) as HTMLTextAreaElement).value).toBe(designMd);
   });
 
   it('creates from a brand description by sending a fallback DESIGN.md', async () => {

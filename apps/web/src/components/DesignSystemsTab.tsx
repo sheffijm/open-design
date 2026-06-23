@@ -18,6 +18,7 @@ import {
   localizeDesignSystemSummary,
 } from '../i18n/content';
 import { BRAND_REFERENCES } from '../runtime/brand-references';
+import { takeDesignSystemFocus } from '../runtime/brands';
 import {
   deleteDesignSystemDraft,
   fetchDesignSystem,
@@ -258,6 +259,11 @@ export function DesignSystemsTab({
   // The master-detail selection — which row renders in the right preview pane.
   // Distinct from `selectedId`, which is the global *default* design system.
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // A one-shot design-system id another surface asked us to preselect (e.g. the
+  // brand-extraction "ready" prompt navigating here). Read+cleared from
+  // sessionStorage exactly once; applied by the effect below once the system
+  // actually shows up in the loaded list (which may arrive after a refresh).
+  const [pendingFocus, setPendingFocus] = useState<string | null>(() => takeDesignSystemFocus());
   // Cache fetched showcase HTML so the preview never re-flickers when the user
   // re-selects a row. null = "in flight"; undefined = "not yet requested".
   const [thumbs, setThumbs] = useState<Record<string, string | null>>({});
@@ -363,6 +369,19 @@ export function DesignSystemsTab({
     }
     setPreviewId((cur) => (cur && activeIds.includes(cur) ? cur : activeIds[0] ?? null));
   }, [activeIds]);
+
+  // Apply a pending focus once the requested system is present in the catalog.
+  // Runs again whenever `systems` changes, so a focus that arrived before the
+  // freshly-finalized brand design system loaded still lands after the refresh.
+  // Brand systems are user systems, so make sure the "mine" scope is active.
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const sys = systems.find((s) => s.id === pendingFocus);
+    if (!sys) return; // not in the loaded list yet — wait for the next refresh
+    if (isUserSystem(sys)) setDesignSystemCollection('mine');
+    setPreviewId(pendingFocus);
+    setPendingFocus(null);
+  }, [pendingFocus, systems]);
 
   const selectedSystem = useMemo(() => {
     if (!previewId) return null;

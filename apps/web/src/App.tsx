@@ -2046,10 +2046,15 @@ function AppInner() {
   // a fresh template list. The template store is global — if they just
   // saved a template inside a project, returning home should reflect it
   // immediately in the From-template tab without forcing a page reload.
+  // Same rationale for design systems: a brand extraction (or any in-project
+  // design-system creation) registers a `user:<id>` system out of band, so the
+  // Design systems tab must re-fetch to show it — and the brand-ready prompt
+  // relies on the new system being present so it can preselect it.
   useEffect(() => {
     if (route.kind !== 'home') return;
     void refreshTemplates();
-  }, [route.kind, refreshTemplates]);
+    void refreshDesignSystems();
+  }, [route.kind, refreshTemplates, refreshDesignSystems]);
 
   // Existing card grids (DesignsTab, ProjectView), pickers (NewProjectPanel,
   // ChatComposer mention) all look skills up by id without caring whether

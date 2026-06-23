@@ -107,6 +107,8 @@ import { DEFAULT_NOTIFICATIONS } from '../state/config';
 import type { TodoItem } from '../runtime/todos';
 import { appendErrorStatusEvent } from '../runtime/chat-events';
 import { RESUME_CONTINUE_PROMPT } from '../runtime/resume';
+import { setDesignSystemFocus } from '../runtime/brands';
+import { useBrandReadyPrompt } from '../runtime/useBrandReadyPrompt';
 import {
   buildDesignSystemPackageAuditRepairPrompt,
   summarizeDesignSystemPackageAudit,
@@ -198,6 +200,7 @@ import { SHARE_TO_COMMUNITY_PROMPT } from './share-to-community/shareToCommunity
 import { CenteredLoader } from './Loading';
 import type { SettingsSection } from './SettingsDialog';
 import { Toast } from './Toast';
+import { BrandReadyPrompt } from './BrandReadyPrompt';
 import { useDesignMdState } from '../hooks/useDesignMdState';
 import { useFinalizeProject } from '../hooks/useFinalizeProject';
 import { useProjectDetail } from '../hooks/useProjectDetail';
@@ -1045,6 +1048,12 @@ export function ProjectView({
     details: string | null;
     code?: string | null;
   } | null>(null);
+  // Brand extraction has no SSE; this polls the brand's status and, once the
+  // backing extraction finalizes a `user:<id>` design system, surfaces a
+  // one-shot "ready — preview it" prompt so the user knows to open the Design
+  // systems tab. A no-op for every non-brand-extraction project.
+  const { prompt: brandReadyPrompt, dismiss: dismissBrandReady } =
+    useBrandReadyPrompt(project.metadata);
   const [chatSeed, setChatSeed] = useState<{ id: string; value: string } | null>(null);
   const [autoAuditRepairSeed, setAutoAuditRepairSeed] =
     useState<{ id: string; value: string } | null>(null);
@@ -6456,6 +6465,20 @@ export function ProjectView({
             details={projectActionsToast.details}
             code={projectActionsToast.code}
             onDismiss={() => setProjectActionsToast(null)}
+          />
+        ) : null}
+        {brandReadyPrompt ? (
+          <BrandReadyPrompt
+            key="brand-ready-prompt"
+            brandName={brandReadyPrompt.brandName}
+            onPreview={() => {
+              // Hand the new design system to the tab, then switch to it. The
+              // tab consumes the focus on mount and preselects the row.
+              setDesignSystemFocus(brandReadyPrompt.designSystemId);
+              dismissBrandReady();
+              navigate({ kind: 'home', view: 'design-systems' });
+            }}
+            onDismiss={dismissBrandReady}
           />
         ) : null}
       </AnimatePresence>
