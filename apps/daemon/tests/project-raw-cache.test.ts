@@ -144,24 +144,34 @@ describe('GET /api/projects/:id/raw/* cache revalidation', () => {
     expect(await after.text()).toContain('v2');
   });
 
-  it('honors Range with a matching If-Range (206) but serves full 200 when If-Range is stale', async () => {
+  it('rejects entity-tag If-Range (weak ETag) but honors a fresh date If-Range', async () => {
     const dir = path.join(projectsRoot, projectId);
     await writeFile(path.join(dir, 'resume.mp4'), Buffer.alloc(512, 0x42));
     const head = await fetch(rawUrl('resume.mp4'));
     const etag = head.headers.get('etag')!;
-    expect(etag).toBeTruthy();
-
-    // Matching If-Range → partial 206.
-    const ok206 = await fetch(rawUrl('resume.mp4'), {
+    // Our /raw/ validator is weak; RFC 9110 §13.1.5 forbids weak validators with
+    // If-Range, so an entity-tag If-Range must NOT authorize a 206 even when it
+    // "matches" — a same-size rewrite / mtime collision could otherwise splice
+    // stale + fresh bytes. Full 200 instead.
+    expect(etag.startsWith('W/')).toBe(true);
+    const etagRange = await fetch(rawUrl('resume.mp4'), {
       headers: { Range: 'bytes=0-99', 'If-Range': etag },
     });
-    expect(ok206.status).toBe(206);
+    expect(etagRange.status).toBe(200);
 
-    // Rewrite the file (ETag changes), then resume with the STALE If-Range: must
-    // return the full current file (200), not splice stale + fresh bytes (206).
+    // Date form, file unchanged since the (future) If-Range date → partial 206.
+    const future = new Date(Date.now() + 3_600_000).toUTCString();
+    const dateOk = await fetch(rawUrl('resume.mp4'), {
+      headers: { Range: 'bytes=0-99', 'If-Range': future },
+    });
+    expect(dateOk.status).toBe(206);
+
+    // Rewrite the file, then resume with a STALE (past) date If-Range: the file
+    // changed since, so the range is ignored and the full current file returned.
     await writeFile(path.join(dir, 'resume.mp4'), Buffer.alloc(700, 0x43));
+    const past = new Date(Date.now() - 3_600_000).toUTCString();
     const full200 = await fetch(rawUrl('resume.mp4'), {
-      headers: { Range: 'bytes=0-99', 'If-Range': etag },
+      headers: { Range: 'bytes=0-99', 'If-Range': past },
     });
     expect(full200.status).toBe(200);
     expect(Number(full200.headers.get('content-length'))).toBe(700);

@@ -1986,13 +1986,21 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
   // when the If-Range validator still matches the current representation; if it
   // doesn't (the file changed), the range must be ignored and the full current
   // file returned, so a resumed download can't splice stale + fresh bytes.
-  function ifRangeAllowsPartial(req: any, etag: string, mtimeMs: number): boolean {
+  //
+  // §13.1.5 also requires the entity-tag form to use a STRONG validator. Our
+  // ETag is weak (`W/"size-mtime"` — size+mtime is not byte-exact), so an
+  // entity-tag If-Range can never authorize partial content: a same-size rewrite
+  // or mtime-granularity collision could otherwise splice stale + fresh bytes
+  // under a matching weak tag. We therefore reject ALL entity-tag If-Range values
+  // (weak ones explicitly; a strong `"…"` never equals our weak ETag anyway) and
+  // honor only the date form.
+  function ifRangeAllowsPartial(req: any, _etag: string, mtimeMs: number): boolean {
     const ifRange = req.headers['if-range'];
     if (typeof ifRange !== 'string' || ifRange.length === 0) return true; // no If-Range → honor Range
     const value = ifRange.trim();
-    if (value.startsWith('"') || value.startsWith('W/')) {
-      return value === etag;
-    }
+    // Any entity-tag (weak `W/"…"` or strong `"…"`) → not a strong match against
+    // our weak validator → fall back to the full 200.
+    if (value.startsWith('"') || value.startsWith('W/')) return false;
     // Date form: honor the range only if the file has NOT changed since (its
     // current Last-Modified is at/before the If-Range date).
     const since = Date.parse(value);

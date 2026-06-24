@@ -30,9 +30,18 @@ describe('planDeckImageCapture (#4604 current-slide capture for runtime decks)',
     });
   });
 
-  it('ordinary page renders off-screen with no index', () => {
-    expect(planDeckImageCapture({ deck: false, wholeDeck: false, trackedActive: null })).toEqual({
+  it('Export-as-image of an ordinary page renders the whole page off-screen', () => {
+    expect(planDeckImageCapture({ deck: false, wholeDeck: true, trackedActive: null })).toEqual({
       useOffscreen: true,
+      index: undefined,
+    });
+  });
+
+  it('current-view capture of an ordinary page stays viewport-based (host snapshot)', () => {
+    // Copy screenshot / captureViewport annotation must reflect what the user is
+    // looking at, NOT an off-screen full-page render of the whole document.
+    expect(planDeckImageCapture({ deck: false, wholeDeck: false, trackedActive: null })).toEqual({
+      useOffscreen: false,
       index: undefined,
     });
   });

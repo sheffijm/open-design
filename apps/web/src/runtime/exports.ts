@@ -966,11 +966,18 @@ export function planDeckImageCapture(opts: {
   wholeDeck: boolean;
   trackedActive: number | null;
 }): { useOffscreen: boolean; index: number | undefined } {
-  const currentSlide = opts.deck && !opts.wholeDeck;
-  if (currentSlide && opts.trackedActive === null) {
-    return { useOffscreen: false, index: undefined };
-  }
-  return { useOffscreen: true, index: currentSlide ? opts.trackedActive ?? 0 : undefined };
+  // Export as image: the whole page / whole deck, off-screen and
+  // viewport-independent.
+  if (opts.wholeDeck) return { useOffscreen: true, index: undefined };
+  // A current-view capture (Copy screenshot / annotation) must stay
+  // viewport-based: an ordinary page uses the visible host snapshot, NOT an
+  // off-screen full-page render (which would copy the whole document instead of
+  // what the user is looking at, and break captureViewport annotations). A deck
+  // current-slide uses the off-screen renderer at the active slide ONLY when the
+  // viewer tracks it; a runtime-managed deck with no tracked active slide also
+  // falls back to the visible snapshot (we can't tell which slide it's on).
+  if (!opts.deck || opts.trackedActive === null) return { useOffscreen: false, index: undefined };
+  return { useOffscreen: true, index: opts.trackedActive };
 }
 
 // Programmatic image export: render a single pixel-perfect PNG via the daemon
