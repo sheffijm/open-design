@@ -198,11 +198,14 @@ export async function renderDeckSlides(
     const images: Array<{ buffer: Buffer; jpeg: boolean }> = [];
     let width = stage.w;
     let height = stage.h;
+    // Track the previous slide's capture so a stale-frame race can't emit an
+    // exact duplicate of the prior page (see captureSettledSlideImage). Clipped
+    // to the exact measured slide rect (DIP) so the PNG aspect always matches the
+    // authored deck, even if the window content rounds differently.
+    let prevSignature: number | null = null;
     for (const i of indices) {
-      await showDeckSlide(window, i, stage);
-      // Clip to the exact measured slide rect (DIP) so the PNG aspect always
-      // matches the authored deck, even if the window content rounds differently.
-      const image = await window.webContents.capturePage({ x: 0, y: 0, width: stage.w, height: stage.h });
+      const { image, signature } = await captureSettledSlideImage(window, i, stage, prevSignature);
+      prevSignature = signature;
       const size = image.getSize();
       width = size.width;
       height = size.height;
@@ -277,6 +280,45 @@ async function showDeckSlide(window: BrowserWindow, i: number, stage: Stage): Pr
   }
 }
 
+// Cheap sampled checksum of a capture's BGRA bytes — enough to tell two slide
+// captures apart without hashing megabytes per slide. Uses a prime stride so it
+// doesn't alias on row width. Exported for tests.
+export function imageSignature(image: Electron.NativeImage): number {
+  const bmp = image.toBitmap();
+  let h = 2166136261;
+  for (let i = 0; i < bmp.length; i += 4099) {
+    h = (Math.imul(h, 16777619) ^ bmp[i]!) >>> 0;
+  }
+  // Fold the byte length in so a size change alone is detected.
+  return (Math.imul(h, 16777619) ^ bmp.length) >>> 0;
+}
+
+// Shows slide `i` and captures it, GUARDING against the compositor returning the
+// PREVIOUS slide's frame. `capturePage` can hand back the last composited frame
+// when the just-shown slide hasn't painted yet (a stale-frame race seen on
+// slower / loaded machines), which silently emits an exact duplicate of the
+// prior page — the QA-reported "two identical 目录 pages". When the capture is
+// byte-identical to the previous slide's, wait for more frames and re-capture
+// (bounded). Two genuinely-identical adjacent slides simply exhaust the retries
+// and emit once, which is correct.
+async function captureSettledSlideImage(
+  window: BrowserWindow,
+  i: number,
+  stage: Stage,
+  prevSignature: number | null,
+): Promise<{ image: Electron.NativeImage; signature: number }> {
+  await showDeckSlide(window, i, stage);
+  let image = await window.webContents.capturePage({ x: 0, y: 0, width: stage.w, height: stage.h });
+  let signature = imageSignature(image);
+  for (let attempt = 0; prevSignature !== null && signature === prevSignature && attempt < 4; attempt++) {
+    await nextFrames(window);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    image = await window.webContents.capturePage({ x: 0, y: 0, width: stage.w, height: stage.h });
+    signature = imageSignature(image);
+  }
+  return { image, signature };
+}
+
 // Captures every deck slide and stacks them top-to-bottom into one tall image
 // (deck image export). Stitches BGRA with a native memcpy per slide and encodes
 // once natively, like the scroll-segment path. Bounds the output height: a deck
@@ -299,8 +341,9 @@ async function stitchDeckSlides(
   // and the RAM byte budget. Scaling (instead of dropping trailing slides) keeps
   // the "whole deck as one picture" contract — long/large decks just get a
   // smaller per-slide size.
-  await showDeckSlide(window, 0, stage);
-  const first = await window.webContents.capturePage({ x: 0, y: 0, width: stage.w, height: stage.h });
+  const firstCapture = await captureSettledSlideImage(window, 0, stage, null);
+  const first = firstCapture.image;
+  let prevSignature: number | null = firstCapture.signature;
   const nativeSize = first.getSize();
   const nativeW = Math.max(1, nativeSize.width);
   const nativeH = Math.max(1, nativeSize.height);
@@ -318,8 +361,8 @@ async function stitchDeckSlides(
   };
   place(first, 0);
   for (let i = 1; i < count; i++) {
-    await showDeckSlide(window, i, stage);
-    const image = await window.webContents.capturePage({ x: 0, y: 0, width: stage.w, height: stage.h });
+    const { image, signature } = await captureSettledSlideImage(window, i, stage, prevSignature);
+    prevSignature = signature;
     place(image, i);
   }
   const H = slideHpx * count;
