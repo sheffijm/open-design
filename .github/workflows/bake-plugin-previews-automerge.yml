@@ -149,7 +149,11 @@ jobs:
       - name: Notify Feishu on failed manifest CI
         # Same identity gates as the merge step: only ping for a genuine bot manifest
         # PR from the same repo, so a fork / non-bot PR can't spam the release group.
-        if: ${{ steps.pr.outputs.found == 'true' && steps.pr.outputs.author == 'app/open-design-release-bot' && steps.pr.outputs.cross == 'false' && github.event.workflow_run.conclusion == 'failure' }}
+        # The head_oid == workflow_run.head_sha gate matches the approve/enqueue steps:
+        # the rolling branch is force-pushed, so an older failed run can finish after
+        # the PR head already advanced to a newer (green) commit. Without this guard a
+        # stale failure would page Feishu about a SHA that is no longer the PR head.
+        if: ${{ steps.pr.outputs.found == 'true' && steps.pr.outputs.author == 'app/open-design-release-bot' && steps.pr.outputs.cross == 'false' && steps.pr.outputs.head_oid == github.event.workflow_run.head_sha && github.event.workflow_run.conclusion == 'failure' }}
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_RELEASE_WEBHOOK }}
           FEISHU_SIGN_SECRET: ${{ secrets.FEISHU_RELEASE_SIGN_SECRET }}

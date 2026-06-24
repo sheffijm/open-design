@@ -338,6 +338,10 @@ describe("packaged smoke workflow", () => {
     expect(feishuStep).toContain("steps.pr.outputs.author == 'app/open-design-release-bot'");
     expect(feishuStep).toContain("steps.pr.outputs.cross == 'false'");
     expect(feishuStep).toContain("github.event.workflow_run.conclusion == 'failure'");
+    // Bind the alert to the exact SHA that failed: the rolling branch is force-pushed, so a stale
+    // failed run that finishes after the head advanced must not page about a SHA that is no longer
+    // the PR head.
+    expect(feishuStep).toContain("steps.pr.outputs.head_oid == github.event.workflow_run.head_sha");
     // Sign the release webhook with the SAME secret the rest of the repo pairs with
     // FEISHU_RELEASE_WEBHOOK (notify-release-feishu / notify-daily-feishu / backport-automerge),
     // not a stray secret that resolves empty and sends an unsigned, rejected request.
