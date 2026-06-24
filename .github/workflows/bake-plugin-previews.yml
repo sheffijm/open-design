@@ -113,8 +113,14 @@ jobs:
           # commit's committer is just a git header any collaborator with push access can set (even
           # to the bot's noreply email), so committer.login/email cannot prove the bot authored it;
           # only GitHub's own signature, which a local commit does not carry, can.
-          # The branch is rebuilt as `main HEAD + one manifest commit` each run.
-          BASE_SHA="$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)"
+          # Parent the commit on the EXACT revision $NEW was rendered against — the checked-out
+          # HEAD — NOT live main. This job can run ~90min, and main can advance (unrelated merges)
+          # while the bake renders; basing the commit on live main would publish a manifest from an
+          # older checkout on top of newer commits, so the rolling PR would look current while
+          # carrying stale preview data. Tying it to the rendered revision instead means GitHub
+          # correctly shows the PR as behind once main moves, and the next bake re-renders on the
+          # newer HEAD.
+          BASE_SHA="$(git rev-parse HEAD)"
           BASE_TREE="$(gh api "repos/$REPO/git/commits/$BASE_SHA" --jq .tree.sha)"
           BLOB_SHA="$(jq -n --arg c "$(base64 -w0 < "$NEW")" '{content:$c,encoding:"base64"}' \
             | gh api "repos/$REPO/git/blobs" --input - --jq .sha)"

@@ -372,6 +372,11 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("git/refs");
     expect(workflow).not.toContain("x-access-token:");
     expect(workflow).not.toContain("git config user.name");
+    // 3. The commit is parented on the rendered revision (the checked-out HEAD), NOT live main —
+    //    the bake can run for ~90min while main advances, and basing the commit on live main would
+    //    publish a stale manifest on top of newer commits while the PR looks current.
+    expect(workflow).toContain("git rev-parse HEAD");
+    expect(workflow).not.toContain("git/ref/heads/main");
   });
 
   it("[P2] keeps PR and merge queue CI separated by hot/full validation mode", async () => {
