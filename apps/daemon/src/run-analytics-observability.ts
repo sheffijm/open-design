@@ -281,6 +281,7 @@ export function scanRunEventsForUsageAnalytics(
   // signal from within-turn prefix caching; see the type docs.
   let firstCallInputTokens: number | undefined;
   let firstCallCacheReadInputTokens: number | undefined;
+  let firstCallCacheCreationInputTokens: number | undefined;
   let firstCallCacheTokenSource: 'anthropic' | 'openai' | undefined;
   for (let i = 0; i < events.length; i += 1) {
     const ev = events[i];
@@ -300,6 +301,9 @@ export function scanRunEventsForUsageAnalytics(
     const normRead = firstNumber(usage, ['cached_input_tokens', 'cache_read_tokens', 'cached_read_tokens']);
     const oaiRead = readNestedNumber(usage, ['prompt_tokens_details', 'cached_tokens']);
     firstCallCacheReadInputTokens = anthRead ?? normRead ?? oaiRead;
+    firstCallCacheCreationInputTokens =
+      firstNumber(usage, ['cache_creation_input_tokens']) ??
+      firstNumber(usage, ['cached_write_tokens']);
     firstCallCacheTokenSource = anthRead !== undefined
       ? 'anthropic'
       : (normRead ?? oaiRead) !== undefined
@@ -307,13 +311,17 @@ export function scanRunEventsForUsageAnalytics(
         : undefined;
     break;
   }
-  // Anthropic reports input_tokens as the UNCACHED portion (cache_read is
-  // separate), so the effective input is their sum; OpenAI folds cached into
-  // input_tokens. Mirrors the last-call effective computation below.
+  // Anthropic reports input_tokens as the UNCACHED portion (cache_read and
+  // cache_creation are separate), so the effective input is their sum; OpenAI
+  // folds cached into input_tokens. Mirrors the last-call effective computation
+  // below exactly, including cache_creation, so the first-call and last-call
+  // ratios share one denominator definition.
   const firstCallInputEffective =
     firstCallInputTokens !== undefined
       ? firstCallCacheTokenSource === 'anthropic'
-        ? firstCallInputTokens + (firstCallCacheReadInputTokens ?? 0)
+        ? firstCallInputTokens +
+          (firstCallCacheReadInputTokens ?? 0) +
+          (firstCallCacheCreationInputTokens ?? 0)
         : firstCallInputTokens
       : undefined;
   const firstCallCacheHitRatio =

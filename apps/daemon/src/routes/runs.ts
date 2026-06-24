@@ -932,16 +932,23 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
           first_call_cache_hit_ratio?: number;
         } | null> => {
           if (run.agentId === 'codex') {
-            const sessionId = codexSessionIdFromRunEvents(run.events);
-            const codexHome = spawnEnvForAgent(
-              'codex',
-              { ...process.env, OD_DATA_DIR: RUNTIME_DATA_DIR },
-              agentCliEnvForAgent(
-                (appCfgAtFinish as { agentCliEnv?: AgentCliEnv }).agentCliEnv,
+            // Best-effort: a throw anywhere here (env resolution, rollout read)
+            // must degrade to "no codex first-call fields", never bubble to the
+            // outer run_finished .catch and drop the whole completion event.
+            try {
+              const sessionId = codexSessionIdFromRunEvents(run.events);
+              const codexHome = spawnEnvForAgent(
                 'codex',
-              ),
-            ).CODEX_HOME;
-            return readCodexRolloutFirstCall({ codexHome, sessionId });
+                { ...process.env, OD_DATA_DIR: RUNTIME_DATA_DIR },
+                agentCliEnvForAgent(
+                  (appCfgAtFinish as { agentCliEnv?: AgentCliEnv }).agentCliEnv,
+                  'codex',
+                ),
+              ).CODEX_HOME;
+              return await readCodexRolloutFirstCall({ codexHome, sessionId });
+            } catch {
+              return null;
+            }
           }
           if (usageAnalytics.first_call_input_tokens === undefined) return null;
           return {

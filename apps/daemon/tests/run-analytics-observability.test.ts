@@ -475,6 +475,37 @@ describe('scanRunEventsForUsageAnalytics', () => {
     expect(result.cache_read_input_tokens).toBe(8_400);
   });
 
+  it('includes anthropic cache_creation in the first-call denominator (matches last-call)', () => {
+    // A cold opening call writes a large cache (cache_creation) while reading
+    // little. The first-call denominator must be input + cache_read +
+    // cache_creation — identical to the last-call definition — so the two
+    // ratios are comparable. A single usage event makes first == last.
+    const result = scanRunEventsForUsageAnalytics(
+      [
+        {
+          event: 'agent',
+          data: {
+            type: 'usage',
+            usage: {
+              input_tokens: 1_000,
+              output_tokens: 20,
+              cache_read_input_tokens: 500,
+              cache_creation_input_tokens: 8_500,
+            },
+          },
+        },
+      ],
+      '',
+      0,
+    );
+
+    // denominator = 1000 + 500 + 8500 = 10000, not 1500.
+    expect(result.first_call_input_tokens).toBe(1_000);
+    expect(result.first_call_cache_read_input_tokens).toBe(500);
+    expect(result.first_call_cache_hit_ratio).toBeCloseTo(500 / 10_000);
+    expect(result.first_call_cache_hit_ratio).toBeCloseTo(result.cache_hit_ratio ?? 0);
+  });
+
   it('mirrors first-call onto last-call for a single-call turn', () => {
     const result = scanRunEventsForUsageAnalytics(
       [

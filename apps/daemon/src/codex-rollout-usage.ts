@@ -126,6 +126,13 @@ async function findCodexRolloutPath(
       .map((e) => e.name)
       .sort((a, b) => b.localeCompare(a));
   };
+  // The rollout we want was written by the run that just finished, so it lives
+  // in one of the most recent day-dirs. Cap how many we scan: on a HIT we stop
+  // at the first match (today, usually the first dir), and on a MISS (session
+  // captured but file relocated/deleted) this bounds the walk to a handful of
+  // readdirs instead of the user's entire codex history.
+  const MAX_DAY_DIRS = 8;
+  let dayDirsScanned = 0;
   for (const year of await descend(sessionsDir)) {
     const yearDir = path.join(sessionsDir, year);
     for (const month of await descend(yearDir)) {
@@ -135,6 +142,7 @@ async function findCodexRolloutPath(
         const files = await readdir(dayDir).catch(() => []);
         const match = files.find((f) => rolloutFileMatchesSession(f, sessionId));
         if (match) return path.join(dayDir, match);
+        if (++dayDirsScanned >= MAX_DAY_DIRS) return null;
       }
     }
   }
