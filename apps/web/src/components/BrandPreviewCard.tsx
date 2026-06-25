@@ -94,16 +94,19 @@ export function BrandPreviewCard({
 
   const openProject = useCallback(async () => {
     if (!projectId) return;
-    trackDesignSystemEditClick(analytics.track, {
-      page_name: 'design_systems',
-      area: 'design_system_edit',
-      element: 'brand_card_open_project',
-      module: 'brand_card',
-      edit_surface: 'direct_module',
-      artifact_kind: 'design_system',
-      design_system_id: meta.designSystemId ?? undefined,
-      project_id: projectId,
-    });
+    const designSystemId = meta.designSystemId;
+    if (designSystemId) {
+      trackDesignSystemEditClick(analytics.track, {
+        page_name: 'design_systems',
+        area: 'design_system_edit',
+        element: 'brand_card_open_project',
+        module: 'brand_card',
+        edit_surface: 'direct_module',
+        artifact_kind: 'design_system',
+        design_system_id: designSystemId,
+        project_id: projectId,
+      });
+    }
     if (onOpenProject) {
       const opened = await onOpenProject(projectId);
       if (opened === false) setBackingProjectMissing(true);
@@ -116,16 +119,19 @@ export function BrandPreviewCard({
     if (busy) return;
     const ok = window.confirm(t('brandDetail.deleteConfirm').replace('{name}', name));
     if (!ok) return;
-    trackDesignSystemEditClick(analytics.track, {
-      page_name: 'design_systems',
-      area: 'design_system_edit',
-      element: 'brand_card_delete',
-      module: 'brand_card',
-      edit_surface: 'direct_module',
-      artifact_kind: 'design_system',
-      design_system_id: meta.designSystemId ?? undefined,
-      project_id: projectId ?? undefined,
-    });
+    const designSystemId = meta.designSystemId;
+    if (designSystemId) {
+      trackDesignSystemEditClick(analytics.track, {
+        page_name: 'design_systems',
+        area: 'design_system_edit',
+        element: 'brand_card_delete',
+        module: 'brand_card',
+        edit_surface: 'direct_module',
+        artifact_kind: 'design_system',
+        design_system_id: designSystemId,
+        project_id: projectId ?? undefined,
+      });
+    }
     setBusy(true);
     try {
       await fetch(`/api/brands/${encodeURIComponent(meta.id)}`, { method: 'DELETE' });

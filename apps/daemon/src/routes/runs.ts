@@ -333,6 +333,14 @@ function toProjectRecord(value: unknown): ProjectRecord | null {
     : null;
 }
 
+function isProjectEnrichableDesignSystem(project: ProjectRecord): boolean {
+  if (typeof project.designSystemId === 'string' && project.designSystemId.length > 0) {
+    return true;
+  }
+  const metadata = project.metadata;
+  return metadata?.importedFrom === 'brand-extraction' || metadata?.importedFrom === 'design-system';
+}
+
 function toConversationRecords(value: unknown): ConversationRecord[] {
   return Array.isArray(value)
     ? value.filter((item): item is ConversationRecord =>
@@ -694,8 +702,8 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
       design.runs.wait(run).then((status: TerminalRunStatus) => {
         if (runResultFromStatus(status.status) !== 'success') return;
         try {
-          const enrichedProject = getProject(db, requestProjectId);
-          if (enrichedProject) {
+          const enrichedProject = toProjectRecord(getProject(db, requestProjectId));
+          if (enrichedProject && isProjectEnrichableDesignSystem(enrichedProject)) {
             updateProject(db, requestProjectId, {
               metadata: {
                 ...(enrichedProject.metadata ?? {}),
