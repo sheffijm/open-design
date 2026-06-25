@@ -185,6 +185,14 @@
           btn.setAttribute('aria-expanded', open ? 'true' : 'false');
         });
       });
+      // The rest of the header still opens on pure CSS :hover / :focus-within.
+      // When any other header item becomes active, close a click-pinned
+      // dropdown so a pinned panel and a hovered panel can't show at once.
+      document.querySelectorAll('li.has-dropdown').forEach((li) => {
+        const closeOthers = () => closeAllDropdowns(li);
+        li.addEventListener('mouseenter', closeOthers);
+        li.addEventListener('focusin', closeOthers);
+      });
       // Outside-click and Escape close any open disclosure dropdown.
       document.addEventListener('click', (ev) => {
         document.querySelectorAll('li.has-dropdown.is-open').forEach((li) => {
