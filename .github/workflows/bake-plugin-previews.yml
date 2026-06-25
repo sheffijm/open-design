@@ -92,6 +92,7 @@ jobs:
         # enqueues it once `Validate workspace` is green.
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_TOKEN: ${{ steps.app.outputs.token }}
           REPO: ${{ github.repository }}
         run: |
           OLD=data/plugin-previews/manifest.json
@@ -105,42 +106,26 @@ jobs:
             unchanged) echo "previews unchanged (only generatedAt moved) — nothing to review"; exit 0 ;;
             *) echo "unexpected diff result: '$diff_result'" >&2; exit 1 ;;
           esac
+          cp "$NEW" "$OLD"
           BRANCH="chore/plugin-previews"
-          # Create the manifest commit through the Git Data API with the App token, NOT a local
-          # `git commit` + push. A commit created through the API is signed by GitHub
-          # (verification.verified=true) and committed by the App bot (committer.type=Bot) — a
-          # non-spoofable provenance pair the auto-merge reactor's `pristine` gate checks. A local
-          # commit's committer is just a git header any collaborator with push access can set (even
-          # to the bot's noreply email), so committer.login/email cannot prove the bot authored it;
-          # only GitHub's own signature, which a local commit does not carry, can.
-          # Parent the commit on the EXACT revision $NEW was rendered against — the checked-out
-          # HEAD — NOT live main. This job can run ~90min, and main can advance (unrelated merges)
-          # while the bake renders; basing the commit on live main would publish a manifest from an
-          # older checkout on top of newer commits, so the rolling PR would look current while
-          # carrying stale preview data. Tying it to the rendered revision instead means GitHub
-          # correctly shows the PR as behind once main moves, and the next bake re-renders on the
-          # newer HEAD.
-          BASE_SHA="$(git rev-parse HEAD)"
-          BASE_TREE="$(gh api "repos/$REPO/git/commits/$BASE_SHA" --jq .tree.sha)"
-          BLOB_SHA="$(jq -n --arg c "$(base64 -w0 < "$NEW")" '{content:$c,encoding:"base64"}' \
-            | gh api "repos/$REPO/git/blobs" --input - --jq .sha)"
-          TREE_SHA="$(jq -n --arg bt "$BASE_TREE" --arg sha "$BLOB_SHA" \
-            '{base_tree:$bt,tree:[{path:"data/plugin-previews/manifest.json",mode:"100644",type:"blob",sha:$sha}]}' \
-            | gh api "repos/$REPO/git/trees" --input - --jq .sha)"
-          COMMIT_SHA="$(jq -n --arg t "$TREE_SHA" --arg p "$BASE_SHA" \
-            --arg m "chore(plugin-previews): refresh baked preview manifest" \
-            '{message:$m,tree:$t,parents:[$p]}' \
-            | gh api "repos/$REPO/git/commits" --input - --jq .sha)"
-          # Force-update the rolling branch ref (create it if absent). Moving the ref with the App
-          # token — not GITHUB_TOKEN — is what lets the resulting PR run CI.
-          if gh api "repos/$REPO/git/ref/heads/$BRANCH" >/dev/null 2>&1; then
-            jq -n --arg s "$COMMIT_SHA" '{sha:$s,force:true}' \
-              | gh api "repos/$REPO/git/refs/heads/$BRANCH" -X PATCH --input - >/dev/null
-          else
-            jq -n --arg s "$COMMIT_SHA" --arg r "refs/heads/$BRANCH" '{ref:$r,sha:$s}' \
-              | gh api "repos/$REPO/git/refs" --input - >/dev/null
-          fi
-          # Reuse the existing open PR (the ref update already refreshed it); only
+          # Rebuild the rolling branch as `<rendered HEAD> + one manifest commit`. The commit is a
+          # plain local commit (its committer identity is NOT a trust signal — the auto-merge
+          # reactor instead requires the PR diff to touch ONLY manifest.json, which a forged
+          # committer cannot defeat). Parent on the checked-out HEAD — the exact revision $NEW was
+          # rendered against — NOT live main: the bake can run ~90min while main advances, and
+          # basing it on live main would publish a manifest from an older render on top of newer
+          # commits. The reactor's base-freshness gate skips a behind PR so the next bake re-renders
+          # on the newer tip.
+          git config user.name "open-design-bot"
+          git config user.email "bot@open-design.ai"
+          git checkout -B "$BRANCH"
+          git add "$OLD"
+          git commit -m "chore(plugin-previews): refresh baked preview manifest"
+          # Push with the App token (not the checkout's GITHUB_TOKEN, whose pushes do not start CI)
+          # so the rolling PR runs `Validate workspace` and can clear the merge queue.
+          git push --force \
+            "https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git" "$BRANCH"
+          # Reuse the existing open PR (the force-push already refreshed it); only
           # create one if none is open.
           if [ "$(gh pr view "$BRANCH" --json state --jq '.state' 2>/dev/null)" = "OPEN" ]; then
             echo "rolling PR already open for $BRANCH — force-push refreshed it in place"

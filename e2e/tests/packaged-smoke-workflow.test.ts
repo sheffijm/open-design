@@ -290,15 +290,16 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain('select(.base.ref == "main")');
 
     // A human commit pushed onto the rolling branch is unreviewed, so auto-approve/merge require
-    // pristine == 'true': every commit must be BOTH GitHub-signed (verification.verified) AND
-    // committed by a Bot (committer.type). A git committer login/email is a spoofable header, so it
-    // is NOT trusted; only GitHub's own signature (which the API-created bake commit carries and a
-    // human's locally pushed commit does not) proves bot provenance. Paginated across all commits;
-    // any non-conforming one fails the count.
+    // pristine == 'true': the PR's changed files are EXACTLY data/plugin-previews/manifest.json. A
+    // commit's author/committer identity is a spoofable git header and the Git Data API does not
+    // sign commits, so neither identity nor signature can prove bot provenance; instead the diff is
+    // bounded to manifest-only so a pushed code change can never auto-merge. Paginated across all
+    // files; any non-manifest file fails the count.
     expect(workflow).toContain("steps.pr.outputs.pristine == 'true'");
-    expect(workflow).toContain('\\(.commit.verification.verified):\\(.committer.type // "none")');
+    expect(workflow).toContain("/files?per_page=100");
+    expect(workflow).toContain(".[].filename");
     expect(workflow).toContain("--paginate");
-    expect(workflow).toContain("grep -Fvxc 'true:Bot'");
+    expect(workflow).toContain("grep -Fvxc 'data/plugin-previews/manifest.json'");
 
     // The PR is resolved from the run's authoritative workflow_run.pull_requests association
     // (filtered to the main base at exactly the run's SHA), not a branch-name guess, and the merge
@@ -368,26 +369,23 @@ describe("packaged smoke workflow", () => {
     // regressing any of them fails here instead of silently breaking auto-merge.
     const workflow = await readFile(bakePreviewsWorkflowPath, "utf8");
 
-    // 1. The rolling PR is authored with the release-bot App token, not GITHUB_TOKEN — a
-    //    GITHUB_TOKEN-authored ref update triggers no CI, so the PR could never clear main's
-    //    required `Validate workspace` check or the merge queue.
+    // 1. The rolling PR is pushed with the release-bot App token, not GITHUB_TOKEN — a
+    //    GITHUB_TOKEN-authored push triggers no CI, so the PR could never clear main's required
+    //    `Validate workspace` check or the merge queue.
     expect(workflow).toContain("actions/create-github-app-token");
     expect(workflow).toContain("secrets.RELEASE_BOT_APP_ID");
-    expect(workflow).toContain("GH_TOKEN: ${{ steps.app.outputs.token }}");
-    // 2. The manifest commit is created through the Git Data API (blob -> tree -> commit -> ref),
-    //    NOT a local `git commit` + push. Only an API commit is GitHub-signed, which is the
-    //    non-spoofable provenance the reactor's pristine gate verifies. A regression back to a
-    //    local push (whose committer identity a collaborator can forge) fails here.
-    expect(workflow).toContain("git/blobs");
-    expect(workflow).toContain("git/trees");
-    expect(workflow).toContain("git/commits");
-    expect(workflow).toContain("git/refs");
-    expect(workflow).not.toContain("x-access-token:");
-    expect(workflow).not.toContain("git config user.name");
-    // 3. The commit is parented on the rendered revision (the checked-out HEAD), NOT live main —
-    //    the bake can run for ~90min while main advances, and basing the commit on live main would
-    //    publish a stale manifest on top of newer commits while the PR looks current.
-    expect(workflow).toContain("git rev-parse HEAD");
+    expect(workflow).toContain("x-access-token:${APP_TOKEN}");
+    // 2. The manifest commit touches ONLY data/plugin-previews/manifest.json. The reactor's
+    //    pristine gate trusts the PR file set (not a forgeable commit identity), so the producer
+    //    must keep committing exactly that one file.
+    expect(workflow).toContain("cp \"$NEW\" \"$OLD\"");
+    expect(workflow).toContain('git add "$OLD"');
+    // 3. The rolling branch is rebuilt from the checked-out HEAD (the revision the manifest was
+    //    rendered against), NOT live main — the bake can run ~90min while main advances, and basing
+    //    it on live main would publish a stale manifest on top of newer commits. Creating the branch
+    //    with `git checkout -B` from HEAD parents the commit on the rendered revision; a regression
+    //    to a live-main base (fetching refs/heads/main as the parent) fails here.
+    expect(workflow).toContain('git checkout -B "$BRANCH"');
     expect(workflow).not.toContain("git/ref/heads/main");
   });
 
