@@ -680,6 +680,36 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
     }
     design.runs.start(run, () => startChatRun(meta, run));
 
+    const reqBody = requestBody;
+    const analyticsHints =
+      (reqBody as { analyticsHints?: Record<string, unknown> | null }).analyticsHints
+        && typeof (reqBody as { analyticsHints?: unknown }).analyticsHints === 'object'
+        ? ((reqBody as { analyticsHints?: Record<string, unknown> }).analyticsHints ?? {})
+        : {};
+    // Marks the AI-optimize (deep enrichment) run so completion can flag the DS
+    // ai_refined even when analytics is unavailable or disabled.
+    const hintDsEnrichment = analyticsHints.dsEnrichment === true;
+    const requestProjectId = typeof reqBody.projectId === 'string' ? reqBody.projectId : null;
+    if (hintDsEnrichment && requestProjectId) {
+      design.runs.wait(run).then((status: TerminalRunStatus) => {
+        if (runResultFromStatus(status.status) !== 'success') return;
+        try {
+          const enrichedProject = getProject(db, requestProjectId);
+          if (enrichedProject) {
+            updateProject(db, requestProjectId, {
+              metadata: {
+                ...(enrichedProject.metadata ?? {}),
+                enrichmentStatus: 'ai_refined',
+                enrichmentCompletedAt: Date.now(),
+              },
+            });
+          }
+        } catch {
+          // Best-effort flag; do not fail run completion if metadata refresh fails.
+        }
+      }).catch(() => {});
+    }
+
     const analyticsContext = readAnalyticsContext(req);
     if (analyticsContext) {
       run.analyticsContext = analyticsContext;
@@ -692,7 +722,6 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
       });
     }).catch(() => {});
     if (analyticsContext) {
-      const reqBody = requestBody;
       const runInsertId = newInsertId();
       const appCfgForAnalytics = await readAppConfig(RUNTIME_DATA_DIR).catch(
         () => ({} as Record<string, unknown>),
@@ -726,11 +755,6 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
       const userQueryTokens = promptText.length > 0
         ? Math.ceil(promptText.length / 4)
         : 0;
-      const analyticsHints =
-        (reqBody as { analyticsHints?: Record<string, unknown> | null }).analyticsHints
-          && typeof (reqBody as { analyticsHints?: unknown }).analyticsHints === 'object'
-          ? ((reqBody as { analyticsHints?: Record<string, unknown> }).analyticsHints ?? {})
-          : {};
       const hintEntryFrom = typeof analyticsHints.entryFrom === 'string'
         ? analyticsHints.entryFrom
         : undefined;
@@ -743,9 +767,6 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
       const hintIsFirstRun = typeof analyticsHints.isFirstRun === 'boolean'
         ? analyticsHints.isFirstRun
         : undefined;
-      // Marks the AI-optimize (deep enrichment) run so completion can emit
-      // design_system_enrich_result + flag the DS ai_refined (C14/C15).
-      const hintDsEnrichment = analyticsHints.dsEnrichment === true;
       const hintHasExistingArtifact = typeof analyticsHints.hasExistingArtifact === 'boolean'
         ? analyticsHints.hasExistingArtifact
         : undefined;
@@ -756,7 +777,6 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
           ? { has_existing_artifact: hintHasExistingArtifact }
           : {}),
       };
-      const requestProjectId = typeof reqBody.projectId === 'string' ? reqBody.projectId : null;
       const runProjectForAnalytics = requestProjectId
         ? toProjectRecord(getProject(db, requestProjectId))
         : null;
@@ -934,9 +954,8 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
         const result = runResultFromStatus(status.status);
         const errorCode = deriveRunErrorCode(status);
         // C14/C15: AI-optimize (enrichment) run settled. Emit the dedicated
-        // result event and, on success, flag the DS ai_refined so the
-        // programmatic-vs-refined cohorts are comparable (tracking spec §6).
-        if (hintDsEnrichment) {
+        // result event; the success metadata flag runs outside this analytics gate.
+        if (hintDsEnrichment && analyticsContext) {
           design.analytics.capture({
             eventName: 'design_system_enrich_result',
             context: analyticsContext,
@@ -953,22 +972,6 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
             },
             insertId: newInsertId(),
           });
-          if (result === 'success' && requestProjectId) {
-            try {
-              const enrichedProject = getProject(db, requestProjectId);
-              if (enrichedProject) {
-                updateProject(db, requestProjectId, {
-                  metadata: {
-                    ...(enrichedProject.metadata ?? {}),
-                    enrichmentStatus: 'ai_refined',
-                    enrichmentCompletedAt: Date.now(),
-                  },
-                });
-              }
-            } catch {
-              // Best-effort flag; the enrich_result event already recorded the outcome.
-            }
-          }
         }
         const failure = classifyRunFailure({
           result,

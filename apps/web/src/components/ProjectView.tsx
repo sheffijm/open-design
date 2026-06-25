@@ -246,7 +246,7 @@ type ProjectChatSendMeta = ChatSendMeta & {
   entryFrom?: ChatAnalyticsEntryFrom;
   /** Marks this send as the AI-optimize (deep enrichment) run so the daemon
    *  can emit design_system_enrich_result + flag the DS as ai_refined on
-   *  success (tracking spec C14/C15). Analytics-only. */
+   *  success (tracking spec C14/C15). Daemon mode only. */
   dsEnrichment?: boolean;
 };
 
@@ -6078,7 +6078,9 @@ export function ProjectView({
     autoSendAttachmentsRef.current = isAutoSend ? readAutoSendAttachments(project.id) : [];
   }
   const brandEnrichmentEligibleForProject =
-    projectIsProgrammaticBrandExtraction && !autoSendFirstMessageRef.current;
+    config.mode === 'daemon' &&
+    projectIsProgrammaticBrandExtraction &&
+    !autoSendFirstMessageRef.current;
   const [initialDraft, setInitialDraft] = useState<
     { projectId: string; value: string } | undefined
   >(
@@ -6126,7 +6128,7 @@ export function ProjectView({
   // skill bundle, refining the SAME registered design system in place. Shared by
   // the chat "Continue" affordance and the ready-toast "AI Optimize" nudge.
   const handleBrandEnrichment = useCallback(() => {
-    if (brandEnrichmentStarting) return;
+    if (brandEnrichmentStarting || config.mode !== 'daemon') return;
     const system = designSystemProject ?? activeDesignSystemSummary;
     const skillIds = installedBrandEnrichmentSkillIds(skills);
     trackDesignSystemEnrichClick(analytics.track, {
@@ -6154,6 +6156,7 @@ export function ProjectView({
     brandEnrichmentPromptSeed,
     brandEnrichmentPromptSeedCache,
     brandEnrichmentStarting,
+    config.mode,
     designSystemProject,
     handleSend,
     currentProject.metadata,
