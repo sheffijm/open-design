@@ -660,6 +660,38 @@ describe('ProjectView pending prompt seeding', () => {
     expect(mockedExtractBrandFromHtml).not.toHaveBeenCalled();
   });
 
+  it('falls back to programmatic retry when the Browser tab is same-origin but off-path', async () => {
+    const executeJavaScript = vi.fn()
+      .mockResolvedValueOnce('<html><head><title>Login</title></head><body><h1>Login</h1></body></html>')
+      .mockResolvedValueOnce('body { color: #111111; background: #ffffff; }');
+    brandBrowserBridgeMocks.getBrandBrowser.mockReturnValue({
+      isDesktopWebview: true,
+      getURL: () => 'https://economist.com/login?next=/',
+      executeJavaScript,
+    });
+
+    renderProjectView(
+      {
+        ...project('brand-retry'),
+        metadata: {
+          kind: 'brand',
+          importedFrom: 'brand-extraction',
+          brandId: 'brand-retry',
+          brandSourceUrl: 'https://economist.com/',
+          brandDesignSystemId: 'user:brand-retry',
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(chatPaneSpy.mock.calls.at(-1)?.[0].onContinueBrandExtraction).toBeTypeOf('function');
+    });
+    chatPaneSpy.mock.calls.at(-1)?.[0].onContinueBrandExtraction?.();
+
+    await waitFor(() => expect(mockedContinueBrandExtraction).toHaveBeenCalledWith('brand-retry'));
+    expect(mockedExtractBrandFromHtml).not.toHaveBeenCalled();
+  });
+
   it('does not duplicate a persisted browser-assist card already in the conversation', async () => {
     mockedFetchBrands.mockResolvedValue([
       {
