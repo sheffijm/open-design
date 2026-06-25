@@ -87,6 +87,21 @@ jobs:
           else
             pristine=false
           fi
+          # Base-freshness: the rolling commit is `rendered_base + one manifest commit`, so its
+          # first parent IS the revision the manifest was rendered against (bake-plugin-previews.yml
+          # parents on `git rev-parse HEAD`). main's merge queue does NOT require an up-to-date
+          # branch, so if main advanced past that base a newer manifest may already be on main and a
+          # squash would overwrite it with stale data. Require the rendered base to equal current
+          # main HEAD; otherwise skip — the next bake (including the nightly) re-renders on the newer
+          # tip and refreshes the rolling PR. Fail closed (base_fresh=false) on any lookup error.
+          RENDERED_BASE="$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.parents[0].sha // ""' 2>/dev/null || true)"
+          MAIN_HEAD="$(gh api "repos/$REPO/commits/heads/main" --jq '.sha // ""' 2>/dev/null || true)"
+          if [ -n "$RENDERED_BASE" ] && [ "$RENDERED_BASE" = "$MAIN_HEAD" ]; then
+            base_fresh=true
+          else
+            base_fresh=false
+            echo "rendered base $RENDERED_BASE != main $MAIN_HEAD — PR is behind, skipping auto-merge until the next bake refreshes it"
+          fi
           {
             echo "found=true"
             echo "number=$(printf '%s' "$row" | jq -r .number)"
@@ -97,6 +112,7 @@ jobs:
             echo "cross=$(printf '%s' "$row" | jq -r '.isCrossRepository')"
             echo "head_oid=$(printf '%s' "$row" | jq -r '.headRefOid')"
             echo "pristine=$pristine"
+            echo "base_fresh=$base_fresh"
           } >> "$GITHUB_OUTPUT"
 
       - name: Approve the clean manifest PR (github-actions bot, CI green)
@@ -112,6 +128,7 @@ jobs:
               && steps.pr.outputs.author == 'app/open-design-release-bot'
               && steps.pr.outputs.cross == 'false'
               && steps.pr.outputs.head_oid == github.event.workflow_run.head_sha
+              && steps.pr.outputs.base_fresh == 'true'
               && github.event.workflow_run.conclusion == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,6 +149,10 @@ jobs:
         #  - pristine == 'true' — every commit was committed by the bake bot; once a
         #    human touches the branch the diff is no longer bot-generated data, so we
         #    fall back to human review.
+        #  - base_fresh == 'true' — the rendered base equals current main HEAD. The merge
+        #    queue does not require an up-to-date branch, so without this a bake rendered
+        #    against an older main could be re-tested and squashed in, overwriting a newer
+        #    manifest. A behind PR is left for the next bake to refresh.
         if: >-
           ${{ steps.pr.outputs.found == 'true'
               && steps.pr.outputs.draft == 'false'
@@ -139,6 +160,7 @@ jobs:
               && steps.pr.outputs.author == 'app/open-design-release-bot'
               && steps.pr.outputs.cross == 'false'
               && steps.pr.outputs.head_oid == github.event.workflow_run.head_sha
+              && steps.pr.outputs.base_fresh == 'true'
               && github.event.workflow_run.conclusion == 'success' }}
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}

@@ -332,6 +332,13 @@ describe("packaged smoke workflow", () => {
     expect(enqueueStep).toContain("steps.pr.outputs.pristine == 'true'");
     expect(enqueueStep).toContain("steps.pr.outputs.head_oid == github.event.workflow_run.head_sha");
     expect(enqueueStep).toContain("github.event.workflow_run.conclusion == 'success'");
+    // Base-freshness: main's merge queue does not require an up-to-date branch, so a bake rendered
+    // against an older main must not be squashed in over a newer manifest. The enqueue requires the
+    // rendered base (the PR head's first parent) to equal current main HEAD; a behind PR waits for
+    // the next bake to refresh.
+    expect(enqueueStep).toContain("steps.pr.outputs.base_fresh == 'true'");
+    expect(workflow).toContain('.parents[0].sha // ""');
+    expect(workflow).toContain("commits/heads/main");
 
     // The Feishu failure path carries the same identity gates, so a fork / non-bot PR can't spam
     // the release group, and fires only on a CI *failure* (not success).
