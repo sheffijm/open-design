@@ -1275,6 +1275,7 @@ function DesignSystemDetail({
           badgeSlot={badgeSlot}
           actionsSlot={actionsSlot}
           showCover={false}
+          onEditClick={emitEditClick}
           noticeSlot={
             downloadFailed ? (
               <div className={styles.missingProjectNotice}>{t('dsManager.downloadFailed')}</div>
