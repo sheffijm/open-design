@@ -154,16 +154,20 @@
       });
     }
 
-    // Dropdown disclosure toggles. Product and Resources are category labels
-    // (not pages), rendered as <button data-nav-dropdown-toggle> that open
-    // their own dropdown instead of navigating (Product used to bounce to the
-    // homepage, Resources to /blog/). On pointer devices CSS :hover still
-    // opens them; this handles click and — crucially — TAP on touch devices
-    // with no hover (touch laptops / tablets at desktop width), where the
-    // dropdown was otherwise unreachable. On the flattened mobile menu the
-    // dropdown is always shown, so toggling is a harmless no-op.
+    // Product and Resources are category labels (not pages), rendered as
+    // <button data-nav-dropdown-toggle> disclosures that open their own
+    // dropdown instead of navigating (Product used to bounce to the homepage,
+    // Resources to /blog/). They are driven SOLELY by the JS-toggled .is-open
+    // class — `.has-dropdown-click` opts them out of the CSS :hover /
+    // :focus-within reveal so an explicit click / Escape close always wins.
+    //
+    // At <=1080px the hamburger menu flattens every dropdown to always-visible,
+    // so there these buttons are plain section headers, not disclosures: drop
+    // the disclosure ARIA (it must never announce "collapsed" over already
+    // visible links) and make the click a no-op.
     const dropdownToggles = document.querySelectorAll('[data-nav-dropdown-toggle]');
     if (dropdownToggles.length > 0) {
+      const navFlattened = window.matchMedia('(max-width: 1080px)');
       const closeDropdown = (li) => {
         li.classList.remove('is-open');
         const btn = li.querySelector('[data-nav-dropdown-toggle]');
@@ -174,20 +178,39 @@
           if (li !== except) closeDropdown(li);
         });
       };
+      // Toggle between desktop disclosure mode and flattened-mobile header mode
+      // whenever the breakpoint is crossed, so the ARIA state matches reality.
+      const syncDisclosureMode = () => {
+        const flattened = navFlattened.matches;
+        dropdownToggles.forEach((btn) => {
+          const li = btn.closest('li.has-dropdown');
+          if (flattened) {
+            btn.removeAttribute('aria-expanded');
+            btn.removeAttribute('aria-haspopup');
+            if (li) li.classList.remove('is-open');
+          } else {
+            btn.setAttribute('aria-haspopup', 'true');
+            if (!btn.hasAttribute('aria-expanded')) btn.setAttribute('aria-expanded', 'false');
+          }
+        });
+      };
+      syncDisclosureMode();
+      navFlattened.addEventListener('change', syncDisclosureMode);
       dropdownToggles.forEach((btn) => {
         const li = btn.closest('li.has-dropdown');
         if (!li) return;
         btn.addEventListener('click', (ev) => {
           ev.stopPropagation();
+          if (navFlattened.matches) return; // flattened mobile menu — not a disclosure
           const open = !li.classList.contains('is-open');
           closeAllDropdowns(li);
           li.classList.toggle('is-open', open);
           btn.setAttribute('aria-expanded', open ? 'true' : 'false');
         });
       });
-      // The rest of the header still opens on pure CSS :hover / :focus-within.
-      // When any other header item becomes active, close a click-pinned
-      // dropdown so a pinned panel and a hovered panel can't show at once.
+      // The four hub menus still open on pure CSS :hover / :focus-within. When
+      // any other header item becomes active, close a click-pinned disclosure
+      // so a pinned panel and a hovered panel can't show at once.
       document.querySelectorAll('li.has-dropdown').forEach((li) => {
         const closeOthers = () => closeAllDropdowns(li);
         li.addEventListener('mouseenter', closeOthers);
