@@ -600,14 +600,23 @@ function launchProgrammaticBackgroundExtraction(input: {
       // the brand to the agent fallback and retire the synthetic row into the
       // actionable "needs a hand" terminal so it stops counting up forever.
       const latest = readMeta(brandsRoot, id);
+      // An anti-bot wall is RECOVERABLE: the user clears it in the in-app Browser
+      // tab and "Continue extraction" re-extracts from the rendered DOM. Marking
+      // it `failed` here flashes the red "Extraction failed" kit before recovery
+      // flips it to `ready` — confusing, because nothing has truly failed yet.
+      // Keep blocked origins in the calm, retryable `needs_input` state (the
+      // browser-assist card drives them to success) and reserve the terminal
+      // `failed` for genuinely unrecoverable give-ups (too thin / unreachable),
+      // which hand off to the agent fallback.
+      const recoverable = latest?.blocked === true;
       const error = latest?.blockedReason
         ? `Programmatic extraction blocked by ${latest.blockedReason}.`
         : 'Programmatic extraction needs user assistance.';
       patchMeta(brandsRoot, id, {
-        status: 'failed',
+        status: recoverable ? 'needs_input' : 'failed',
         error,
         extractionTerminalRunId: undefined,
-        extractionTerminalError: error,
+        extractionTerminalError: recoverable ? undefined : error,
       });
       await renderBrandPreviewIntoProject({
         id,

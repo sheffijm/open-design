@@ -147,20 +147,29 @@ export function registerBrandRoutes(app: Application, deps: BrandRoutesDeps): vo
     }
   }
 
-  async function markBrowserHtmlExtractionFailed(brandId: string, previousMeta: BrandMeta): Promise<void> {
-    const failedMeta = patchMeta(brandsRoot, brandId, {
-      status: 'failed',
+  // A browser-assist re-extraction that couldn't synthesize yet is RECOVERABLE,
+  // not terminal: the read may have caught the page mid-load / still on the
+  // anti-bot wall, or the page was momentarily too sparse. The user clears the
+  // wall (or waits) and clicks Continue again, or hands off to the agent. Keep
+  // the brand in the calm, retryable `needs_input` state and render the kit as
+  // the in-progress "extracting" view rather than flashing the red
+  // "Extraction failed" terminal — the actionable transcript still offers
+  // Continue / agent. The route still answers 422 so the web surfaces a retry
+  // toast.
+  async function markBrowserHtmlExtractionUnresolved(brandId: string, previousMeta: BrandMeta): Promise<void> {
+    const nextMeta = patchMeta(brandsRoot, brandId, {
+      status: 'needs_input',
       error: BROWSER_HTML_EXTRACTION_ERROR,
       blocked: Boolean(previousMeta.blocked),
       blockedReason: previousMeta.blockedReason,
       extractionTerminalRunId: undefined,
-      extractionTerminalError: BROWSER_HTML_EXTRACTION_ERROR,
+      extractionTerminalError: undefined,
     }) ?? {
       ...previousMeta,
-      status: 'failed',
+      status: 'needs_input',
       error: BROWSER_HTML_EXTRACTION_ERROR,
       blocked: Boolean(previousMeta.blocked),
-      extractionTerminalError: BROWSER_HTML_EXTRACTION_ERROR,
+      extractionTerminalError: undefined,
       updatedAt: Date.now(),
     };
     await renderBrandPreviewIntoProject({
@@ -168,11 +177,11 @@ export function registerBrandRoutes(app: Application, deps: BrandRoutesDeps): vo
       brandsRoot,
       skillsRoot,
       projectsRoot,
-      previewStatus: 'failed',
-      ...(failedMeta.projectId ? { projectId: failedMeta.projectId } : {}),
-      ...(failedMeta.locale ? { locale: failedMeta.locale } : {}),
+      previewStatus: 'extracting',
+      ...(nextMeta.projectId ? { projectId: nextMeta.projectId } : {}),
+      ...(nextMeta.locale ? { locale: nextMeta.locale } : {}),
     }).catch((err) => {
-      console.warn(`[brand] failed to render failed browser HTML preview for ${brandId}`, err);
+      console.warn(`[brand] failed to render unresolved browser HTML preview for ${brandId}`, err);
     });
     await reconcileProgrammaticExtractionTranscript({
       db,
@@ -180,7 +189,7 @@ export function registerBrandRoutes(app: Application, deps: BrandRoutesDeps): vo
       projectsRoot,
       brandId,
       outcome: 'needs_attention',
-      ...(failedMeta.locale ? { locale: failedMeta.locale } : {}),
+      ...(nextMeta.locale ? { locale: nextMeta.locale } : {}),
     }).catch((err) => {
       console.warn(`[brand] failed to reconcile browser HTML retry transcript for ${brandId}`, err);
     });
@@ -454,7 +463,7 @@ export function registerBrandRoutes(app: Application, deps: BrandRoutesDeps): vo
         ...(deps.imageryFallback ? { imageryFallback: deps.imageryFallback } : {}),
       });
       if (!result) {
-        await markBrowserHtmlExtractionFailed(id, meta);
+        await markBrowserHtmlExtractionUnresolved(id, meta);
         res.status(422).json({ error: BROWSER_HTML_EXTRACTION_ERROR });
         return;
       }

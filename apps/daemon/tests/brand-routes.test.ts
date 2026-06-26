@@ -528,7 +528,7 @@ describe('brand routes', () => {
     }
   });
 
-  it('marks browser HTML retry failure terminal after aborting an active programmatic pass', async () => {
+  it('keeps a browser HTML retry recoverable (needs_input, not terminal) after aborting an active programmatic pass', async () => {
     let prefetchStarted!: () => void;
     const prefetchStartedPromise = new Promise<void>((resolve) => {
       prefetchStarted = resolve;
@@ -568,6 +568,8 @@ describe('brand routes', () => {
       });
 
       expect(getObservedSignal().aborted).toBe(true);
+      // The attempt did not synthesize, so the HTTP call reports 422 + a retry
+      // toast message — but the brand stays RECOVERABLE, not terminal.
       expect(extracted.status).toBe(422);
       expect(extracted.body).toEqual({
         error: 'Could not extract a design system from the provided page.',
@@ -576,16 +578,19 @@ describe('brand routes', () => {
       const meta = JSON.parse(
         readFileSync(path.join(brandsRoot, started.body.id, 'meta.json'), 'utf8'),
       );
-      expect(meta.status).toBe('failed');
+      // `needs_input` (calm, retryable) rather than the red `failed` terminal:
+      // the read caught the page mid-load, so a later Continue/agent pass can
+      // still finish it. No terminal error is recorded.
+      expect(meta.status).toBe('needs_input');
       expect(meta.error).toBe('Could not extract a design system from the provided page.');
-      expect(meta.extractionTerminalError).toBe(
-        'Could not extract a design system from the provided page.',
-      );
+      expect(meta.extractionTerminalError).toBeUndefined();
 
+      // The transcript row is still retired into the actionable "needs a hand"
+      // terminal so it stops counting up, but it is not a hard failure.
       const assistantMessage = listMessages(db, started.body.conversationId).find(
         (message) => message.id === meta.extractionTranscriptMessageId,
       );
-      expect(assistantMessage?.runStatus).toBe('failed');
+      expect(assistantMessage?.runStatus).not.toBe('running');
     } finally {
       await server.close();
     }

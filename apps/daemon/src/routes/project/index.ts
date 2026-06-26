@@ -10,7 +10,12 @@ import { readMeta as readBrandMeta } from '../../brands/store.js';
 import { createProjectArtifactFile } from '../../artifacts/create.js';
 import { ArtifactPublicationBlockedError } from '../../artifacts/publication-guard.js';
 import { ArtifactRegressionError } from '../../artifacts/stub-guard.js';
-import { listDesignSystems } from '../../design-systems/index.js';
+import {
+  createUserDesignSystem,
+  deleteUserDesignSystem,
+  linkUserDesignSystemProject,
+  listDesignSystems,
+} from '../../design-systems/index.js';
 import {
   FIRST_PARTY_ATOMS,
   buildConnectorProbe,
@@ -907,10 +912,94 @@ function normalizeChatSessionMode(value: unknown): ChatSessionMode {
   return value === 'chat' ? 'chat' : 'design';
 }
 
+function isDesignSystemLikeProject(project: any): boolean {
+  const metadata = project?.metadata;
+  if (!metadata || typeof metadata !== 'object') return false;
+  return (
+    metadata.kind === 'brand' ||
+    metadata.importedFrom === 'design-system' ||
+    metadata.importedFrom === 'brand-extraction' ||
+    (typeof metadata.brandDesignSystemId === 'string' && metadata.brandDesignSystemId.trim().length > 0)
+  );
+}
+
+function normalizeDesignSystemCopyName(value: unknown, sourceProject: any): string {
+  const explicit = typeof value === 'string' ? value.trim() : '';
+  if (explicit) return explicit.slice(0, 160);
+  const sourceName = typeof sourceProject?.name === 'string' && sourceProject.name.trim()
+    ? sourceProject.name.trim()
+    : 'Untitled';
+  return /\bdesign system\b/i.test(sourceName)
+    ? sourceName.slice(0, 160)
+    : `${sourceName} Design System`.slice(0, 160);
+}
+
+function normalizePendingPrompt(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildDesignSystemCopySourceContext(input: {
+  sourceProject: any;
+  targetProjectId: string;
+  designSystemId: string;
+  copiedFiles: string[];
+  skippedFiles: Array<{ name: string; reason: string }>;
+}): string {
+  const metadata =
+    input.sourceProject?.metadata && typeof input.sourceProject.metadata === 'object'
+      ? JSON.stringify(input.sourceProject.metadata, null, 2)
+      : '{}';
+  const copied = input.copiedFiles.length > 0
+    ? input.copiedFiles.map((name) => `- ${name}`).join('\n')
+    : '- (none)';
+  const skipped = input.skippedFiles.length > 0
+    ? input.skippedFiles.map((entry) => `- ${entry.name}: ${entry.reason}`).join('\n')
+    : '- (none)';
+  return [
+    '# Source Project Context',
+    '',
+    'This design-system workspace was created from an existing Open Design project. Treat the copied project files as the primary source evidence for the generated design system.',
+    '',
+    '## Source project',
+    '',
+    `- Source project id: ${input.sourceProject.id}`,
+    `- Source project name: ${input.sourceProject.name}`,
+    `- New design-system project id: ${input.targetProjectId}`,
+    `- New design-system id: ${input.designSystemId}`,
+    `- Source skill id: ${input.sourceProject.skillId ?? '(none)'}`,
+    `- Source design system id: ${input.sourceProject.designSystemId ?? '(none)'}`,
+    '',
+    '## Source metadata',
+    '',
+    '```json',
+    metadata,
+    '```',
+    '',
+    '## Copied files',
+    '',
+    copied,
+    '',
+    '## Skipped files',
+    '',
+    skipped,
+    '',
+    '## Generation contract',
+    '',
+    '- Read this file before editing design-system outputs.',
+    '- Read the copied files directly from the project workspace; they are source evidence, not generated design-system output.',
+    '- Preserve high-signal assets, source examples, UI surfaces, copy, tokens, typography, and interaction patterns from the copied project.',
+    '- Generate a reusable Open Design design-system package in this same project: DESIGN.md, README.md, SKILL.md, colors_and_type.css, context/provenance, focused preview cards, preserved assets/build/fonts when available, and ui_kits/app/.',
+    '- Before final response, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path . --fail-on-warnings` and fix every actionable issue.',
+    '',
+  ].join('\n');
+}
+
 export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDeps) {
   const { db, design } = ctx;
   const { sendApiError, createSseResponse } = ctx.http;
-  const { DESIGN_SYSTEMS_DIR, PROJECTS_DIR, SKILLS_DIR, BRANDS_DIR } = ctx.paths;
+  const { DESIGN_SYSTEMS_DIR, PROJECTS_DIR, SKILLS_DIR, BRANDS_DIR, USER_DESIGN_SYSTEMS_DIR } = ctx.paths;
   const { readAppConfig, writeAppConfig } = ctx.appConfig;
   const { insertProject, validateLinkedDirs, getProject, updateProject, dbDeleteProject, removeProjectDir } = ctx.projectStore;
   const { writeProjectFile, readProjectFile, ensureProject, listFiles, listTabs, setTabs, resolveProjectDir } = ctx.projectFiles;

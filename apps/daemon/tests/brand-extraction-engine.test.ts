@@ -2071,9 +2071,13 @@ describe('agent-driven brand extraction engine', () => {
   it('does not finalize blocked or thin programmatic harvests as ready', async () => {
     const db = openDatabase(tempDir, { dataDir: tempDir });
 
-    for (const [host, flags] of [
-      ['blocked.example', { blocked: true, thin: true }],
-      ['thin.example', { blocked: false, thin: true }],
+    for (const [host, flags, expectedStatus, expectedKitStatus] of [
+      // A blocked origin is recoverable via the in-app Browser tab + Continue, so
+      // it parks in the calm `needs_input` state (kit shows the in-progress
+      // "extracting" view) rather than the red `failed` terminal.
+      ['blocked.example', { blocked: true, thin: true }, 'needs_input', 'extracting'],
+      // A genuinely thin, non-blocked harvest is unrecoverable and stays `failed`.
+      ['thin.example', { blocked: false, thin: true }, 'failed', 'failed'],
     ] as const) {
       let backgroundExtraction: Promise<unknown> | null = null;
       const result = await startOfflineBrandExtraction({
@@ -2116,12 +2120,11 @@ describe('agent-driven brand extraction engine', () => {
       await backgroundExtraction;
 
       const detail = readBrandDetail(brandsRoot, result.id);
-      expect(detail?.meta.status).toBe('failed');
-      // Entity-first: the draft exists after failure but is not promoted.
+      expect(detail?.meta.status).toBe(expectedStatus);
+      // Entity-first: the draft exists after the give-up but is not promoted.
       expect(detail?.meta.designSystemId).toMatch(/^user:/);
       const html = readFileSync(path.join(projectsRoot, result.projectId, 'brand.html'), 'utf8');
-      expect(html).toContain('"status":"failed"');
-      expect(html).toContain('"extractionFailed":"Extraction failed"');
+      expect(html).toContain(`"status":"${expectedKitStatus}"`);
 
       const project = getProject(db, result.projectId);
       expect(project?.pendingPrompt ?? '').toContain('DESIGN SYSTEM EXTRACTION');

@@ -299,6 +299,10 @@ export interface BrowserOpenRequest {
   tabId?: string;
   url: string;
   nonce: number;
+  /** Only foreground an EXISTING browser tab — do not navigate it. Used to wake
+   *  a background-throttled webview before reading its DOM (brand browser
+   *  assist) WITHOUT reloading the page and re-triggering an anti-bot wall. */
+  focusOnly?: boolean;
 }
 type WorkspaceOrderedTab =
   | { id: string; kind: 'browser'; browserTab: BrowserWorkspaceTab }
@@ -708,6 +712,15 @@ export function FileWorkspace({
     const requestedIndex = browserTabIndex(tabId);
     if (requestedIndex > 0) {
       browserTabSequenceRef.current = Math.max(browserTabSequenceRef.current, requestedIndex);
+    }
+    // Focus-only: the tab already exists and is parked on the (cleared) page —
+    // just foreground it so its webview un-throttles, without issuing a navigate
+    // request that would reload and re-trigger the anti-bot wall.
+    if (request.focusOnly && browserTabs.some((tab) => tab.id === tabId)) {
+      setUploadError(null);
+      setActiveTab(tabId);
+      commitTabsState(workspaceTabsState(persistedTabs, tabId, browserTabs));
+      return;
     }
     const browserTitle = normalizedUrl && normalizedUrl !== 'about:blank'
       ? labelFromUrl(normalizedUrl)

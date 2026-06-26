@@ -6642,9 +6642,27 @@ export function ProjectView({
     };
 
     void (async () => {
+      // Foreground the pinned Browser tab FIRST. When the user clicks Continue
+      // from the preview tab, the browser <webview> is `display:none` and
+      // Electron background-throttles its renderer — `executeJavaScript` then
+      // hangs until the read timeout ("spins forever, then read failed"). A
+      // focus-only request wakes the webview WITHOUT navigating (so it never
+      // reloads the page or re-triggers the anti-bot wall); a short settle lets
+      // the renderer un-throttle before we read its DOM.
+      if (isOpenDesignHostAvailable() && brandExtractionSourceUrl) {
+        setBrowserOpenRequest({
+          tabId: BRAND_BROWSER_TAB_ID,
+          url: brandExtractionSourceUrl,
+          nonce: Date.now(),
+          focusOnly: true,
+        });
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 600);
+        });
+      }
       // Prefer the live, post-wall DOM out of the pinned Browser tab. Read it
       // BEFORE switching the workspace to the preview so the read runs against
-      // the still-focused browser tab.
+      // the now-foregrounded browser tab.
       const snapshot = await readBrandBrowserSnapshotWithRetry(BRAND_BROWSER_TAB_ID);
       requestOpenFile(brandPreviewFile);
 
@@ -6656,7 +6674,11 @@ export function ProjectView({
             baseUrl: snapshot.baseUrl,
           });
           if (!outcome.ok) {
-            setBrandExtractionStatusOverride({ brandId, status: 'failed' });
+            // Recoverable, not terminal: the read may have caught the page mid-load
+            // / still on the wall. Keep the kit in the calm `needs_input` state (a
+            // retry or the agent fallback can still finish it) instead of flashing
+            // the red "Extraction failed" terminal. The toast explains the retry.
+            setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
             setProjectActionsToast({
               message: outcome.error,
               details: null,
@@ -6670,8 +6692,10 @@ export function ProjectView({
         }
         // The Browser tab is parked on a different page than the brand source —
         // re-extracting its DOM would describe the wrong site. Guide the user
-        // rather than silently re-running the (still-walled) server fetch.
-        setBrandExtractionStatusOverride({ brandId, status: 'failed' });
+        // rather than silently re-running the (still-walled) server fetch. This
+        // is recoverable (navigate back to the source and retry), so stay in the
+        // calm `needs_input` state rather than the red "Extraction failed".
+        setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
         setProjectActionsToast({
           message: t('chat.brandBrowserAssistReadFailed'),
           details: null,
@@ -6686,7 +6710,10 @@ export function ProjectView({
       // again — surface the reason and stop. The web-only host has no in-app
       // webview at all, so the server fetch is its only available path.
       if (isOpenDesignHostAvailable()) {
-        setBrandExtractionStatusOverride({ brandId, status: 'failed' });
+        // The webview was not readable yet (still mounting, mid-redirect, or the
+        // page hung on the wall). Recoverable — clear/settle the page and click
+        // Continue again — so keep the calm `needs_input` state, not `failed`.
+        setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
         setProjectActionsToast({
           message: snapshot.message || t('chat.brandBrowserAssistReadFailed'),
           details: null,
@@ -6698,7 +6725,7 @@ export function ProjectView({
 
       const outcome = await continueBrandExtraction(brandId);
       if (!outcome.ok) {
-        setBrandExtractionStatusOverride({ brandId, status: 'failed' });
+        setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
         setProjectActionsToast({
           message: outcome.error,
           details: null,
@@ -6710,7 +6737,7 @@ export function ProjectView({
       await refreshAfterProgrammaticContinue(outcome.result.status, outcome.result.conversationId);
     })()
       .catch((err) => {
-        setBrandExtractionStatusOverride({ brandId, status: 'failed' });
+        setBrandExtractionStatusOverride({ brandId, status: 'needs_input' });
         setProjectActionsToast({
           message: err instanceof Error ? err.message : t('chat.brandBrowserAssistReadFailed'),
           details: null,
