@@ -64,7 +64,6 @@ const CATEGORY_ORDER = [
 type SurfaceFilter = 'all' | Surface;
 type DesignSystemCollection = 'mine' | 'team' | 'official' | 'enterprise';
 type DesignSystemActionKind = 'edit' | 'publish' | 'default' | 'delete';
-
 const SURFACE_PILLS: { value: SurfaceFilter; labelKey: 'examples.modeAll' | 'ds.surfaceWeb' | 'ds.surfaceImage' | 'ds.surfaceVideo' | 'ds.surfaceAudio' }[] = [
   { value: 'all', labelKey: 'examples.modeAll' },
   { value: 'web', labelKey: 'ds.surfaceWeb' },
@@ -269,6 +268,18 @@ export function DesignSystemsTab({
     setTeamSystemIds((prev) => new Set(prev).add(system.id));
     setDesignSystemCollection('team');
     notifyAction('success', `已将「${system.title}」转为团队设计系统`);
+  };
+  // Undo the demo-local team conversion without changing the underlying
+  // design system. The item returns to「你的体系」with its content, publish
+  // status, and default selection intact.
+  const moveBackToPersonal = (system: DesignSystemSummary) => {
+    setTeamSystemIds((prev) => {
+      const next = new Set(prev);
+      next.delete(system.id);
+      return next;
+    });
+    setDesignSystemCollection('mine');
+    notifyAction('success', `已取消「${system.title}」的团队共享`);
   };
   const notifyActionLoading = (label?: string) => {
     const message = label
@@ -624,75 +635,68 @@ export function DesignSystemsTab({
   }
 
   const scopeTabs = [
-    { value: 'mine' as const, label: '你的', count: userSearched.length },
-    { value: 'team' as const, label: '团队', count: teamSearched.length },
-    { value: 'official' as const, label: '官方', count: queryScoped.length },
+    { value: 'mine' as const, label: t('dsManager.yourSystems'), count: userSearched.length },
+    { value: 'team' as const, label: t('pluginsView.tab.team'), count: teamSearched.length },
+    { value: 'official' as const, label: t('dsManager.officialPresets'), count: queryScoped.length },
   ];
 
   const showPresetFilters = designSystemCollection === 'official';
 
   if (loading) {
     return (
-      <div
-        className={styles.root}
-        data-testid="design-systems-tab"
-        data-loading="true"
-        aria-busy="true"
-      >
-        <VisuallyHidden role="status">{t('designSystemPicker.loading')}</VisuallyHidden>
-        <aside className={styles.sidebar} data-testid="design-systems-sidebar-skeleton">
-          {onCreate ? (
-            <Button
-              variant="primary"
-              className={styles.newBtn}
-              onClick={onCreate}
-              data-testid="design-systems-create"
-            >
-              <Icon name="plus" />
-              {t('dsManager.createAction')}
-            </Button>
-          ) : (
+      <>
+        <header className={styles.pageHeader} data-testid="design-systems-page-header">
+          <h1 className={styles.pageTitle}>{t('entry.navDesignSystems')}</h1>
+          <div className={styles.headerTools} data-testid="design-systems-header-tools" aria-hidden>
+            <div className={`${styles.searchWrap} ${styles.headerSearch}`} data-testid="design-systems-header-search">
+              <SearchGlyph className={styles.searchIcon} />
+              <SkeletonBlock className={`${styles.search} ${styles.skeletonSearchField}`} />
+            </div>
             <SkeletonBlock className={styles.skeletonCreateButton} />
-          )}
-
-          <div className={styles.searchWrap} aria-hidden>
-            <SearchGlyph className={styles.searchIcon} />
-            <SkeletonBlock className={`${styles.search} ${styles.skeletonSearchField}`} />
           </div>
+        </header>
+        <div
+          className={styles.root}
+          data-testid="design-systems-tab"
+          data-loading="true"
+          aria-busy="true"
+        >
+          <VisuallyHidden role="status">{t('designSystemPicker.loading')}</VisuallyHidden>
+          <aside className={styles.sidebar} data-testid="design-systems-sidebar-skeleton">
+            <div className={styles.scopes} aria-hidden>
+              <SkeletonBlock className={`${styles.scopeChip} ${styles.skeletonScopeChipWide}`} />
+              <SkeletonBlock className={`${styles.scopeChip} ${styles.skeletonScopeChip}`} />
+              <SkeletonBlock className={`${styles.scopeChip} ${styles.skeletonScopeChipWide}`} />
+            </div>
 
-          <div className={styles.scopes} aria-hidden>
-            <SkeletonBlock className={`${styles.scopeChip} ${styles.skeletonScopeChipWide}`} />
-            <SkeletonBlock className={`${styles.scopeChip} ${styles.skeletonScopeChip}`} />
-            <SkeletonBlock className={`${styles.scopeChip} ${styles.skeletonScopeChipWide}`} />
-          </div>
+            <div className={styles.list} data-testid="design-systems-list" aria-hidden>
+              {Array.from({ length: 7 }, (_, index) => (
+                <div
+                  key={index}
+                  className={`${styles.item} ${index === 0 ? styles.skeletonRowActive : styles.skeletonRow}`}
+                  data-testid={`design-systems-loading-row-${index}`}
+                >
+                  <span className={styles.itemThumb}>
+                    <SkeletonBlock className={styles.skeletonThumb} />
+                  </span>
+                  <span className={styles.itemMeta}>
+                    <SkeletonBlock className={`${styles.skeletonLine} ${styles.skeletonLineTitle}`} />
+                    <SkeletonBlock className={`${styles.skeletonLine} ${index % 3 === 0 ? styles.skeletonLineShort : styles.skeletonLineMedium}`} />
+                  </span>
+                  <SkeletonBlock className={styles.skeletonStatusDot} />
+                </div>
+              ))}
+            </div>
+          </aside>
 
-          <div className={styles.list} data-testid="design-systems-list" aria-hidden>
-            {Array.from({ length: 7 }, (_, index) => (
-              <div
-                key={index}
-                className={`${styles.item} ${index === 0 ? styles.skeletonRowActive : styles.skeletonRow}`}
-                data-testid={`design-systems-loading-row-${index}`}
-              >
-                <span className={styles.itemThumb}>
-                  <SkeletonBlock className={styles.skeletonThumb} />
-                </span>
-                <span className={styles.itemMeta}>
-                  <SkeletonBlock className={`${styles.skeletonLine} ${styles.skeletonLineTitle}`} />
-                  <SkeletonBlock className={`${styles.skeletonLine} ${index % 3 === 0 ? styles.skeletonLineShort : styles.skeletonLineMedium}`} />
-                </span>
-                <SkeletonBlock className={styles.skeletonStatusDot} />
-              </div>
-            ))}
-          </div>
-        </aside>
-
-        <section className={styles.preview} data-testid="design-systems-preview">
-          <DesignSystemDetailSkeleton
-            label={t('designSystemPicker.loadingPreview')}
-            dataTestId="design-systems-preview-skeleton"
-          />
-        </section>
-      </div>
+          <section className={styles.preview} data-testid="design-systems-preview">
+            <DesignSystemDetailSkeleton
+              label={t('designSystemPicker.loadingPreview')}
+              dataTestId="design-systems-preview-skeleton"
+            />
+          </section>
+        </div>
+      </>
     );
   }
 
@@ -707,6 +711,42 @@ export function DesignSystemsTab({
           onDismiss={() => setActionToast(null)}
         />
       ) : null}
+      <header className={styles.pageHeader} data-testid="design-systems-page-header">
+        <h1 className={styles.pageTitle}>{t('entry.navDesignSystems')}</h1>
+        <div className={styles.headerTools} data-testid="design-systems-header-tools">
+          <div className={`${styles.searchWrap} ${styles.headerSearch}`} data-testid="design-systems-header-search">
+            <SearchGlyph className={styles.searchIcon} />
+            <input
+              type="search"
+              data-testid="design-systems-search"
+              className={styles.search}
+              placeholder={t('ds.searchPlaceholder')}
+              value={filter}
+              onFocus={() => {
+                if (searchTrackedRef.current) return;
+                searchTrackedRef.current = true;
+                trackDesignSystemsTopClick(analytics.track, {
+                  page_name: 'design_systems',
+                  area: 'design_systems',
+                  element: 'search_input',
+                });
+              }}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+          {onCreate ? (
+            <Button
+              variant="primary"
+              className={`${styles.newBtn} ${styles.headerCreate}`}
+              onClick={onCreate}
+              data-testid="design-systems-create"
+            >
+              <Icon name="plus" />
+              {t('dsManager.createAction')}
+            </Button>
+          ) : null}
+        </div>
+      </header>
       <div className="ds-top-scopes" role="tablist" aria-label={t('dsManager.sourceAria')}>
         {scopeTabs.map((tab) => (
           <button
@@ -724,39 +764,6 @@ export function DesignSystemsTab({
       </div>
       <div className={styles.root} data-testid="design-systems-tab">
         <aside className={styles.sidebar}>
-        {onCreate ? (
-          <Button
-            variant="primary"
-            className={styles.newBtn}
-            onClick={onCreate}
-            data-testid="design-systems-create"
-          >
-            <Icon name="plus" />
-            {t('dsManager.createAction')}
-          </Button>
-        ) : null}
-
-        <div className={styles.searchWrap}>
-          <SearchGlyph className={styles.searchIcon} />
-          <input
-            type="search"
-            data-testid="design-systems-search"
-            className={styles.search}
-            placeholder={t('ds.searchPlaceholder')}
-            value={filter}
-            onFocus={() => {
-              if (searchTrackedRef.current) return;
-              searchTrackedRef.current = true;
-              trackDesignSystemsTopClick(analytics.track, {
-                page_name: 'design_systems',
-                area: 'design_systems',
-                element: 'search_input',
-              });
-            }}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        </div>
-
         {showPresetFilters ? (
           <div className={styles.presetFilters}>
             <div className={styles.surfaceRow} role="tablist" aria-label={t('ds.surfaceLabel')}>
@@ -894,6 +901,7 @@ export function DesignSystemsTab({
           onActionFeedback={notifyAction}
           isTeamSystem={teamSystemIds.has(selectedSystem.id)}
           onConvertToTeam={convertToTeam}
+          onMoveBackToPersonal={moveBackToPersonal}
         />
       );
     }
@@ -1092,6 +1100,8 @@ interface DetailProps {
   isTeamSystem?: boolean;
   /** Convert a personal design system to the team scope. */
   onConvertToTeam?: (system: DesignSystemSummary) => void;
+  /** Remove a team design system from the shared scope and return it to personal. */
+  onMoveBackToPersonal?: (system: DesignSystemSummary) => void;
 }
 
 function DesignSystemDetail({
@@ -1108,6 +1118,7 @@ function DesignSystemDetail({
   onActionFeedback,
   isTeamSystem = false,
   onConvertToTeam,
+  onMoveBackToPersonal,
 }: DetailProps) {
   const analytics = useAnalytics();
   const isUser = isUserSystem(system);
@@ -1251,6 +1262,15 @@ function DesignSystemDetail({
           label: '转为团队设计系统',
           icon: 'share' as const,
           onClick: () => onConvertToTeam(system),
+          disabled: busy,
+        }]
+      : []),
+    ...(isUser && isTeamSystem && onMoveBackToPersonal
+      ? [{
+          id: 'remove-team-sharing',
+          label: '取消团队共享',
+          icon: 'history' as const,
+          onClick: () => onMoveBackToPersonal(system),
           disabled: busy,
         }]
       : []),

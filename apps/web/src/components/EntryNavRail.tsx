@@ -29,6 +29,7 @@ export type EntryView =
   | 'all-projects'
   | 'content-plan'
   | 'members'
+  | 'dashboard'
   | 'design-systems'
   | 'library'
   | 'brands'
@@ -51,6 +52,8 @@ interface Props {
   /** Credits popover data + upgrade handler for the ✨ credits chip. */
   credits?: CreditsInfo;
   onUpgrade?: () => void;
+  canManageWorkspace?: boolean;
+  cloudWorkspace?: boolean;
 }
 
 interface NavButtonProps {
@@ -78,7 +81,7 @@ function NavButton({ active, ariaLabel, tooltip, onClick, testId, children }: Na
   );
 }
 
-export function EntryNavRail({ view, onViewChange, onNewProject, open, onClose, footerExtra, solo = false, credits, onUpgrade }: Props) {
+export function EntryNavRail({ view, onViewChange, onNewProject, open, onClose, footerExtra, solo = false, credits, onUpgrade, canManageWorkspace = true, cloudWorkspace = true }: Props) {
   const t = useT();
   const brandLabel = t('app.brand');
   const homeLabel = t('entry.navHome');
@@ -206,96 +209,113 @@ export function EntryNavRail({ view, onViewChange, onNewProject, open, onClose, 
           <Icon name="globe" size={18} />
         </NavButton>
 
-        <div className="entry-nav-rail__team-wrap">
-          <button
-            type="button"
-            className="entry-nav-rail__team"
-            onClick={() => setTeamOpen((v) => !v)}
-            aria-expanded={teamOpen}
-          >
-            <span className="entry-nav-rail__team-avatar" aria-hidden>N</span>
-            <span className="entry-nav-rail__team-name">Nexu 团队</span>
-            <Icon name="chevron-down" size={14} />
-          </button>
-          {teamOpen ? (
-            <>
-              <div className="entry-nav-rail__menu-backdrop" onClick={() => setTeamOpen(false)} />
-              <div className="entry-nav-rail__team-menu" role="menu">
-                {solo ? null : (
-                  <button type="button" className="entry-nav-rail__menu-item" role="menuitem">
-                    <span className="entry-nav-rail__team-avatar entry-nav-rail__team-avatar--alt" aria-hidden>R</span>
-                    Refly
-                  </button>
-                )}
-                <button type="button" className="entry-nav-rail__menu-item is-current" role="menuitem">
-                  <span className="entry-nav-rail__team-avatar" aria-hidden>N</span>
-                  Nexu 团队
-                  <Icon name="check" size={14} />
-                </button>
-                <div className="entry-nav-rail__menu-divider" />
-                <button
-                  type="button"
-                  className="entry-nav-rail__menu-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setTeamOpen(false);
-                    setInviteOpen(true);
-                  }}
-                >
-                  <Icon name="share" size={15} /> 邀请同事
-                </button>
-                <button
-                  type="button"
-                  className="entry-nav-rail__menu-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setTeamOpen(false);
-                    setCreateTeamOpen(true);
-                  }}
-                >
-                  <Icon name="plus" size={15} /> 新建团队
-                </button>
-              </div>
-            </>
-          ) : null}
-        </div>
-        <NavButton
-          active={view === 'drafts'}
-          ariaLabel="Drafts"
-          tooltip="草稿"
-          onClick={() => selectView('drafts')}
-          testId="entry-nav-drafts"
-        >
-          <Icon name="file" size={18} />
-        </NavButton>
-        <NavButton
-          active={view === 'all-projects'}
-          ariaLabel="All projects"
-          tooltip="全部项目"
-          onClick={() => selectView('all-projects')}
-          testId="entry-nav-all-projects"
-        >
-          <Icon name="grid" size={18} />
-        </NavButton>
-        <NavButton
-          active={view === 'design-systems'}
-          ariaLabel={t('entry.navDesignSystems')}
-          tooltip={t('entry.navDesignSystems')}
-          onClick={() => selectView('design-systems')}
-          testId="entry-nav-design-systems"
-        >
-          <Icon name="palette" size={18} />
-        </NavButton>
+        {cloudWorkspace ? (
+          <>
+            <div className="entry-nav-rail__team-wrap">
+              <button
+                type="button"
+                className="entry-nav-rail__team"
+                onClick={() => setTeamOpen((v) => !v)}
+                aria-expanded={teamOpen}
+              >
+                <span className="entry-nav-rail__team-avatar" aria-hidden>N</span>
+                <span className="entry-nav-rail__team-name">Nexu 团队</span>
+                <Icon name="chevron-down" size={14} />
+              </button>
+              {teamOpen ? (
+                <>
+                  <div className="entry-nav-rail__menu-backdrop" onClick={() => setTeamOpen(false)} />
+                  <div className="entry-nav-rail__team-menu" role="menu">
+                    {solo ? null : (
+                      <button type="button" className="entry-nav-rail__menu-item" role="menuitem">
+                        <span className="entry-nav-rail__team-avatar entry-nav-rail__team-avatar--alt" aria-hidden>R</span>
+                        Refly
+                      </button>
+                    )}
+                    <button type="button" className="entry-nav-rail__menu-item is-current" role="menuitem">
+                      <span className="entry-nav-rail__team-avatar" aria-hidden>N</span>
+                      Nexu 团队
+                      <Icon name="check" size={14} />
+                    </button>
+                    <div className="entry-nav-rail__menu-divider" />
+                    <button
+                      type="button"
+                      className="entry-nav-rail__menu-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setTeamOpen(false);
+                        setInviteOpen(true);
+                      }}
+                    >
+                      <Icon name="share" size={15} /> 邀请同事
+                    </button>
+                    <button
+                      type="button"
+                      className="entry-nav-rail__menu-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setTeamOpen(false);
+                        setCreateTeamOpen(true);
+                      }}
+                    >
+                      <Icon name="plus" size={15} /> 新建团队
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <NavButton
+              active={view === 'drafts'}
+              ariaLabel="Drafts"
+              tooltip="草稿"
+              onClick={() => selectView('drafts')}
+              testId="entry-nav-drafts"
+            >
+              <Icon name="file" size={18} />
+            </NavButton>
+            <NavButton
+              active={view === 'all-projects'}
+              ariaLabel="All projects"
+              tooltip="全部项目"
+              onClick={() => selectView('all-projects')}
+              testId="entry-nav-all-projects"
+            >
+              <Icon name="grid" size={18} />
+            </NavButton>
+            <NavButton
+              active={view === 'design-systems'}
+              ariaLabel={t('entry.navDesignSystems')}
+              tooltip={t('entry.navDesignSystems')}
+              onClick={() => selectView('design-systems')}
+              testId="entry-nav-design-systems"
+            >
+              <Icon name="palette" size={18} />
+            </NavButton>
+          </>
+        ) : null}
 {null /* demo: hide content-plan nav item */}
-        <NavButton
-          active={view === 'members'}
-          ariaLabel="成员"
-          tooltip="成员"
-          onClick={() => selectView('members')}
-          testId="entry-nav-members"
-        >
-          <Icon name="share" size={18} />
-        </NavButton>
+        {cloudWorkspace && canManageWorkspace ? (
+          <>
+            <NavButton
+              active={view === 'members'}
+              ariaLabel="成员"
+              tooltip="成员"
+              onClick={() => selectView('members')}
+              testId="entry-nav-members"
+            >
+              <Icon name="share" size={18} />
+            </NavButton>
+            <NavButton
+              active={view === 'dashboard'}
+              ariaLabel="数据大盘"
+              tooltip="数据大盘"
+              onClick={() => selectView('dashboard')}
+              testId="entry-nav-dashboard"
+            >
+              <Icon name="kanban" size={18} />
+            </NavButton>
+          </>
+        ) : null}
 
         <div className="entry-nav-rail__section">更多</div>
         <NavButton

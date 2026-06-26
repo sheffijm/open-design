@@ -140,8 +140,8 @@ describe('DesignSystemsTab', () => {
     expect(screen.queryByRole('tab', { name: 'Design system' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Template' })).toBeNull();
     expect(screen.getByRole('tab', { name: 'Your systems' }).textContent).toContain('1');
+    expect(screen.getByRole('tab', { name: 'Team' }).textContent).toContain('0');
     expect(screen.getByRole('tab', { name: 'Official presets' }).textContent).toContain('1');
-    expect(screen.getByRole('tab', { name: 'Enterprise' }).textContent).toContain('Coming soon');
   });
 
   it('separates user-created design systems from the official preset library', () => {
@@ -204,6 +204,32 @@ describe('DesignSystemsTab', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Edit with agent/i }));
     expect(onOpenSystem).toHaveBeenCalledWith('user:acme');
   });
+
+  it('lets a team design system return to the personal scope from the overflow menu', async () => {
+    render(
+      <DesignSystemsTab
+        systems={systems}
+        selectedId="user:acme"
+        onSelect={() => {}}
+        onCreate={() => {}}
+        onOpenSystem={() => {}}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('design-kit-more-actions'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '转为团队设计系统' }));
+
+    expect(screen.getByRole('tab', { name: 'Team' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('design-system-card-user:acme')).toBeTruthy();
+
+    fireEvent.click(await screen.findByTestId('design-kit-more-actions'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '取消团队共享' }));
+
+    expect(screen.getByRole('tab', { name: 'Your systems' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('design-system-card-user:acme')).toBeTruthy();
+    expect(screen.getByText('已取消「Acme Design System」的团队共享')).toBeTruthy();
+  });
+
 
   it('keeps built-in library systems read-only with the redundant cover removed', async () => {
     const onOpenSystem = vi.fn();

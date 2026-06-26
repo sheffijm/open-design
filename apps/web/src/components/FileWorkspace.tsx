@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type ReactNode,
 } from 'react';
@@ -192,6 +193,7 @@ interface Props {
   ) => void;
   onUseDesignSystem?: (id: string, title: string) => Promise<void> | void;
   designSystemEditRequest?: DesignKitEditFocusRequest | null;
+  designSystemCollabDemoRequest?: { kind: 'edit'; nonce: number } | null;
   onConnectRepo?: () => void;
   githubConnected?: boolean;
   commentPortalId?: string;
@@ -251,6 +253,14 @@ interface Props {
   onSubmitQuestionForm?: (text: string) => void;
   // Bumped nonce that focuses the Questions tab (banner click / new form).
   focusQuestionsRequest?: { nonce: number } | null;
+  viewerOnly?: boolean;
+  commentAuthor?: {
+    name: string;
+    role: string;
+    avatar?: string;
+    color: string;
+    initials: string;
+  };
 }
 
 interface SketchState {
@@ -440,6 +450,7 @@ export function FileWorkspace({
   onDesignSystemReviewDecision,
   onUseDesignSystem,
   designSystemEditRequest,
+  designSystemCollabDemoRequest,
   onConnectRepo,
   githubConnected,
   commentPortalId,
@@ -469,6 +480,8 @@ export function FileWorkspace({
   questionsGenerating = false,
   onSubmitQuestionForm,
   focusQuestionsRequest = null,
+  viewerOnly = false,
+  commentAuthor,
 }: Props) {
   const t = useT();
   // The chat column only shows a compact Questions banner; the form itself
@@ -2168,6 +2181,7 @@ export function FileWorkspace({
             onReviewDecision={onDesignSystemReviewDecision}
             onUseDesignSystem={onUseDesignSystem}
             editFocusRequest={designSystemEditRequest}
+            collabDemoRequest={designSystemCollabDemoRequest}
             onConnectRepo={onConnectRepo}
             githubConnected={githubConnected}
           />
@@ -2316,39 +2330,47 @@ export function FileWorkspace({
             onRefreshArtifacts={onRefreshFiles}
           />
         ) : activeFile ? (
-          <FileViewer
-            projectId={projectId}
-            projectKind={projectKind}
-            file={activeFile}
-            filesRefreshKey={filesRefreshKey}
-            isDeck={isDeck}
-            streaming={streaming}
-            commentQueueOnSend={commentQueueOnSend}
-            commentSendDisabled={commentSendDisabled}
-            previewComments={previewComments.filter((comment) => comment.filePath === activeFile.name)}
-            onSavePreviewComment={onSavePreviewComment}
-            onRemovePreviewComment={onRemovePreviewComment}
-            onSendBoardCommentAttachments={onSendBoardCommentAttachments}
-            onFileSaved={onRefreshFiles}
-            onOpenFileReplacing={openFileReplacing}
-            commentPortalId={commentPortalId}
-            onCommentModeChange={onCommentModeChange}
-            shareRequest={
-              shareRequest && shareRequest.name === activeFile.name
-                ? { nonce: shareRequest.nonce }
-                : null
-            }
-            downloadRequest={
-              downloadRequest && downloadRequest.name === activeFile.name
-                ? { nonce: downloadRequest.nonce }
-                : null
-            }
-            slideNavRequest={deliverableSlideNavForActiveFile(
-              slideNavRequest,
-              activeFile.name,
-              slideNavDeliverableNonce,
-            )}
-          />
+          <div className="project-collab-demo-stage">
+            <FileViewer
+              projectId={projectId}
+              projectKind={projectKind}
+              file={activeFile}
+              filesRefreshKey={filesRefreshKey}
+              isDeck={isDeck}
+              streaming={streaming}
+              commentQueueOnSend={commentQueueOnSend}
+              commentSendDisabled={commentSendDisabled}
+              previewComments={previewComments.filter((comment) => comment.filePath === activeFile.name)}
+              onSavePreviewComment={onSavePreviewComment}
+              onRemovePreviewComment={onRemovePreviewComment}
+              onSendBoardCommentAttachments={onSendBoardCommentAttachments}
+              onFileSaved={onRefreshFiles}
+              onOpenFileReplacing={openFileReplacing}
+              commentPortalId={commentPortalId}
+              onCommentModeChange={onCommentModeChange}
+              shareRequest={
+                !viewerOnly && shareRequest && shareRequest.name === activeFile.name
+                  ? { nonce: shareRequest.nonce }
+                  : null
+              }
+              downloadRequest={
+                !viewerOnly && downloadRequest && downloadRequest.name === activeFile.name
+                  ? { nonce: downloadRequest.nonce }
+                  : null
+              }
+              viewerOnly={viewerOnly}
+              commentAuthor={commentAuthor}
+              slideNavRequest={deliverableSlideNavForActiveFile(
+                slideNavRequest,
+                activeFile.name,
+                slideNavDeliverableNonce,
+              )}
+            />
+            <ProjectFileCollabDemoOverlay
+              demoRequest={designSystemCollabDemoRequest}
+              fileName={activeFile.name}
+            />
+          </div>
         ) : (
           <div className="viewer-empty">
             {t('workspace.openFromDesignFiles')}{' '}
@@ -2456,6 +2478,7 @@ function DesignSystemProjectPanel({
   onReviewDecision,
   onUseDesignSystem,
   editFocusRequest,
+  collabDemoRequest,
   onConnectRepo,
   githubConnected,
 }: {
@@ -2485,6 +2508,7 @@ function DesignSystemProjectPanel({
   ) => void;
   onUseDesignSystem?: (id: string, title: string) => Promise<void> | void;
   editFocusRequest?: DesignKitEditFocusRequest | null;
+  collabDemoRequest?: { kind: 'edit'; nonce: number } | null;
   onConnectRepo?: () => void;
   githubConnected?: boolean;
 }) {
@@ -3236,6 +3260,8 @@ function DesignSystemProjectPanel({
 
   const topSlot = (
     <>
+      <DesignSystemWorkspaceCollaboration demoRequest={collabDemoRequest} />
+
       <div
         className={`ds-project-extraction-status ${streaming ? 'is-running' : 'is-complete'}`}
         role="status"
@@ -3381,6 +3407,212 @@ function DesignSystemProjectPanel({
   );
 }
 
+type DesignSystemCollabTarget = 'logo' | 'typography' | 'palette';
+
+type DesignSystemCollabRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+function measureCollabTarget(
+  scope: HTMLElement,
+  rootRect: DOMRect,
+  target: DesignSystemCollabTarget,
+): DesignSystemCollabRect | null {
+  const element = scope.querySelector<HTMLElement>(`[data-collab-target="${target}"]`);
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left - rootRect.left,
+    top: rect.top - rootRect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function DesignSystemWorkspaceCollaboration({
+  demoRequest,
+}: {
+  demoRequest?: { kind: 'edit'; nonce: number } | null;
+}) {
+  const rootRef = useRef<HTMLElement | null>(null);
+  const [targetRects, setTargetRects] = useState<Record<DesignSystemCollabTarget, DesignSystemCollabRect | null>>({
+    logo: null,
+    typography: null,
+    palette: null,
+  });
+  const [demoStep, setDemoStep] = useState(0);
+  const demoFrames: Array<{
+    actor: 'lina' | 'zhang' | 'wang';
+    target: DesignSystemCollabTarget;
+    activity: string;
+  }> = [
+    { actor: 'lina', target: 'logo', activity: '正在编辑 Logo' },
+    { actor: 'zhang', target: 'typography', activity: '调整 Typography' },
+    { actor: 'wang', target: 'palette', activity: '检查 Color Tokens' },
+    { actor: 'lina', target: 'logo', activity: '确认 Logo 选区' },
+  ];
+  const activeFrame = demoFrames[demoStep % demoFrames.length] ?? demoFrames[0]!;
+  const collaborators = [
+    {
+      id: 'lina',
+      name: '李娜',
+      color: '#2f6fed',
+      offset: { x: 0.72, y: 1.08 },
+    },
+    {
+      id: 'zhang',
+      name: '张伟',
+      color: '#d0653f',
+      offset: { x: 0.86, y: 0.18 },
+    },
+    {
+      id: 'wang',
+      name: '王芳',
+      color: '#2f9d73',
+      offset: { x: 0.18, y: 0.92 },
+    },
+  ];
+  const active = collaborators.find((collaborator) => collaborator.id === activeFrame.actor) ?? collaborators[0]!;
+  const activeTarget = targetRects[activeFrame.target] ?? targetRects.logo;
+  const activeSelection = activeTarget
+    ? {
+        left: activeTarget.left - 3,
+        top: activeTarget.top - 3,
+        width: activeTarget.width + 6,
+        height: activeTarget.height + 6,
+      }
+    : null;
+
+  function cursorPositionFor(
+    collaborator: (typeof collaborators)[number],
+    index: number,
+  ): { left: string; top: string } {
+    const preferredTarget =
+      collaborator.id === activeFrame.actor
+        ? activeFrame.target
+        : (index === 1 ? 'typography' : index === 2 ? 'palette' : 'logo');
+    const rect = targetRects[preferredTarget] ?? targetRects.logo;
+    if (!rect) {
+      return index === 1
+        ? { left: '72%', top: '48%' }
+        : index === 2
+          ? { left: '38%', top: '72%' }
+          : { left: '58%', top: '214px' };
+    }
+    return {
+      left: `${rect.left + rect.width * collaborator.offset.x}px`,
+      top: `${rect.top + rect.height * collaborator.offset.y}px`,
+    };
+  }
+
+  useEffect(() => {
+    const root = rootRef.current;
+    const scope = root?.closest('[data-testid="design-system-project-kit"]');
+    if (!root || !(scope instanceof HTMLElement)) return undefined;
+
+    let frame = 0;
+    const updateTargets = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const rootRect = root.getBoundingClientRect();
+        setTargetRects({
+          logo: measureCollabTarget(scope, rootRect, 'logo'),
+          typography: measureCollabTarget(scope, rootRect, 'typography'),
+          palette: measureCollabTarget(scope, rootRect, 'palette'),
+        });
+      });
+    };
+
+    updateTargets();
+    const resizeObserver = new ResizeObserver(updateTargets);
+    resizeObserver.observe(root);
+    resizeObserver.observe(scope);
+    scope.querySelectorAll<HTMLElement>('[data-collab-target]').forEach((target) => {
+      resizeObserver.observe(target);
+    });
+    window.addEventListener('resize', updateTargets);
+    window.addEventListener('scroll', updateTargets, true);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateTargets);
+      window.removeEventListener('scroll', updateTargets, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!demoRequest || demoRequest.kind !== 'edit') return undefined;
+    setDemoStep(0);
+    const timers = demoFrames.slice(1).map((_, index) =>
+      window.setTimeout(() => {
+        setDemoStep(index + 1);
+      }, (index + 1) * 900),
+    );
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [demoRequest?.nonce]);
+
+  useEffect(() => {
+    if (!demoRequest || demoRequest.kind !== 'edit') return;
+    const root = rootRef.current;
+    const scope = root?.closest('[data-testid="design-system-project-kit"]');
+    if (!(scope instanceof HTMLElement)) return;
+    const target = scope.querySelector<HTMLElement>(`[data-collab-target="${activeFrame.target}"]`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }, [activeFrame.target, demoRequest?.nonce]);
+
+  return (
+    <section
+      ref={rootRef}
+      className="ds-workspace-collab"
+      data-testid="design-system-workspace-collab"
+      aria-label="Workspace collaboration"
+    >
+      <div className="ds-workspace-collab__presence" aria-hidden="true">
+        {collaborators.map((collaborator, index) => {
+          const cursor = cursorPositionFor(collaborator, index);
+          return (
+            <span
+              key={collaborator.id}
+              className={`ds-workspace-cursor ${collaborator.id === active.id ? 'is-active' : ''}`}
+              style={{
+                left: cursor.left,
+                top: cursor.top,
+                '--collab-color': collaborator.color,
+              } as CSSProperties}
+            >
+              <svg className="ds-workspace-cursor__pointer" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path className="ds-workspace-cursor__outline" d="M3 2.5 19.4 18.2l-8.1 1.2-4.4 7.3L3 2.5Z" />
+                <path className="ds-workspace-cursor__fill" d="M5.4 7.9 15.1 17l-5.2.8-2.8 4.7-1.7-14.6Z" />
+              </svg>
+              <span className="ds-workspace-cursor__name">{collaborator.name}</span>
+            </span>
+          );
+        })}
+        {activeSelection ? (
+          <span
+            className="ds-workspace-selection"
+            style={{
+              left: `${activeSelection.left}px`,
+              top: `${activeSelection.top}px`,
+              width: `${activeSelection.width}px`,
+              height: `${activeSelection.height}px`,
+              '--collab-color': active.color,
+            } as CSSProperties}
+          >
+            <span>{activeFrame.activity}</span>
+          </span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function DesignSystemProjectLoading({
   kicker,
   title,
@@ -3427,6 +3659,100 @@ function DesignSystemProjectLoading({
         <span />
       </div>
     </div>
+  );
+}
+
+function ProjectFileCollabDemoOverlay({
+  demoRequest,
+  fileName,
+}: {
+  demoRequest?: { kind: 'edit'; nonce: number } | null;
+  fileName: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  const [step, setStep] = useState(0);
+  const frames = [
+    {
+      actor: '李娜',
+      color: '#6366f1',
+      label: '李娜正在调整 Hero',
+      selection: { left: '18%', top: '20%', width: '58%', height: '22%' },
+      cursor: { left: '71%', top: '38%' },
+    },
+    {
+      actor: '张伟',
+      color: '#f97316',
+      label: '张伟选中主卡片',
+      selection: { left: '23%', top: '48%', width: '26%', height: '19%' },
+      cursor: { left: '47%', top: '64%' },
+    },
+    {
+      actor: '王芳',
+      color: '#10b981',
+      label: '王芳检查右侧控制',
+      selection: { left: '63%', top: '43%', width: '21%', height: '17%' },
+      cursor: { left: '82%', top: '58%' },
+    },
+    {
+      actor: '李娜',
+      color: '#6366f1',
+      label: '李娜确认整体间距',
+      selection: { left: '16%', top: '18%', width: '70%', height: '52%' },
+      cursor: { left: '83%', top: '67%' },
+    },
+  ];
+  const frame = frames[step % frames.length] ?? frames[0]!;
+
+  useEffect(() => {
+    if (!demoRequest || demoRequest.kind !== 'edit') return undefined;
+    setVisible(true);
+    setStep(0);
+    const timers = [
+      window.setTimeout(() => setStep(1), 850),
+      window.setTimeout(() => setStep(2), 1_700),
+      window.setTimeout(() => setStep(3), 2_550),
+    ];
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [demoRequest?.nonce, fileName]);
+
+  if (!visible) return null;
+
+  return (
+    <section
+      className="project-collab-demo-overlay"
+      data-testid="project-file-collab-demo-overlay"
+      aria-label="Project collaboration edit demo"
+      aria-hidden="true"
+    >
+      <span
+        className="project-collab-demo-selection"
+        style={{
+          left: frame.selection.left,
+          top: frame.selection.top,
+          width: frame.selection.width,
+          height: frame.selection.height,
+          '--collab-color': frame.color,
+        } as CSSProperties}
+      >
+        <span>{frame.label}</span>
+      </span>
+      <span
+        className="project-collab-demo-cursor"
+        style={{
+          left: frame.cursor.left,
+          top: frame.cursor.top,
+          '--collab-color': frame.color,
+        } as CSSProperties}
+      >
+        <svg className="project-collab-demo-cursor__pointer" viewBox="0 0 24 24" focusable="false">
+          <path className="project-collab-demo-cursor__outline" d="M3 2.5 19.4 18.2l-8.1 1.2-4.4 7.3L3 2.5Z" />
+          <path className="project-collab-demo-cursor__fill" d="M5.4 7.9 15.1 17l-5.2.8-2.8 4.7-1.7-14.6Z" />
+        </svg>
+        <span className="project-collab-demo-cursor__name">{frame.actor}</span>
+      </span>
+    </section>
   );
 }
 

@@ -56,7 +56,7 @@ import {
   mergeAihubmixImageModels,
   useAIHubMixImageModels,
 } from '../media/aihubmix-image-models';
-import { openFolderDialog, fetchRecentLinkedDirs, pushRecentLinkedDir } from '../providers/registry';
+import { openFolderDialog, fetchRecentLinkedDirs, pushRecentLinkedDir, writeProjectTextFile } from '../providers/registry';
 import { isOpenDesignHostAvailable, pickHostWorkingDir } from '@open-design/host';
 import type {
   DesignSystemSummary,
@@ -70,7 +70,7 @@ import { smoothScrollToTop } from '../utils/smoothScrollToTop';
 import { missingRequiredInputs, pluginInputsAreValid } from '../utils/pluginRequiredInputs';
 import { HomeHero, type ExamplePromptInfo, type HomeHeroHandle } from './HomeHero';
 import { findChip, HOME_HERO_CHIPS, type HomeHeroChip } from './home-hero/chips';
-import { type DemoScenario } from './DemoControlBar';
+import { type DemoScenario, type DemoUseMode } from './DemoControlBar';
 import { homeHeroChipLabel } from './home-hero/chip-labels';
 import type { PlaceholderScenario } from './home-hero/placeholderScenarios';
 import { consumePendingHomeChip, HOME_CHIP_INTENT_EVENT } from '../runtime/home-intent';
@@ -207,7 +207,7 @@ interface Props {
   designSystems?: DesignSystemSummary[];
   defaultDesignSystemId?: string | null;
   onSubmit: (payload: PluginLoopSubmit) => Promise<boolean> | boolean | void;
-  onOpenProject: (id: string) => void;
+  onOpenProject: (id: string) => Promise<boolean> | boolean | void;
   onViewAllProjects: () => void;
   onDeleteProject?: (id: string) => Promise<boolean | void> | boolean | void;
   onRenameProject?: (id: string, name: string) => void;
@@ -225,12 +225,176 @@ interface Props {
   promptTemplates?: PromptTemplateSummary[];
   executionSwitcher?: ReactNode;
   demoScenario?: DemoScenario;
+  demoUseMode?: DemoUseMode;
 }
 
 const EMPTY_DESIGN_SYSTEMS: DesignSystemSummary[] = [];
 const EMPTY_SKILLS: SkillSummary[] = [];
 const EMPTY_CONNECTORS: ConnectorDetail[] = [];
 const EMPTY_PROMPT_TEMPLATES: PromptTemplateSummary[] = [];
+
+interface DemoPresetProject {
+  id: string;
+  name: string;
+  prompt: string;
+  metadata: ProjectMetadata & { demoPresetId: string };
+  html: string;
+}
+
+const DEMO_PRESET_PROJECTS: DemoPresetProject[] = [
+  {
+    id: 'electric-studio-2',
+    name: 'Electric Studio 2',
+    prompt: 'Queue demo: refine the Logo hover state and keep the update consistent with the current design system.',
+    metadata: {
+      kind: 'deck',
+      entryFile: 'index.html',
+      slideCount: '7',
+      nameSource: 'user',
+      demoPresetId: 'electric-studio-2',
+    },
+    html: demoElectricStudioHtml(),
+  },
+  {
+    id: 'baidu-design-system',
+    name: '百度一下，你就知道',
+    prompt: 'Queue demo: audit Typography and Color Tokens, then suggest one high-impact polish pass.',
+    metadata: {
+      kind: 'brand',
+      importedFrom: 'brand-extraction',
+      entryFile: 'index.html',
+      nameSource: 'user',
+      brandSourceUrl: 'https://baidu.com',
+      demoPresetId: 'baidu-design-system',
+    },
+    html: demoDesignSystemHtml(),
+  },
+  {
+    id: 'electric-studio',
+    name: 'Electric Studio',
+    prompt: 'Create a clean capabilities slide for Electric Studio using the current collaboration demo.',
+    metadata: {
+      kind: 'deck',
+      entryFile: 'index.html',
+      slideCount: '5',
+      nameSource: 'user',
+      demoPresetId: 'electric-studio',
+    },
+    html: demoElectricStudioSimpleHtml(),
+  },
+];
+
+function demoPresetProjectCard(preset: DemoPresetProject, index: number): Project {
+  const now = Date.now();
+  return {
+    id: `demo-preset:${preset.id}`,
+    name: preset.name,
+    skillId: null,
+    designSystemId: null,
+    createdAt: now - (index + 1) * 60_000,
+    updatedAt: now - index * 60_000,
+    pendingPrompt: preset.prompt,
+    metadata: preset.metadata,
+  };
+}
+
+function demoPresetIdForProject(project: Project): string | null {
+  const value = (project.metadata as { demoPresetId?: unknown } | undefined)?.demoPresetId;
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function demoElectricStudioHtml(): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Electric Studio 2</title>
+  <style>
+    :root { color-scheme: light; --blue:#4864f4; --ink:#111; --muted:#6d6d6d; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#090909; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .slide { width:min(1120px,90vw); aspect-ratio:16/9; background:#fff; position:relative; overflow:hidden; box-shadow:0 24px 80px rgba(0,0,0,.34); }
+    .top { padding:80px 72px 0; color:var(--blue); font-size:12px; font-weight:800; letter-spacing:.42em; text-transform:uppercase; }
+    h1 { margin:34px 0 0; padding-left:72px; max-width:520px; color:var(--ink); font-size:86px; line-height:.92; letter-spacing:-.07em; }
+    .blue { position:absolute; left:0; right:0; bottom:0; height:31%; background:var(--blue); color:#fff; }
+    .copy { position:absolute; left:72px; top:48px; max-width:450px; font-size:20px; line-height:1.35; }
+    .year { position:absolute; left:72px; bottom:28px; opacity:.62; font-size:12px; letter-spacing:.2em; }
+    .count { position:absolute; right:44px; bottom:28px; font-size:12px; font-weight:700; letter-spacing:.18em; }
+  </style>
+</head>
+<body>
+  <main class="slide" aria-label="Electric Studio cover">
+    <div class="top">Electric Studio<br/>Studio Capabilities</div>
+    <h1>Electric<br/>Studio<span style="color:var(--blue)">.</span></h1>
+    <section class="blue">
+      <div class="copy">Bold design. Clean systems.<br/>Work that commands attention — and endures.</div>
+      <div class="year">2025</div>
+      <div class="count">01 / 07</div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function demoDesignSystemHtml(): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>百度一下，你就知道 Design System</title>
+  <style>
+    body { margin:0; background:#f7f8fb; color:#161616; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .wrap { max-width:960px; margin:42px auto; display:grid; gap:18px; padding:0 24px; }
+    .hero,.card { border:1px solid #dfe3eb; border-radius:18px; background:#fff; }
+    .hero { min-height:210px; display:grid; place-items:center; }
+    .logo { width:104px; height:104px; border-radius:22px; display:grid; place-items:center; background:#f4f6ff; color:#2937e6; font-size:54px; font-weight:900; }
+    h1 { margin:4px 0; font-size:26px; letter-spacing:-.03em; }
+    .url { color:#666; font-size:13px; }
+    .card { padding:22px; }
+    .label { color:#777; font-size:12px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+    p { margin:10px 0 0; color:#333; line-height:1.7; }
+    .chips { display:flex; gap:10px; margin-top:16px; }
+    .chip { width:54px; height:44px; border:1px solid #dfe3eb; border-radius:10px; display:grid; place-items:center; color:#2937e6; font-weight:900; background:#fff; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero"><div class="logo">du</div></section>
+    <section class="card">
+      <h1>百度一下，你就知道</h1>
+      <div class="url">baidu.com</div>
+    </section>
+    <section class="card">
+      <div class="label">Identity</div>
+      <p>全球领先的中文搜索引擎，致力于让网民更便捷地获取信息，找到所求。百度超过千亿的中文网页数据库，可以瞬间找到相关的搜索结果。</p>
+    </section>
+    <section class="card">
+      <div class="label">Logo</div>
+      <div class="chips"><div class="chip">du</div><div class="chip">du</div><div class="chip">du</div></div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function demoElectricStudioSimpleHtml(): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Electric Studio</title>
+  <style>
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#f7f3df; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .card { width:min(760px,86vw); aspect-ratio:16/10; border-radius:24px; background:linear-gradient(135deg,#fff8ce,#d7f0ff); display:grid; place-items:center; box-shadow:0 20px 60px rgba(0,0,0,.12); }
+    h1 { margin:0; color:#d06532; font-size:96px; font-family:Georgia,serif; }
+    p { margin:0; color:#8c7f68; font-size:18px; }
+  </style>
+</head>
+<body><main class="card"><div><h1>E</h1><p>Electric Studio starter canvas</p></div></main></body>
+</html>`;
+}
 
 
 export function HomeView({
@@ -255,6 +419,7 @@ export function HomeView({
   promptTemplates = EMPTY_PROMPT_TEMPLATES,
   executionSwitcher,
   demoScenario,
+  demoUseMode = 'cloud',
 }: Props) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -269,6 +434,7 @@ export function HomeView({
   const [plugins, setPlugins] = useState<InstalledPluginRecord[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(true);
   const [pendingApplyId, setPendingApplyId] = useState<string | null>(null);
+  const [creatingDemoPresetId, setCreatingDemoPresetId] = useState<string | null>(null);
   const [pendingChipId, setPendingChipId] = useState<string | null>(null);
   const [pendingAuthoringChipId, setPendingAuthoringChipId] = useState<string | null>(null);
   const [pendingAuthoringPrompt, setPendingAuthoringPrompt] = useState(PLUGIN_AUTHORING_PROMPT);
@@ -335,6 +501,38 @@ export function HomeView({
   const [prompt, setPrompt] = useState('');
   const [promptEditedByUser, setPromptEditedByUser] = useState(false);
   const [figmaModalOpen, setFigmaModalOpen] = useState(false);
+  const demoPresetProjects = useMemo(
+    () => projects.length === 0 ? DEMO_PRESET_PROJECTS.map(demoPresetProjectCard) : projects,
+    [projects],
+  );
+
+  async function openDemoPresetProject(presetId: string) {
+    const preset = DEMO_PRESET_PROJECTS.find((candidate) => `demo-preset:${candidate.id}` === presetId);
+    if (!preset || creatingDemoPresetId) return;
+    const existing = projects.find((project) => demoPresetIdForProject(project) === preset.id);
+    if (existing) {
+      await Promise.resolve(onOpenProject(existing.id));
+      navigate({ kind: 'project', projectId: existing.id, conversationId: null, fileName: preset.metadata.entryFile ?? null });
+      return;
+    }
+    setCreatingDemoPresetId(preset.id);
+    try {
+      const { project } = await createProject({
+        name: preset.name,
+        skillId: null,
+        designSystemId: null,
+        pendingPrompt: preset.prompt,
+        metadata: preset.metadata,
+      });
+      if (preset.metadata.entryFile) {
+        await writeProjectTextFile(project.id, preset.metadata.entryFile, preset.html);
+      }
+      await Promise.resolve(onOpenProject(project.id));
+      navigate({ kind: 'project', projectId: project.id, conversationId: null, fileName: preset.metadata.entryFile ?? null });
+    } finally {
+      setCreatingDemoPresetId(null);
+    }
+  }
   const examplePromptInfoRef = useRef<ExamplePromptInfo | null>(null);
   const handleExamplePromptStatusChange = useCallback((info: ExamplePromptInfo | null) => {
     examplePromptInfoRef.current = info;
@@ -1859,18 +2057,19 @@ export function HomeView({
       />
 
       {demoScenario === 'onboarding-new' ? null : <RecentProjectsStrip
-        projects={projects}
+        projects={demoPresetProjects}
         designSystems={designSystems}
         promptTemplates={promptTemplates}
         limit={1000}
         heading="最近项目"
         space="recent"
+        collaborationEnabled={demoUseMode === 'cloud'}
         {...(projectsLoading !== undefined ? { loading: projectsLoading } : {})}
         onOpen={(id) => {
           // P0 ui_click area=recent_projects element=project_card — emit
           // before navigation so the event isn't lost when the host
           // re-renders into the project view.
-          const project = projects.find((p) => p.id === id);
+          const project = demoPresetProjects.find((p) => p.id === id);
           const projectKind = projectKindFromMetadataToTracking(project?.metadata);
           trackRecentProjectsClick(analytics.track, {
             page_name: 'home',
@@ -1879,6 +2078,10 @@ export function HomeView({
             project_id: id,
             ...(projectKind ? { project_kind: projectKind } : {}),
           });
+          if (id.startsWith('demo-preset:')) {
+            void openDemoPresetProject(id);
+            return;
+          }
           onOpenProject(id);
         }}
         onViewAll={() => {

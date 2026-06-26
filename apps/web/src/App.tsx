@@ -16,6 +16,7 @@ import {
 } from '@open-design/contracts/analytics';
 import type { AmrModelsResponse, ChatSessionMode } from '@open-design/contracts';
 import { EntryView } from './components/EntryView';
+import { DemoControlBar, isInviteScenario, type DemoPlan, type DemoScenario, type DemoUseMode } from './components/DemoControlBar';
 import type { IntegrationTab } from './components/IntegrationsView';
 import { MarketplaceView } from './components/MarketplaceView';
 import { PluginDetailView } from './components/PluginDetailView';
@@ -433,6 +434,9 @@ function AppInner() {
   // so they don't race ahead of the daemon-stored choice and overwrite it
   // with a freshly picked first-available agent.
   const [daemonConfigLoaded, setDaemonConfigLoaded] = useState(false);
+  const [projectDemoScenario, setProjectDemoScenario] = useState<DemoScenario>('home');
+  const [projectDemoPlan, setProjectDemoPlan] = useState<DemoPlan>('free');
+  const [projectDemoUseMode, setProjectDemoUseMode] = useState<DemoUseMode>('cloud');
   // Narrower flag dedicated to the Composio API key hydration. The key is
   // persisted by the daemon (and only reflected back via apiKeyConfigured
   // + apiKeyTail), so after a dev-server restart there is a window where
@@ -2172,41 +2176,82 @@ function AppInner() {
     );
   } else if (activeProject) {
     appMain = (
-      <ProjectView
-        key={activeProject.id}
-        project={activeProject}
-        routeFileName={route.kind === 'project' ? route.fileName : null}
-        routeConversationId={route.kind === 'project' ? route.conversationId : null}
-        config={config}
-        agents={agents}
-        skills={enabledFunctionalSkills}
-        designTemplates={designTemplates}
-        designSystems={designSystems}
-        daemonLive={daemonLive}
-        onModeChange={handleModeChange}
-        onAgentChange={handleAgentChange}
-        onAgentModelChange={handleAgentModelChange}
-        onApiModelChange={handleApiModelChange}
-        onRefreshAgents={refreshAgents}
-        onThemeChange={handleThemeChange}
-        onOpenSettings={openSettings}
-        onOpenAmrSettings={openAmrSettings}
-        onOpenMcpSettings={openMcpSettings}
-        onBrowsePlugins={openPluginRegistry}
-        onOpenConnectors={openConnectorIntegrations}
-        onAdoptPetInline={handleAdoptPet}
-        onTogglePet={handleTogglePet}
-        onOpenPetSettings={openPetSettings}
-        onBack={handleBack}
-        onClearPendingPrompt={handleClearPendingPrompt}
-        onTouchProject={handleTouchProject}
-        onProjectChange={handleProjectChange}
-        onProjectsRefresh={refreshProjects}
-        onDeleteProject={handleDeleteProject}
-        onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
-        onDesignSystemsRefresh={refreshDesignSystems}
-        onCreateProjectFromDesignSystem={handleCreateProjectFromDesignSystem}
-      />
+      <>
+        <ProjectView
+          key={activeProject.id}
+          project={activeProject}
+          routeFileName={route.kind === 'project' ? route.fileName : null}
+          routeConversationId={route.kind === 'project' ? route.conversationId : null}
+          config={config}
+          agents={agents}
+          skills={enabledFunctionalSkills}
+          designTemplates={designTemplates}
+          designSystems={designSystems}
+          daemonLive={daemonLive}
+          onModeChange={handleModeChange}
+          onAgentChange={handleAgentChange}
+          onAgentModelChange={handleAgentModelChange}
+          onApiModelChange={handleApiModelChange}
+          onRefreshAgents={refreshAgents}
+          onThemeChange={handleThemeChange}
+          onOpenSettings={openSettings}
+          onOpenAmrSettings={openAmrSettings}
+          onOpenMcpSettings={openMcpSettings}
+          onBrowsePlugins={openPluginRegistry}
+          onOpenConnectors={openConnectorIntegrations}
+          onAdoptPetInline={handleAdoptPet}
+          onTogglePet={handleTogglePet}
+          onOpenPetSettings={openPetSettings}
+          onBack={handleBack}
+          onClearPendingPrompt={handleClearPendingPrompt}
+          onTouchProject={handleTouchProject}
+          onProjectChange={handleProjectChange}
+          onProjectsRefresh={refreshProjects}
+          onDeleteProject={handleDeleteProject}
+          onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
+          onDesignSystemsRefresh={refreshDesignSystems}
+          onCreateProjectFromDesignSystem={handleCreateProjectFromDesignSystem}
+          demoScenario={projectDemoScenario}
+        />
+        <DemoControlBar
+          scenario={projectDemoScenario}
+          plan={projectDemoPlan}
+          onPlan={(plan) => setProjectDemoPlan(projectDemoUseMode === 'local' && plan === 'team' ? 'max' : plan)}
+          useMode={projectDemoUseMode}
+          onUseMode={(mode) => {
+            setProjectDemoUseMode(mode);
+            if (mode === 'local' && projectDemoPlan === 'team') {
+              setProjectDemoPlan('max');
+            }
+          }}
+          onLowCredits={() => {}}
+          onAcceptInvite={(role) => {
+            const scenario: DemoScenario =
+              role === 'editor'
+                ? 'invite-editor'
+                : role === 'admin'
+                  ? 'invite-admin'
+                  : 'invite-viewer';
+            setProjectDemoScenario(scenario);
+            setProjectDemoPlan(projectDemoUseMode === 'local' ? 'max' : 'team');
+            window.history.replaceState(null, '', '/onboarding#invite');
+            navigate({ kind: 'home', view: 'onboarding' });
+          }}
+          onQueueDemo={() => window.dispatchEvent(new CustomEvent('open-design:demo-queue'))}
+          onEditDemo={() => window.dispatchEvent(new CustomEvent('open-design:demo-edit'))}
+          onScenario={(scenario) => {
+            setProjectDemoScenario(scenario);
+            if (scenario === 'onboarding-new') setProjectDemoPlan('free');
+            else if (scenario !== 'home') setProjectDemoPlan(projectDemoUseMode === 'local' ? 'max' : 'team');
+            if (scenario === 'home') {
+              navigate({ kind: 'home', view: 'home' });
+            } else if (scenario === 'onboarding-new' || isInviteScenario(scenario)) {
+              window.history.replaceState(null, '', isInviteScenario(scenario) ? '/onboarding#invite' : '/onboarding');
+              navigate({ kind: 'home', view: 'onboarding' });
+            }
+          }}
+        />
+      </>
     );
   } else {
     appMain = (

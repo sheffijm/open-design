@@ -43,6 +43,8 @@ interface Props {
   /** 'recent' = mixed private/shared (home); 'drafts' = all private (mine);
    *  'team' = all shared, varied team-member creators. */
   space?: SpaceKind;
+  /** Demo-only: Cloud has team visibility, CLI/BYOK does not. */
+  collaborationEnabled?: boolean;
 }
 
 type BrowseTab = 'projects' | 'design-systems' | 'templates';
@@ -98,14 +100,20 @@ export function RecentProjectsStrip({
   onDelete,
   onRename,
   limit = 6,
+  collaborationEnabled = true,
 }: Props) {
   const t = useT();
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [moveTarget, setMoveTarget] = useState<Project | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{
+    project: Project;
+    action: 'to-team' | 'to-personal';
+  } | null>(null);
   const [moveDontRemind, setMoveDontRemind] = useState(false);
   // Projects flipped private → shared via "转入团队空间" (demo-local).
   const [movedToTeam, setMovedToTeam] = useState<Set<string>>(() => new Set());
+  // Projects flipped shared → private via "移出团队空间" (demo-local).
+  const [movedToPersonal, setMovedToPersonal] = useState<Set<string>>(() => new Set());
   const moveTitleId = useId();
 
   const sorted = useMemo(
@@ -251,7 +259,7 @@ export function RecentProjectsStrip({
       <header className="recent-projects__head">
         <h2 className="recent-projects__heading">{heading}</h2>
         <div className="recent-projects__controls">
-          {space === 'team' ? (
+          {collaborationEnabled && space === 'team' ? (
             <button
               type="button"
               className="recent-projects__invite"
@@ -304,10 +312,14 @@ export function RecentProjectsStrip({
           const cover = projectCover(project, coverByProject[project.id] ?? null);
           const baseMeta = mockCardMeta(index, space);
           // A project moved to the team space reads as shared regardless of its
-          // original mock visibility.
+          // original mock visibility; a project moved out reads as private.
           const meta = movedToTeam.has(project.id)
             ? { ...baseMeta, badge: 'shared' as 'private' | 'shared' }
+            : movedToPersonal.has(project.id)
+              ? { ...baseMeta, badge: 'private' as 'private' | 'shared', ownerName: '我', ownerInitial: '我', ownerImg: ME.img }
             : baseMeta;
+          const projectMoveAction: 'to-team' | 'to-personal' =
+            meta.badge === 'shared' ? 'to-personal' : 'to-team';
           const designSystemProject = isDesignSystemProject(project);
           const status: ProjectDisplayStatus = project.status?.value ?? 'not_started';
           const publishedDesignSystem = isPublishedDesignSystemProject(project, designSystems);
@@ -355,7 +367,7 @@ export function RecentProjectsStrip({
                   ) : (
                     <span className="recent-projects__card-glyph">{cover.initial}</span>
                   )}
-                  {meta.badge === 'private' ? (
+                  {collaborationEnabled && meta.badge === 'private' ? (
                     <span className="recent-projects__card-badge">
                       <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
                         <rect x="5" y="11" width="14" height="9" rx="2" />
@@ -363,7 +375,7 @@ export function RecentProjectsStrip({
                       </svg>
                       私人
                     </span>
-                  ) : meta.badge === 'shared' ? (
+                  ) : collaborationEnabled && meta.badge === 'shared' ? (
                     <span className="recent-projects__card-badge recent-projects__card-badge--shared">
                       <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="9" cy="8" r="3" />
@@ -418,17 +430,19 @@ export function RecentProjectsStrip({
                       role="menu"
                       onClick={(event) => event.stopPropagation()}
                     >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setMenuOpenId(null);
-                          setMoveTarget(project);
-                        }}
-                      >
-                        <Icon name="import" size={12} />
-                        <span>转入团队空间</span>
-                      </button>
+                      {collaborationEnabled ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            setMoveTarget({ project, action: projectMoveAction });
+                          }}
+                        >
+                          <Icon name={projectMoveAction === 'to-team' ? 'import' : 'log-out'} size={12} />
+                          <span>{projectMoveAction === 'to-team' ? '转入团队空间' : '移出团队空间'}</span>
+                        </button>
+                      ) : null}
                       {onRename ? (
                         <button type="button" role="menuitem" onClick={() => startRename(project)}>
                           <Icon name="pencil" size={12} />
@@ -518,9 +532,19 @@ export function RecentProjectsStrip({
           onClose={() => setMoveTarget(null)}
           ariaLabelledBy={moveTitleId}
         >
-          <DialogTitle id={moveTitleId}>转入团队空间</DialogTitle>
+          <DialogTitle id={moveTitleId}>
+            {moveTarget.action === 'to-team' ? '转入团队空间' : '移出团队空间'}
+          </DialogTitle>
           <DialogDescription>
-            「{moveTarget.name}」转入团队空间后，<strong>团队全体成员都可以查看和编辑</strong>。该操作可在「全部项目」中找到。
+            {moveTarget.action === 'to-team' ? (
+              <>
+                「{moveTarget.project.name}」转入团队空间后，<strong>团队全体成员都可以查看和编辑</strong>。该操作可在「全部项目」中找到。
+              </>
+            ) : (
+              <>
+                「{moveTarget.project.name}」移出团队空间后，将回到私人项目，<strong>只有你可以查看和编辑</strong>。
+              </>
+            )}
           </DialogDescription>
           <label className="recent-projects__move-remind">
             <input
@@ -538,11 +562,25 @@ export function RecentProjectsStrip({
               type="button"
               className="primary"
               onClick={() => {
-                setMovedToTeam((prev) => new Set(prev).add(moveTarget.id));
+                if (moveTarget.action === 'to-team') {
+                  setMovedToTeam((prev) => new Set(prev).add(moveTarget.project.id));
+                  setMovedToPersonal((prev) => {
+                    const next = new Set(prev);
+                    next.delete(moveTarget.project.id);
+                    return next;
+                  });
+                } else {
+                  setMovedToPersonal((prev) => new Set(prev).add(moveTarget.project.id));
+                  setMovedToTeam((prev) => {
+                    const next = new Set(prev);
+                    next.delete(moveTarget.project.id);
+                    return next;
+                  });
+                }
                 setMoveTarget(null);
               }}
             >
-              确认转入
+              {moveTarget.action === 'to-team' ? '确认转入' : '确认移出'}
             </button>
           </DialogFooter>
         </Dialog>

@@ -120,6 +120,7 @@ import { PluginsView } from './PluginsView';
 import { CommunityView } from './CommunityView';
 import { ContentPlanView } from './ContentPlanView';
 import { MembersView } from './MembersView';
+import { TeamDashboardView } from './TeamDashboardView';
 import { RecentProjectsStrip } from './RecentProjectsStrip';
 import { EntryBlankState } from './EntryBlankState';
 import type { CreateInput, CreateTab, ImportClaudeDesignOutcome } from './NewProjectPanel';
@@ -154,10 +155,11 @@ import { closeAmrActivationWindowBestEffort } from './AmrLoginPill';
 import { smoothScrollToTop } from '../utils/smoothScrollToTop';
 import { summarizeProjectNameFromPrompt } from '../utils/projectName';
 import { LIBRARY_UI_VISIBLE } from '../features/libraryUi';
-import { DemoControlBar, isInviteScenario, isSoloPlan, type DemoScenario, type DemoPlan, type InviteRole } from './DemoControlBar';
+import { DemoControlBar, isInviteScenario, isSoloPlan, isViewerScenario, type DemoScenario, type DemoPlan, type DemoUseMode, type InviteRole } from './DemoControlBar';
 import { InsufficientCreditsDialog } from './InsufficientCreditsDialog';
 import { InviteAcceptanceFlow } from './InviteAcceptanceFlow';
 import { Confetti } from './Confetti';
+import { WorkspaceInviteFlow } from './WorkspaceInviteFlow';
 import {
   providerModelsCacheKey,
   type ProviderModelsCache,
@@ -168,6 +170,7 @@ import {
 // route) and a full reload. Without this the rail always reset to its
 // collapsed default on return.
 const RAIL_OPEN_STORAGE_KEY = 'od.entry.railOpen';
+const LOCAL_MODE_TIP_DISMISSED_KEY = 'od.demo.localModeTip.dismissed';
 
 function readStoredRailOpen(): boolean {
   if (typeof window === 'undefined') return false;
@@ -182,6 +185,24 @@ function writeStoredRailOpen(open: boolean): void {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(RAIL_OPEN_STORAGE_KEY, open ? 'true' : 'false');
+  } catch {
+    /* ignore quota / disabled storage */
+  }
+}
+
+function readLocalModeTipDismissed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(LOCAL_MODE_TIP_DISMISSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeLocalModeTipDismissed(dismissed: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(LOCAL_MODE_TIP_DISMISSED_KEY, dismissed ? 'true' : 'false');
   } catch {
     /* ignore quota / disabled storage */
   }
@@ -504,6 +525,9 @@ export function EntryShell({
   const [railOpen, setRailOpen] = useState<boolean>(readStoredRailOpen);
   const [demoScenario, setDemoScenario] = useState<DemoScenario>('home');
   const [demoPlan, setDemoPlan] = useState<DemoPlan>('free');
+  const [demoUseMode, setDemoUseMode] = useState<DemoUseMode>('cloud');
+  const [localModeTipDismissed, setLocalModeTipDismissed] = useState<boolean>(readLocalModeTipDismissed);
+  const [cloudSignInOnly, setCloudSignInOnly] = useState(false);
   const [lowCreditsOpen, setLowCreditsOpen] = useState(false);
   // Invitee acceptance flow (email link → 账号校验 → 确认加入 → 开始协作).
   const [inviteFlowOpen, setInviteFlowOpen] = useState(false);
@@ -537,6 +561,22 @@ export function EntryShell({
         return { planName: '免费', tierLabel: '免费', showUpgrade: true, balance: 800, grantTip: '免费版每日赠送 300 积分，每天 08:00 刷新' };
     }
   })();
+  const cloudWorkspace = demoUseMode === 'cloud';
+  const canManageWorkspace = cloudWorkspace && !isViewerScenario(demoScenario);
+
+  useEffect(() => {
+    if (cloudWorkspace) return;
+    if (view === 'drafts' || view === 'all-projects' || view === 'design-systems' || view === 'members' || view === 'dashboard') {
+      navigate({ kind: 'home', view: 'home' });
+    }
+  }, [cloudWorkspace, navigate, view]);
+
+  useEffect(() => {
+    if (canManageWorkspace) return;
+    if (view === 'members' || view === 'dashboard') {
+      navigate({ kind: 'home', view: 'home' });
+    }
+  }, [canManageWorkspace, navigate, view]);
   useEffect(() => {
     writeStoredRailOpen(railOpen);
   }, [railOpen]);
@@ -723,6 +763,7 @@ export function EntryShell({
 
   function finishOnboarding() {
     onCompleteOnboarding();
+    setCloudSignInOnly(false);
     changeView('home');
   }
 
@@ -731,6 +772,52 @@ export function EntryShell({
   // and content can rise up a row.
   const railFooterActions = (
     <>
+      {demoUseMode === 'local' && !localModeTipDismissed ? (
+        <section
+          role="button"
+          tabIndex={0}
+          className="entry-local-mode-tip"
+          onClick={() => {
+            setDemoUseMode('cloud');
+            setDemoScenario('onboarding-new');
+            setDemoPlan('free');
+            setCloudSignInOnly(true);
+            window.history.replaceState(null, '', '/onboarding');
+            navigate({ kind: 'home', view: 'onboarding' });
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            setDemoUseMode('cloud');
+            setDemoScenario('onboarding-new');
+            setDemoPlan('free');
+            setCloudSignInOnly(true);
+            window.history.replaceState(null, '', '/onboarding');
+            navigate({ kind: 'home', view: 'onboarding' });
+          }}
+          aria-label="切换到 Open Design Cloud 登录注册"
+        >
+          <button
+            type="button"
+            className="entry-local-mode-tip__close"
+            onClick={(event) => {
+              event.stopPropagation();
+              setLocalModeTipDismissed(true);
+              writeLocalModeTipDismissed(true);
+            }}
+            aria-label="关闭 CLI / BYOK 使用方式说明"
+          >
+            <Icon name="close" size={12} />
+          </button>
+          <div className="entry-local-mode-tip__head">
+            <span className="entry-local-mode-tip__icon" aria-hidden>
+              <Icon name="terminal" size={13} />
+            </span>
+            <strong>CLI / BYOK</strong>
+          </div>
+          <p>本地或自带 Key 模式不启用团队协作；点击切到 Cloud 登录注册。</p>
+        </section>
+      ) : null}
       <GithubStarBadge />
       <a
         className="entry-discord-badge od-tooltip"
@@ -780,21 +867,34 @@ export function EntryShell({
     <DemoControlBar
       scenario={demoScenario}
       plan={demoPlan}
-      onPlan={setDemoPlan}
+      onPlan={(plan) => setDemoPlan(demoUseMode === 'local' && plan === 'team' ? 'max' : plan)}
+      useMode={demoUseMode}
+      onUseMode={(mode) => {
+        setDemoUseMode(mode);
+        if (mode === 'local' && demoPlan === 'team') {
+          setDemoPlan('max');
+        }
+        if (mode === 'local' && (view === 'drafts' || view === 'all-projects' || view === 'design-systems' || view === 'members' || view === 'dashboard')) {
+          navigate({ kind: 'home', view: 'home' });
+        }
+      }}
       onLowCredits={() => setLowCreditsOpen(true)}
       onAcceptInvite={(role) => {
         setInviteRole(role);
         setInviteFlowOpen(true);
       }}
+      onQueueDemo={() => window.dispatchEvent(new CustomEvent('open-design:demo-queue'))}
+      onEditDemo={() => window.dispatchEvent(new CustomEvent('open-design:demo-edit'))}
       onScenario={(s) => {
+        setCloudSignInOnly(false);
         setDemoScenario(s);
         // Sensible default plan per scenario (still overridable via 版本):
         // a fresh sign-up starts on 免费版; an invited user joins a 团队版.
         if (s === 'onboarding-new') setDemoPlan('free');
-        else if (isInviteScenario(s)) setDemoPlan('team');
+        else if (s !== 'home') setDemoPlan(demoUseMode === 'local' ? 'max' : 'team');
         if (s === 'home') {
           navigate({ kind: 'home', view: 'home' });
-        } else {
+        } else if (s === 'onboarding-new' || isInviteScenario(s)) {
           window.history.replaceState(null, '', isInviteScenario(s) ? '/onboarding#invite' : '/onboarding');
           navigate({ kind: 'home', view: 'onboarding' });
         }
@@ -816,7 +916,7 @@ export function EntryShell({
         }}
         onBuyPack={(packLabel) => {
           setLowCreditsOpen(false);
-          fireCelebration(`${packLabel}已到账，额度已提升`);
+          fireCelebration(packLabel.includes('自动充值') ? packLabel : `${packLabel}已到账，额度已提升`);
         }}
       />
       <InviteAcceptanceFlow
@@ -842,31 +942,47 @@ export function EntryShell({
   );
 
   if (view === 'onboarding') {
+    const inviteScenario = isInviteScenario(demoScenario)
+      ? demoScenario
+      : null;
     return (
       <div className="entry-shell entry-shell--no-header entry-shell--onboarding">
         <main className="entry-onboarding-modal" aria-label={t('settings.welcomeTitle')}>
-          <OnboardingView
-            config={config}
-            agents={agents}
-            agentsLoading={agentsLoading}
-            providerModelsCache={activeProviderModelsCache}
-            onProviderModelsCacheChange={activeSetProviderModelsCache}
-            daemonLive={daemonLive}
-            onModeChange={onModeChange}
-            onAgentChange={onAgentChange}
-            onAgentModelChange={onAgentModelChange}
-            onApiProtocolChange={onApiProtocolChange}
-            onApiModelChange={onApiModelChange}
-            onConfigPersist={onConfigPersist}
-            onRefreshAgents={onRefreshAgents}
-            onFinish={finishOnboarding}
-            onThemeChange={onThemeChange}
-            onGoBuild={() => {
-              onCompleteOnboarding();
-              setPendingDesignSystemCreateEntry('onboarding');
-              navigate({ kind: 'design-system-create' });
-            }}
-          />
+          {inviteScenario ? (
+            <WorkspaceInviteFlow
+              key={inviteScenario}
+              scenario={inviteScenario}
+              onStartCollaborating={() => {
+                onCompleteOnboarding();
+                fireCelebration('已加入 Nexu 团队，席位 2 / 3');
+                navigate({ kind: 'home', view: 'home' });
+              }}
+            />
+          ) : (
+            <OnboardingView
+              config={config}
+              agents={agents}
+              agentsLoading={agentsLoading}
+              providerModelsCache={activeProviderModelsCache}
+              onProviderModelsCacheChange={activeSetProviderModelsCache}
+              daemonLive={daemonLive}
+              onModeChange={onModeChange}
+              onAgentChange={onAgentChange}
+              onAgentModelChange={onAgentModelChange}
+              onApiProtocolChange={onApiProtocolChange}
+              onApiModelChange={onApiModelChange}
+              onConfigPersist={onConfigPersist}
+              onRefreshAgents={onRefreshAgents}
+              onFinish={finishOnboarding}
+              onThemeChange={onThemeChange}
+              finishAfterCloudSignIn={cloudSignInOnly}
+              onGoBuild={() => {
+                onCompleteOnboarding();
+                setPendingDesignSystemCreateEntry('onboarding');
+                navigate({ kind: 'design-system-create' });
+              }}
+            />
+          )}
         </main>
         {demoOverlays}
       </div>
@@ -917,7 +1033,9 @@ export function EntryShell({
           footerExtra={railFooterActions}
           solo={isSolo}
           credits={demoCredits}
-          onUpgrade={() => window.open('https://nexu.io/pricing', '_blank', 'noopener')}
+          onUpgrade={() => setLowCreditsOpen(true)}
+          canManageWorkspace={canManageWorkspace}
+          cloudWorkspace={cloudWorkspace}
         />
         <main className="entry-main entry-main--scroll" ref={entryMainScrollRef}>
           <div className="entry-main__topbar">
@@ -963,6 +1081,7 @@ export function EntryShell({
                 promptTemplates={promptTemplates}
                 executionSwitcher={view === 'home' ? homeExecutionSwitcher : undefined}
                 demoScenario={demoScenario}
+                demoUseMode={demoUseMode}
               />
             </div>
             <div data-testid="entry-view-projects" data-active={view === 'projects' ? 'true' : 'false'} {...inactiveViewProps(view === 'projects')}>
@@ -1058,12 +1177,12 @@ export function EntryShell({
             <div data-testid="entry-view-members" data-active={view === 'members' ? 'true' : 'false'} {...inactiveViewProps(view === 'members')}>
               <MembersView solo={isSolo} />
             </div>
+            <div data-testid="entry-view-dashboard" data-active={view === 'dashboard' ? 'true' : 'false'} {...inactiveViewProps(view === 'dashboard')}>
+              <TeamDashboardView />
+            </div>
             <div data-testid="entry-view-design-systems" data-active={view === 'design-systems' ? 'true' : 'false'} {...inactiveViewProps(view === 'design-systems')}>
               {designSystemsLoading ? (
                 <div className="entry-section">
-                  <header className="entry-section__head">
-                    <h1 className="entry-section__title">{t('entry.navDesignSystems')}</h1>
-                  </header>
                   <DesignSystemsTab
                     loading
                     systems={[]}
@@ -1077,9 +1196,6 @@ export function EntryShell({
                 </div>
               ) : (
                 <div className="entry-section">
-                  <header className="entry-section__head">
-                    <h1 className="entry-section__title">{t('entry.navDesignSystems')}</h1>
-                  </header>
                   <DesignSystemsTab
                     systems={isNewUser ? [] : designSystems}
                     templates={templates}
@@ -1163,6 +1279,7 @@ function OnboardingView({
   onRefreshAgents,
   onFinish,
   onThemeChange,
+  finishAfterCloudSignIn = false,
   onGoBuild,
 }: {
   config: AppConfig;
@@ -1183,6 +1300,7 @@ function OnboardingView({
   onRefreshAgents: () => Promise<AgentInfo[]> | AgentInfo[];
   onFinish: () => void;
   onThemeChange: (theme: AppTheme) => void;
+  finishAfterCloudSignIn?: boolean;
   onGoBuild: () => void;
 }) {
   const t = useT();
@@ -1357,7 +1475,15 @@ function OnboardingView({
           ? t('settings.onboardingGateTooltipByok')
           : connectGateReason === 'no_runtime'
             ? t('settings.onboardingGateTooltipNoRuntime')
-            : null;
+          : null;
+
+  function completeCloudSignInStep(): void {
+    if (finishAfterCloudSignIn) {
+      onFinish();
+      return;
+    }
+    setStep((current) => current + 1);
+  }
 
   useEffect(() => {
     return () => {
@@ -1968,7 +2094,7 @@ function OnboardingView({
       if (amrLoginPollCancelledRef.current) return;
       if (currentStatus) setAmrStatus(currentStatus);
       if (currentStatus?.loggedIn) {
-        setStep((current) => current + 1);
+        completeCloudSignInStep();
         return;
       }
       if (amrLoginPollCancelledRef.current) return;
@@ -1998,7 +2124,7 @@ function OnboardingView({
         return;
       }
       if (await pollAmrLoginCompletion()) {
-        setStep((current) => current + 1);
+        completeCloudSignInStep();
       }
     } finally {
       setAmrLoginPending(false);
@@ -2391,7 +2517,7 @@ function OnboardingView({
                     reuseExistingFrom: ['onboarding_amr_card'],
                   },
                 );
-                setStep((current) => current + 1);
+                completeCloudSignInStep();
                 return;
               }
               void handleCloudSignIn();

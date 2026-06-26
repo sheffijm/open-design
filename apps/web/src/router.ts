@@ -21,6 +21,7 @@ export type EntryHomeView =
   | 'all-projects'
   | 'content-plan'
   | 'members'
+  | 'dashboard'
   | 'design-systems'
   | 'library'
   | 'brands'
@@ -134,6 +135,9 @@ export function parseRoute(pathname: string): Route {
   if (parts[0] === 'members') {
     return { kind: 'home', view: 'members' };
   }
+  if (parts[0] === 'dashboard') {
+    return { kind: 'home', view: 'dashboard' };
+  }
   // Phase 2B / spec §11.6 — marketplace deep UI routes. Two paths:
   //   /marketplace            → catalog grid (MarketplaceView)
   //   /marketplace/<pluginId> → detail page (PluginDetailView)
@@ -159,6 +163,7 @@ export function buildPath(route: Route): string {
     if (route.view === 'all-projects') return '/all-projects';
     if (route.view === 'content-plan') return '/content-plan';
     if (route.view === 'members') return '/members';
+    if (route.view === 'dashboard') return '/dashboard';
     if (route.view === 'design-systems') return '/design-systems';
     if (route.view === 'library') return LIBRARY_UI_VISIBLE ? '/library' : '/';
     if (route.view === 'brands') {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RecentProjectsStrip } from '../../src/components/RecentProjectsStrip';
@@ -191,5 +191,44 @@ describe('RecentProjectsStrip', () => {
         '/api/projects/project-html/files/index.html',
       );
     });
+  });
+
+  it('lets recent design-system cards move out of and back into team space', async () => {
+    const { container } = render(
+      <RecentProjectsStrip
+        projects={[
+          project({
+            id: 'project-ds',
+            name: 'Baidu Design System',
+            updatedAt: 4,
+            metadata: {
+              kind: 'other',
+              importedFrom: 'design-system',
+            },
+          }),
+        ]}
+        onOpen={() => {}}
+        onRename={() => {}}
+      />,
+    );
+
+    const card = container.querySelector('[data-project-id="project-ds"]');
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain('共享');
+
+    fireEvent.click(card!.querySelector('.recent-projects__card-more') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('menuitem', { name: /移出团队空间/ }));
+    expect(screen.getByRole('heading', { name: '移出团队空间' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认移出' }));
+
+    expect(card?.textContent).toContain('私人');
+    fireEvent.click(card!.querySelector('.recent-projects__card-more') as HTMLButtonElement);
+    expect(screen.getByRole('menuitem', { name: /转入团队空间/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /转入团队空间/ }));
+    expect(screen.getByRole('heading', { name: '转入团队空间' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认转入' }));
+
+    expect(card?.textContent).toContain('共享');
   });
 });

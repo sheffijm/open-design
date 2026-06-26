@@ -1,0 +1,302 @@
+/* ============================================================
+   Team dashboard — UC-10 owner/manager analytics demo.
+
+   Matches the calm workspace surfaces: white panels, thin borders,
+   compact labels, and restrained accent usage.
+   ============================================================ */
+.team-dashboard {
+  width: min(880px, 100%);
+}
+
+.team-dashboard__head {
+  align-items: center;
+}
+
+.team-dashboard__subtitle {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.team-dashboard__access {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.team-dashboard__hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+.team-dashboard__hero-copy {
+  min-width: 0;
+}
+
+.team-dashboard__kicker {
+  display: inline-flex;
+  margin-bottom: 6px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.team-dashboard__hero h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.team-dashboard__hero p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.team-dashboard__hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  flex: none;
+}
+
+.team-dashboard__hero-meta span {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.team-dashboard__metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.team-dashboard__metric-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "icon label"
+    "value value"
+    "delta delta";
+  gap: 10px 11px;
+  min-height: 132px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  transition: border-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+
+.team-dashboard__metric-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.team-dashboard__metric-icon {
+  grid-area: icon;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+  color: var(--accent);
+}
+
+.team-dashboard__metric-label {
+  grid-area: label;
+  align-self: center;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.team-dashboard__metric-value {
+  grid-area: value;
+  color: var(--text-strong);
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.team-dashboard__metric-delta {
+  grid-area: delta;
+  width: fit-content;
+  padding: 4px 9px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, #10b981 11%, transparent);
+  color: #047857;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.team-dashboard__token-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+.team-dashboard__token-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.team-dashboard__token-head h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.team-dashboard__token-head p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.team-dashboard__token-head > span {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.team-dashboard__token-list {
+  display: grid;
+  gap: 8px;
+}
+
+.team-dashboard__token-row {
+  --member-rank-color: var(--accent);
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 11px;
+  row-gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+}
+
+.team-dashboard__token-row:hover {
+  background: var(--bg-subtle);
+}
+
+.team-dashboard__token-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--member-rank-color) 14%, var(--bg-subtle));
+  color: var(--member-rank-color);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.team-dashboard__token-person {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.team-dashboard__token-person strong {
+  color: var(--text-strong);
+  font-size: 13.5px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-dashboard__token-person span {
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.team-dashboard__token-value {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.team-dashboard__token-bar {
+  grid-column: 2 / 4;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.team-dashboard__token-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--member-rank-color);
+}
+
+@media (max-width: 720px) {
+  .team-dashboard__head,
+  .team-dashboard__hero,
+  .team-dashboard__token-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .team-dashboard__hero-meta {
+    justify-content: flex-start;
+  }
+
+  .team-dashboard__metric-grid {
+    grid-template-columns: 1fr;
+  }
+}

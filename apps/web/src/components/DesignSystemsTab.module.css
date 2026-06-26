@@ -12,6 +12,34 @@
   width: 100%;
 }
 
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.pageTitle {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.headerTools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.headerSearch {
+  width: min(320px, 32vw);
+}
+
 /* ── Left sidebar ─────────────────────────────────────────────────── */
 .sidebar {
   position: sticky;
@@ -31,6 +59,12 @@
   width: 100%;
   justify-content: center;
   min-height: 36px;
+}
+
+.headerCreate {
+  width: auto;
+  min-width: 104px;
+  padding-inline: 18px;
 }
 
 /* Search */
@@ -270,7 +304,7 @@
 }
 
 .skeletonCreateButton {
-  width: 100%;
+  width: 104px;
   height: 36px;
   border-radius: var(--radius-sm);
 }
@@ -578,6 +612,425 @@
   gap: 18px;
   padding: 22px 24px 28px;
   animation: detailIn 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.collabDemo {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 12% 6%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 30%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-panel) 94%, var(--accent)), var(--bg-panel));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-strong) 5%, transparent),
+    0 18px 42px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.collabDemoHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.collabDemoKicker {
+  margin: 0 0 4px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.collabDemoTitle {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.collabLivePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--green, #3d7a4f) 28%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--green, #3d7a4f) 8%, transparent);
+  color: var(--green, #3d7a4f);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.collabLivePill > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 13%, transparent);
+}
+
+.collabDemoGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.92fr);
+  gap: 14px;
+}
+
+.collabRealtimeCard,
+.collabQueueCard {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-panel) 96%, white);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-strong) 4%, transparent);
+}
+
+.collabCardHeader {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+}
+
+.collabCardHeader h4 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.collabCardHeader p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.collabIconWrap {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.collabCanvas {
+  position: relative;
+  min-height: 190px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--accent));
+  border-radius: 18px;
+  background:
+    linear-gradient(color-mix(in srgb, var(--border) 34%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 34%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 34%),
+    var(--bg-subtle);
+  background-size: 26px 26px, 26px 26px, auto, auto;
+}
+
+.collabCanvasNodePrimary,
+.collabCanvasNodeSecondary {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--text-strong) 11%, var(--border));
+  border-radius: 16px;
+  color: var(--text-strong);
+  background: var(--bg-panel);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--text-strong) 8%, transparent);
+  font-weight: 720;
+}
+
+.collabCanvasNodePrimary {
+  left: 15%;
+  top: 24%;
+  width: 112px;
+  height: 74px;
+}
+
+.collabCanvasNodeSecondary {
+  right: 12%;
+  bottom: 20%;
+  width: 152px;
+  height: 58px;
+  color: var(--accent);
+}
+
+.collabSelectionBox {
+  position: absolute;
+  right: 9%;
+  bottom: 16%;
+  width: 168px;
+  height: 74px;
+  border: 1.5px solid #d0653f;
+  border-radius: 18px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #d0653f 10%, transparent);
+}
+
+.collabCursor {
+  --collab-color: var(--accent);
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--collab-color);
+  font-size: 11px;
+  font-weight: 720;
+  transform: translate(-2px, -2px);
+  transition:
+    transform 200ms cubic-bezier(0.23, 1, 0.32, 1),
+    filter 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.collabCursorActive {
+  transform: translate(-2px, -2px) scale(1.06);
+  filter: drop-shadow(0 8px 14px color-mix(in srgb, var(--collab-color) 26%, transparent));
+}
+
+.collabCursorPointer {
+  width: 0;
+  height: 0;
+  border-top: 13px solid currentColor;
+  border-right: 9px solid transparent;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.18));
+}
+
+.collabCursorName {
+  padding: 3px 7px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  color: #fff;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--collab-color) 24%, transparent);
+}
+
+.collabMemberRow,
+.collabTriggerRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.collabMemberChip,
+.collabTriggerRow button,
+.collabOperationBar button,
+.collabQueueComplete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    border-color 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    background 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.collabMemberChip {
+  padding: 5px 10px 5px 5px;
+}
+
+.collabMemberChip:hover,
+.collabTriggerRow button:hover,
+.collabOperationBar button:hover,
+.collabQueueComplete:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  color: var(--text-strong);
+}
+
+.collabMemberChip > span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.collabMemberChipActive {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+}
+
+.collabOperationBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.collabOperationBar button,
+.collabQueueComplete {
+  padding: 8px 12px;
+}
+
+.collabOperationBar p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.collabLogList,
+.collabQueueList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collabLogList li {
+  padding: 8px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  font-size: 12px;
+}
+
+.collabQueueSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 10px;
+}
+
+.collabQueueSummary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.collabQueueSummary span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.collabQueueSummary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collabTriggerRow button {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.collabQueueItemRunning,
+.collabQueueItemPending,
+.collabQueueItemDone {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+.collabQueueItemRunning {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-panel));
+}
+
+.collabQueueItemDone {
+  opacity: 0.72;
+}
+
+.collabQueueIndex {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.collabQueueItemRunning .collabQueueIndex {
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+}
+
+.collabQueueBody {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.collabQueueBody strong,
+.collabQueueBody small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collabQueueBody strong {
+  color: var(--text-strong);
+  font-size: 12.5px;
+}
+
+.collabQueueBody small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.collabQueueStatus {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.collabQueueItemRunning .collabQueueStatus {
+  color: var(--accent);
+}
+
+.collabQueueComplete {
+  justify-self: start;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+}
+
+.collabQueueComplete:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+@media (max-width: 980px) {
+  .collabDemoGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes detailIn {
@@ -1103,6 +1556,18 @@
 
 /* ── Responsive: stack panes on narrow viewports ──────────────────── */
 @media (max-width: 900px) {
+  .pageHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .headerTools,
+  .headerSearch {
+    width: 100%;
+  }
+  .headerCreate {
+    flex: 0 0 auto;
+  }
   .root {
     grid-template-columns: 1fr;
   }

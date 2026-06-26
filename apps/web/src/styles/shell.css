@@ -710,6 +710,11 @@
 .chrome-action:hover:not(:disabled) {
   background: var(--bg-subtle);
 }
+.chrome-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+}
 .chrome-action-secondary {
   border-color: var(--border);
   background: var(--bg);

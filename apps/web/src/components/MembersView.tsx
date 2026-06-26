@@ -20,6 +20,7 @@ interface Member {
   email: string;
   img: string;
   role: Role;
+  joinedAt: string;
   /** The current viewer ("你") — owner row, role select is disabled,
    *  and there is no "移除" action. */
   isYou?: boolean;
@@ -27,12 +28,12 @@ interface Member {
 
 // Unified mock team (kept in sync with RecentProjectsStrip MOCK_MEMBERS).
 const MOCK_MEMBERS: Member[] = [
-  { id: 'qy', name: '琼羽（你）', email: 'qiongyu@nexu.io', img: '/team-avatars/a2.png', role: '所有者', isYou: true },
-  { id: 'zw', name: '张伟', email: 'zhangwei@nexu.io', img: '/team-avatars/a1.png', role: '管理员' },
-  { id: 'ln', name: '李娜', email: 'lina@nexu.io', img: '/team-avatars/a3.png', role: '成员' },
-  { id: 'wf', name: '王芳', email: 'wangfang@nexu.io', img: '/team-avatars/a4.png', role: '成员' },
-  { id: 'cm', name: '陈明', email: 'chenming@nexu.io', img: '/team-avatars/a6.png', role: '成员' },
-  { id: 'ly', name: '刘洋', email: 'liuyang@nexu.io', img: '/team-avatars/a7.png', role: '成员' },
+  { id: 'qy', name: '琼羽（你）', email: 'qiongyu@nexu.io', img: '/team-avatars/a2.png', role: '所有者', joinedAt: '2026-06-01', isYou: true },
+  { id: 'zw', name: '张伟', email: 'zhangwei@nexu.io', img: '/team-avatars/a1.png', role: '管理员', joinedAt: '2026-06-24' },
+  { id: 'ln', name: '李娜', email: 'lina@nexu.io', img: '/team-avatars/a3.png', role: '成员', joinedAt: '2026-06-25' },
+  { id: 'wf', name: '王芳', email: 'wangfang@nexu.io', img: '/team-avatars/a4.png', role: '成员', joinedAt: '2026-06-20' },
+  { id: 'cm', name: '陈明', email: 'chenming@nexu.io', img: '/team-avatars/a6.png', role: '成员', joinedAt: '2026-06-18' },
+  { id: 'ly', name: '刘洋', email: 'liuyang@nexu.io', img: '/team-avatars/a7.png', role: '成员', joinedAt: '2026-06-12' },
 ];
 
 const ROLE_OPTIONS: Role[] = ['所有者', '管理员', '成员'];
@@ -55,15 +56,14 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
   const [roles, setRoles] = useState<Record<string, Role>>(() =>
     Object.fromEntries(MOCK_MEMBERS.map((m) => [m.id, m.role])),
   );
+  const [removedMemberIds, setRemovedMemberIds] = useState<Set<string>>(() => new Set());
 
   // A solo plan that hasn't locally upgraded behaves single-seat.
   const isSolo = solo && !upgraded;
-  // Demo team state: just the owner (你) as an active member.
-  const members = MOCK_MEMBERS.filter((m) => m.isYou);
-  // Team plan seeds one standing pending invite; solo starts empty.
-  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
-    solo ? [] : [{ email: 'li@example.com', role: '成员' }],
-  );
+  // Demo team state: solo shows only "you"; team shows you + one active member.
+  const activeMemberIds = isSolo ? new Set(['qy']) : new Set(['qy', 'zw']);
+  const members = MOCK_MEMBERS.filter((m) => activeMemberIds.has(m.id) && !removedMemberIds.has(m.id));
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const seatsUsed = members.length + pendingInvites.length;
   const seatsTotal = isSolo ? 1 : 3;
 
@@ -86,6 +86,17 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
   function sendInvites(rows: PendingInvite[]) {
     setPendingInvites((prev) => [...prev, ...rows]);
     setToast(`已向 ${rows.length} 位同事发送邀请短信和邮件`);
+    window.setTimeout(() => setToast(null), 3200);
+  }
+
+  function removeMember(member: Member) {
+    if (member.isYou) return;
+    setRemovedMemberIds((current) => {
+      const next = new Set(current);
+      next.add(member.id);
+      return next;
+    });
+    setToast(`已将 ${member.name} 移出 Workspace`);
     window.setTimeout(() => setToast(null), 3200);
   }
 
@@ -139,6 +150,7 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
       <div className="members__panel">
         <div className="members__list-head" aria-hidden>
           <span className="members__col members__col--person">成员</span>
+          <span className="members__col members__col--joined">加入时间</span>
           <span className="members__col members__col--role">角色</span>
           <span className="members__col members__col--action" />
         </div>
@@ -156,6 +168,10 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
                   </span>
                   <span className="members__email">{member.email}</span>
                 </div>
+              </div>
+
+              <div className="members__col members__col--joined">
+                <time dateTime={member.joinedAt}>{member.joinedAt}</time>
               </div>
 
               <div className="members__col members__col--role">
@@ -176,8 +192,14 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
 
               <div className="members__col members__col--action">
                 {member.isYou ? null : (
-                  <button type="button" className="members__remove">
-                    <Icon name="trash" size={14} /> 移除
+                  <button
+                    type="button"
+                    className="members__remove"
+                    aria-label={`将 ${member.name} 移出 Workspace`}
+                    title="移出 Workspace"
+                    onClick={() => removeMember(member)}
+                  >
+                    <Icon name="trash" size={14} />
                   </button>
                 )}
               </div>

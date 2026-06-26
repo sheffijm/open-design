@@ -967,6 +967,28 @@ interface Props {
   // Bumped nonce asking a deck preview to flip to `slideIndex` (a queued chat
   // send for this file just started processing).
   slideNavRequest?: { slideIndex: number; nonce: number } | null;
+  viewerOnly?: boolean;
+  commentAuthor?: PreviewCommentAuthor;
+}
+
+interface PreviewCommentAuthor {
+  name: string;
+  role: string;
+  avatar?: string;
+  color: string;
+  initials: string;
+}
+
+type PreviewCommentWithDemoAuthor = PreviewComment & {
+  demoAuthor?: PreviewCommentAuthor;
+};
+
+function previewCommentAuthor(
+  comment: PreviewComment,
+  fallback?: PreviewCommentAuthor,
+): PreviewCommentAuthor | undefined {
+  const maybe = (comment as PreviewCommentWithDemoAuthor).demoAuthor;
+  return maybe ?? fallback;
 }
 
 export function FileViewer({
@@ -990,6 +1012,8 @@ export function FileViewer({
   shareRequest,
   downloadRequest,
   slideNavRequest,
+  viewerOnly = false,
+  commentAuthor,
 }: Props) {
   const rendererMatch = artifactRendererRegistry.resolve({
     file,
@@ -1033,6 +1057,8 @@ export function FileViewer({
         shareRequest={shareRequest}
         downloadRequest={downloadRequest}
         slideNavRequest={slideNavRequest}
+        viewerOnly={viewerOnly}
+        commentAuthor={commentAuthor}
       />
     );
   }
@@ -2362,6 +2388,8 @@ export function CommentSidePanel({
   renderCreateForm = true,
   t,
   composer,
+  commentAuthor,
+  sendDisabledReason,
 }: {
   comments: PreviewComment[];
   projectId?: string;
@@ -2382,6 +2410,8 @@ export function CommentSidePanel({
   renderCreateForm?: boolean;
   t: TranslateFn;
   composer?: ReactNode;
+  commentAuthor?: PreviewCommentAuthor;
+  sendDisabledReason?: string;
 }) {
   const [newCommentDraft, setNewCommentDraft] = useState('');
   const [dragState, setDragState] = useState<CommentSideDragState | null>(null);
@@ -2575,7 +2605,27 @@ export function CommentSidePanel({
                   <Icon name="grip-vertical" size={13} />
                 </button>
                 <span className="comment-side-author">
-                  <strong>{`${index + 1}. ${commentDisplayLabel(comment, t)}`}</strong>
+                  {previewCommentAuthor(comment, commentAuthor) ? (
+                    <span
+                      className="comment-side-avatar"
+                      style={{
+                        background: previewCommentAuthor(comment, commentAuthor)?.color,
+                      }}
+                      aria-hidden="true"
+                    >
+                      {previewCommentAuthor(comment, commentAuthor)?.initials}
+                    </span>
+                  ) : null}
+                  <span className="comment-side-author-copy">
+                    <strong>{`${index + 1}. ${commentDisplayLabel(comment, t)}`}</strong>
+                    {previewCommentAuthor(comment, commentAuthor) ? (
+                      <small>
+                        {previewCommentAuthor(comment, commentAuthor)?.name}
+                        {' · '}
+                        {previewCommentAuthor(comment, commentAuthor)?.role}
+                      </small>
+                    ) : null}
+                  </span>
                 </span>
                 <span className="comment-side-time">{formatCommentTime(commentActivityAt(comment), t)}</span>
                 <button
@@ -2628,6 +2678,7 @@ export function CommentSidePanel({
             variant="primary"
             data-testid="comment-side-send-claude"
             disabled={sending || sendDisabled}
+            title={sendDisabled ? sendDisabledReason : undefined}
             onClick={() => void onSendSelected()}
           >
             {sending
@@ -2771,6 +2822,8 @@ function CommentSideDock({
   renderCreateForm = true,
   t,
   composer,
+  commentAuthor,
+  sendDisabledReason,
 }: {
   comments: PreviewComment[];
   projectId?: string;
@@ -2791,6 +2844,8 @@ function CommentSideDock({
   renderCreateForm?: boolean;
   t: TranslateFn;
   composer?: ReactNode;
+  commentAuthor?: PreviewCommentAuthor;
+  sendDisabledReason?: string;
 }) {
   return (
     <div
@@ -2817,6 +2872,8 @@ function CommentSideDock({
         renderCreateForm={renderCreateForm}
         t={t}
         composer={composer}
+        commentAuthor={commentAuthor}
+        sendDisabledReason={sendDisabledReason}
       />
     </div>
   );
@@ -4430,6 +4487,8 @@ function HtmlViewer({
   shareRequest,
   downloadRequest,
   slideNavRequest,
+  viewerOnly = false,
+  commentAuthor,
 }: {
   projectId: string;
   projectKind: TrackingProjectKind;
@@ -4450,6 +4509,8 @@ function HtmlViewer({
   shareRequest?: { nonce: number } | null;
   downloadRequest?: { nonce: number } | null;
   slideNavRequest?: { slideIndex: number; nonce: number } | null;
+  viewerOnly?: boolean;
+  commentAuthor?: PreviewCommentAuthor;
 }) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -7441,6 +7502,7 @@ function HtmlViewer({
   }
 
   function selectMode(nextMode: 'preview' | 'source') {
+    if (viewerOnly && nextMode === 'source') return;
     if (nextMode === 'source') setDrawOverlayOpen(false);
     setMode(nextMode);
   }
@@ -7488,6 +7550,7 @@ function HtmlViewer({
   }
 
   function activateDrawTool() {
+    if (viewerOnly) return;
     fireArtifactToolbarClick('mark');
     const next = !drawOverlayOpen;
     if (!next) {
@@ -7576,6 +7639,7 @@ function HtmlViewer({
   }
 
   function activateManualEditTool() {
+    if (viewerOnly) return;
     fireArtifactToolbarClick('edit');
     capturePreviewScrollPosition();
     if (!manualEditMode) {
@@ -7738,10 +7802,26 @@ function HtmlViewer({
     isDeckArtifact ||
     artifactKind === 'html' ||
     rendererId === 'html';
-  const canShare = source !== null && isShareableArtifact;
-  const canDownload = source !== null && (isShareableArtifact || isMarkdownArtifact);
+  const rawCanShare = source !== null && isShareableArtifact;
+  const rawCanDownload = source !== null && (isShareableArtifact || isMarkdownArtifact);
+  const canShare = rawCanShare && !viewerOnly;
+  const canDownload = rawCanDownload && !viewerOnly;
   const showMarkdownExport = source !== null && isMarkdownArtifact;
   const showImageExport = canShare;
+  const viewerOnlyDisabledTitle = 'Viewer 只能评论，不能编辑或导出';
+  const viewerOnlySendDisabledTitle = 'Viewer 只能保存评论，不能发送到 Chat';
+
+  useEffect(() => {
+    if (!viewerOnly) return;
+    setDeployMenuOpen(false);
+    setDownloadMenuOpen(false);
+    setDrawOverlayOpen(false);
+    setInspectMode(false);
+    if (mode === 'source') setMode('preview');
+    if (manualEditMode) {
+      void exitManualEditModeAfterFlush();
+    }
+  }, [viewerOnly, mode, manualEditMode]);
 
   useEffect(() => {
     const nudgeKey = `${projectId}\n${file.name}`;
@@ -7815,6 +7895,7 @@ function HtmlViewer({
   }, [slideNavRequest?.nonce, slideNavRequest?.slideIndex, effectiveDeck, previewStateKey, slideState?.count]);
 
   const openDownloadMenu = () => {
+    if (viewerOnly) return;
     fireArtifactHeaderClick('download_dropdown');
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
@@ -7822,6 +7903,7 @@ function HtmlViewer({
     setDownloadMenuOpen((v) => !v);
   };
   const openDeployMenu = () => {
+    if (viewerOnly) return;
     fireArtifactHeaderClick('share_dropdown');
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
@@ -8487,7 +8569,8 @@ function HtmlViewer({
       } : undefined}
       sending={sendingBoardBatch}
       queueOnSend={commentQueueOnSend}
-      sendDisabled={commentSendDisabled}
+      sendDisabled={commentSendDisabled || viewerOnly}
+      sendDisabledReason={viewerOnly ? viewerOnlySendDisabledTitle : undefined}
       t={t}
       scale={overlayPreviewScale}
       offset={{ x: overlayPreviewTransform.offsetX, y: overlayPreviewTransform.offsetY }}
@@ -8602,15 +8685,17 @@ function HtmlViewer({
       onCreateComment={savePanelComment}
       sending={sendingBoardBatch}
       queueOnSend={commentQueueOnSend}
-      sendDisabled={commentSendDisabled}
+      sendDisabled={commentSendDisabled || viewerOnly}
+      sendDisabledReason={viewerOnly ? viewerOnlySendDisabledTitle : undefined}
       renderCreateForm={!commentPortalHost}
       t={t}
       composer={null}
+      commentAuthor={commentAuthor}
     />
   ) : null;
 
   return (
-    <div className={`viewer html-viewer${inTabPresent ? ' is-tab-present' : ''}`}>
+    <div className={`viewer html-viewer${inTabPresent ? ' is-tab-present' : ''}${viewerOnly ? ' html-viewer--viewer-only' : ''}`}>
       <div className="viewer-toolbar">
         <div className="viewer-toolbar-left">
           <button
@@ -8635,6 +8720,8 @@ function HtmlViewer({
                 role="tab"
                 className={`viewer-tab ${mode === id ? 'active' : ''}`}
                 aria-selected={mode === id}
+                disabled={viewerOnly && id === 'source'}
+                title={viewerOnly && id === 'source' ? viewerOnlyDisabledTitle : undefined}
                 onClick={() => {
                   fireArtifactToolbarClick(id);
                   selectMode(id);
@@ -8707,6 +8794,7 @@ function HtmlViewer({
                   data-tooltip-placement="bottom"
                   title={t('fileViewer.screenshot')}
                   aria-label={t('fileViewer.screenshot')}
+                  disabled={viewerOnly}
                   onClick={handleCopyScreenshot}
                 >
                   <RemixIcon name="screenshot-2-line" size={15} />
@@ -8733,9 +8821,10 @@ function HtmlViewer({
                 data-testid="draw-overlay-toggle"
                 data-tooltip={t('fileViewer.mark')}
                 data-tooltip-placement="bottom"
-                title={t('fileViewer.mark')}
+                title={viewerOnly ? viewerOnlyDisabledTitle : t('fileViewer.mark')}
                 aria-label={t('fileViewer.mark')}
                 aria-pressed={drawOverlayOpen}
+                disabled={viewerOnly}
                 onClick={activateDrawTool}
               >
                 <RemixIcon name="mark-pen-line" size={15} />
@@ -8747,9 +8836,10 @@ function HtmlViewer({
                 data-testid="manual-edit-mode-toggle"
                 data-tooltip={t('fileViewer.edit')}
                 data-tooltip-placement="bottom"
-                title={t('fileViewer.edit')}
+                title={viewerOnly ? viewerOnlyDisabledTitle : t('fileViewer.edit')}
                 aria-label={t('fileViewer.edit')}
                 aria-pressed={manualEditMode}
+                disabled={viewerOnly}
                 onClick={activateManualEditTool}
               >
                 <RemixIcon name="edit-line" size={15} />
@@ -8851,9 +8941,9 @@ function HtmlViewer({
               ) : null}
             </div>
           ) : null}
-          {canShare || canDownload ? (
+          {rawCanShare || rawCanDownload ? (
             <div className="chrome-file-action-menus" ref={shareRef}>
-              {canShare ? (
+              {rawCanShare ? (
                 <div className="share-menu chrome-share-menu">
                   <button
                     type="button"
@@ -8861,11 +8951,13 @@ function HtmlViewer({
                     aria-haspopup="menu"
                     aria-expanded={deployMenuOpen}
                     aria-label={shareMenuLabel}
+                    disabled={viewerOnly}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                     onClick={openDeployMenu}
                   >
                     <span>{shareMenuLabel}</span>
                   </button>
-                  {deployMenuOpen ? (
+                  {deployMenuOpen && canShare ? (
                     <div className="share-menu-popover" role="menu">
                       <div className="share-menu-section-label" role="presentation">
                         {t('fileViewer.shareMenuShareLink')}
@@ -9004,7 +9096,7 @@ function HtmlViewer({
                   ) : null}
                 </div>
               ) : null}
-              {canDownload ? (
+              {rawCanDownload ? (
                 <div className="share-menu chrome-share-menu">
                   <button
                     type="button"
@@ -9014,11 +9106,13 @@ function HtmlViewer({
                     }
                     aria-haspopup="menu"
                     aria-expanded={downloadMenuOpen}
+                    disabled={viewerOnly}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                     onClick={openDownloadMenu}
                   >
                     <span>{t('fileViewer.download')}</span>
                   </button>
-                  {downloadMenuOpen ? (
+                  {downloadMenuOpen && canDownload ? (
                     <div className="share-menu-popover" role="menu">
                   <button
                     type="button"

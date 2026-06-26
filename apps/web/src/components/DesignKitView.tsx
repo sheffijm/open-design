@@ -1145,6 +1145,7 @@ function DesignKitViewInner({
                     type="button"
                     className={`${styles.logoStage} ${styles.logoStageButton}`}
                     data-kit-logo-stage
+                    data-collab-target="logo"
                     onClick={() => setLightbox({ src: activeLogoSrc, caption: kit.name })}
                     aria-label={`${t('common.openPreview')}: ${kit.name}`}
                   >
@@ -1182,6 +1183,7 @@ function DesignKitViewInner({
             <section
               className={styles.section}
               aria-label={t('brandDetail.typography')}
+              data-collab-target="typography"
               onDragOver={handleModuleDragOver}
               onDrop={(event) => handleModuleDrop('font', event)}
             >
@@ -1232,6 +1234,7 @@ function DesignKitViewInner({
             <section
               className={styles.section}
               aria-label={t('brandDetail.typography')}
+              data-collab-target="typography"
               onDragOver={handleModuleDragOver}
               onDrop={(event) => handleModuleDrop('font', event)}
             >
@@ -1244,7 +1247,7 @@ function DesignKitViewInner({
           ) : null}
 
           {colors.length > 0 ? (
-            <section className={styles.section} aria-label={t('brandDetail.palette')}>
+            <section className={styles.section} aria-label={t('brandDetail.palette')} data-collab-target="palette">
               <div className={styles.dsHead}>
                 <h3 className={styles.sectionTitle}>{t('brandDetail.palette')}</h3>
                 {moduleActions(designMdModuleActionButtons(designMdModules.palette))}

@@ -55,6 +55,7 @@ import {
 import { useProjectFileEvents, type ProjectEvent } from '../providers/project-events';
 import { claimRunTurnIndex } from '../analytics/identity';
 import { useCoalescedCallback } from '../hooks/useCoalescedCallback';
+import { isViewerScenario, type DemoScenario } from './DemoControlBar';
 import {
   composeSystemPrompt,
   type AudioVoiceOption,
@@ -362,6 +363,7 @@ interface Props {
   onChangeDefaultDesignSystem?: (designSystemId: string | null) => void;
   onDesignSystemsRefresh?: () => Promise<void> | void;
   onCreateProjectFromDesignSystem?: (designSystemId: string, title: string) => Promise<void> | void;
+  demoScenario?: DemoScenario;
 }
 
 interface QueuedChatSend {
@@ -655,27 +657,113 @@ function isDesignSystemWorkspaceMetadata(metadata: ProjectMetadata | undefined):
 // avatars read as the same team across the app. Online presence + collaboration
 // cursors are purely visual; nothing here talks to a backend.
 const PRESENCE_COLLABORATORS = [
-  { name: '张伟', img: '/team-avatars/a1.png', color: '#f97316' },
-  { name: '李娜', img: '/team-avatars/a3.png', color: '#6366f1' },
-  { name: '王芳', img: '/team-avatars/a4.png', color: '#10b981' },
+  { name: '张伟', role: 'Editor', activity: '正在评论 Typography', img: '/team-avatars/a1.png', color: '#f97316' },
+  { name: '李娜', role: 'Owner', activity: '正在编辑 Logo', img: '/team-avatars/a3.png', color: '#6366f1' },
+  { name: '王芳', role: 'Reviewer', activity: '正在查看 Color Tokens', img: '/team-avatars/a4.png', color: '#10b981' },
 ];
+
+interface DemoCommentAuthor {
+  name: string;
+  role: string;
+  avatar?: string;
+  color: string;
+  initials: string;
+}
+
+type DemoAttributedComment = PreviewComment & {
+  demoAuthor?: DemoCommentAuthor;
+};
+
+function demoCommentAuthorForScenario(scenario: DemoScenario): DemoCommentAuthor {
+  if (scenario === 'invite-viewer') {
+    return { name: '李娜', role: 'Viewer', avatar: '/team-avatars/a3.png', color: '#6366f1', initials: '李' };
+  }
+  if (scenario === 'invite-admin') {
+    return { name: '王芳', role: 'Manager', avatar: '/team-avatars/a4.png', color: '#10b981', initials: '王' };
+  }
+  if (scenario === 'invite-editor') {
+    return { name: '张伟', role: 'Editor', avatar: '/team-avatars/a1.png', color: '#f97316', initials: '张' };
+  }
+  return { name: '琼羽', role: 'Owner', color: '#c85f3d', initials: '琼' };
+}
+
+function withDemoCommentAuthor(
+  comment: PreviewComment,
+  author: DemoCommentAuthor,
+): PreviewComment {
+  return { ...(comment as DemoAttributedComment), demoAuthor: author } as PreviewComment;
+}
+
 // Stacked online-collaborator avatars for the workspace header (right side).
 // Uses local /team-avatars assets (same-origin) so they load in every context.
 function PresenceAvatarStack() {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const popoverId = useId();
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function handlePointerDown(event: PointerEvent) {
+      if (rootRef.current?.contains(event.target as Node | null)) return;
+      setOpen(false);
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
   return (
-    <div className="presence__stack" aria-label="在线协作成员">
-      {PRESENCE_COLLABORATORS.map((m) => (
-        <span
-          key={m.name}
-          className="presence__avatar"
-          title={`${m.name} · 在线`}
-          style={{ '--presence-ring': m.color } as CSSProperties}
-        >
-          <img src={m.img} alt={m.name} className="presence__avatar-img" />
-          <span className="presence__dot" aria-hidden />
-        </span>
-      ))}
-      <span className="presence__more" title="还有 2 位成员在线">+2</span>
+    <div className="presence__menu" ref={rootRef}>
+      <button
+        type="button"
+        className="presence__stack"
+        aria-label="在线协作成员"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={popoverId}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {PRESENCE_COLLABORATORS.map((m) => (
+          <span
+            key={m.name}
+            className="presence__avatar"
+            title={`${m.name} · 在线`}
+            style={{ '--presence-ring': m.color } as CSSProperties}
+          >
+            <img src={m.img} alt={m.name} className="presence__avatar-img" />
+            <span className="presence__dot" aria-hidden />
+          </span>
+        ))}
+        <span className="presence__more" title="还有 2 位成员在线">+2</span>
+      </button>
+      {open ? (
+        <div className="presence__popover" id={popoverId} role="dialog" aria-label="在线协作成员列表">
+          <div className="presence__popover-head">
+            <strong>在线协作成员</strong>
+            <span>{PRESENCE_COLLABORATORS.length + 2} online</span>
+          </div>
+          <div className="presence__list">
+            {PRESENCE_COLLABORATORS.map((member) => (
+              <div key={member.name} className="presence__member">
+                <span className="presence__member-avatar" style={{ '--presence-ring': member.color } as CSSProperties}>
+                  <img src={member.img} alt="" />
+                  <span className="presence__dot" aria-hidden />
+                </span>
+                <span className="presence__member-copy">
+                  <strong>{member.name}</strong>
+                  <small>{member.role} · {member.activity}</small>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -913,6 +1001,7 @@ export function ProjectView({
   onChangeDefaultDesignSystem,
   onDesignSystemsRefresh,
   onCreateProjectFromDesignSystem,
+  demoScenario = 'home',
 }: Props) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -929,6 +1018,11 @@ export function ProjectView({
     : null;
   const projectIsProgrammaticBrandExtraction =
     isProgrammaticBrandExtractionProject(currentProject.metadata);
+  const demoViewerOnly = isViewerScenario(demoScenario);
+  const demoCommentAuthor = useMemo(
+    () => demoCommentAuthorForScenario(demoScenario),
+    [demoScenario],
+  );
   // P0 page_view page_name=chat_panel — fire once per project mount.
   // ProjectView outlives conversation switches (ChatPane is keyed by
   // activeConversationId so it remounts when the user switches chats,
@@ -1196,6 +1290,8 @@ export function ProjectView({
   const [downloadRequest, setDownloadRequest] = useState<{ name: string; nonce: number } | null>(null);
   const [designSystemEditRequest, setDesignSystemEditRequest] =
     useState<{ module: 'logo'; nonce: number } | null>(null);
+  const [designSystemCollabDemoRequest, setDesignSystemCollabDemoRequest] =
+    useState<{ kind: 'edit'; nonce: number } | null>(null);
   // When a queued chat send starts processing, ask the workspace to flip the
   // deck preview to the slide its marked element lives on, so the user watches
   // the edit land in context instead of staying parked on slide 1. Mirrors the
@@ -2839,13 +2935,16 @@ export function ProjectView({
         ...(attachments.length > 0 ? { attachments } : {}),
       });
       if (!saved) return null;
-      setPreviewComments((current) => mergeSavedPreviewComment(current, saved));
+      const attributedSaved = withDemoCommentAuthor(saved, demoCommentAuthor);
+      setPreviewComments((current) => mergeSavedPreviewComment(current, attributedSaved));
       setAttachedComments((current) =>
-        attachAfterSave ? mergeAttachedComments(current, saved) : current.map((comment) => comment.id === saved.id ? saved : comment),
+        attachAfterSave
+          ? mergeAttachedComments(current, attributedSaved)
+          : current.map((comment) => comment.id === attributedSaved.id ? attributedSaved : comment),
       );
-      return saved;
+      return attributedSaved;
     },
-    [project.id, activeConversationId, previewComments],
+    [project.id, activeConversationId, previewComments, demoCommentAuthor],
   );
 
   const removePreviewComment = useCallback(
@@ -3717,6 +3816,36 @@ export function ProjectView({
       }
     }
   }, [enqueueChatSend, project.id]);
+
+  const runQueueDemo = useCallback(() => {
+    if (!activeConversationId) return;
+    const prompts = [
+      'Queue demo: refine the Logo hover state and keep the update consistent with the current design system.',
+      'Queue demo: audit Typography and Color Tokens after the Logo edit lands.',
+    ];
+    prompts.forEach((prompt) => {
+      queueChatSendForCurrentConversation({
+        attachments: [],
+        commentAttachments: [],
+        conversationId: activeConversationId,
+        meta: { queueOnly: true, entryFrom: 'chat_composer' },
+        prompt,
+      });
+    });
+  }, [activeConversationId, queueChatSendForCurrentConversation]);
+
+  const runEditDemo = useCallback(() => {
+    setDesignSystemCollabDemoRequest({ kind: 'edit', nonce: Date.now() });
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('open-design:demo-queue', runQueueDemo);
+    window.addEventListener('open-design:demo-edit', runEditDemo);
+    return () => {
+      window.removeEventListener('open-design:demo-queue', runQueueDemo);
+      window.removeEventListener('open-design:demo-edit', runEditDemo);
+    };
+  }, [runEditDemo, runQueueDemo]);
 
   const handleSend = useCallback(
     async (
@@ -6767,6 +6896,7 @@ export function ProjectView({
           onDesignSystemReviewDecision={persistDesignSystemReviewDecision}
           onUseDesignSystem={onCreateProjectFromDesignSystem}
           designSystemEditRequest={designSystemEditRequest}
+          designSystemCollabDemoRequest={designSystemCollabDemoRequest}
           onConnectRepo={handleConnectRepo}
           githubConnected={githubConnected}
           commentPortalId={commentInspectorPortalId}
@@ -6791,6 +6921,8 @@ export function ProjectView({
           onAuthorizeAndRetry={handleSwitchToAmrAndRetry}
           onLaunchTerminalAuth={handleLaunchAntigravityOauth}
           conversationId={activeConversationId}
+          viewerOnly={demoViewerOnly}
+          commentAuthor={demoCommentAuthor}
           headerActions={(
             <>
               <PresenceAvatarStack />

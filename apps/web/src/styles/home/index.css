@@ -11,6 +11,7 @@
 @import './plus-menu.css';
 @import './recent-projects.css';
 @import './members.css';
+@import './team-dashboard.css';
 @import './presence.css';
 @import './content-plan.css';
 @import './plugins-home.css';
@@ -22,4 +23,5 @@
 @import './use-everywhere.css';
 @import './ob-invite.css';
 @import './invite-accept.css';
+@import './workspace-invite-flow.css';
 @import './demo-bar.css';
