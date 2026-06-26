@@ -205,6 +205,7 @@ describe("open-design sidecar contract", () => {
           outputDir: "/data/export-render/abc123",
           pageImageFormat: "jpeg",
           stitch: true,
+          paginate: true,
         },
         type: SIDECAR_MESSAGES.RENDER_SLIDES,
       }),
@@ -216,6 +217,7 @@ describe("open-design sidecar contract", () => {
         outputDir: "/data/export-render/abc123",
         pageImageFormat: "jpeg",
         stitch: true,
+        paginate: true,
       },
       type: "render-slides",
     });
@@ -275,6 +277,12 @@ describe("open-design sidecar contract", () => {
     expect(() =>
       normalizeDesktopSidecarMessage({
         input: { html: "<p>x</p>", stitch: "yes" },
+        type: SIDECAR_MESSAGES.RENDER_SLIDES,
+      }),
+    ).toThrow();
+    expect(() =>
+      normalizeDesktopSidecarMessage({
+        input: { html: "<p>x</p>", paginate: "yes" },
         type: SIDECAR_MESSAGES.RENDER_SLIDES,
       }),
     ).toThrow();

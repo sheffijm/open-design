@@ -270,6 +270,11 @@ export type DesktopRenderSlidesInput = {
   // Deck only: render every slide and stitch them top-to-bottom into a single
   // tall image (used by image export of a deck). Ignored for ordinary pages.
   stitch?: boolean;
+  // Page mode only: split an ordinary (non-deck) page into one image PER
+  // VIEWPORT, top to bottom, instead of a single full-page capture — used by
+  // the PDF path so a long scrolling page becomes a multi-page PDF (one screen
+  // per page). Ignored in deck mode (decks already paginate per slide).
+  paginate?: boolean;
   // When set, the renderer writes each rendered image to a file inside this
   // directory and returns the file paths in `slideFiles` instead of base64
   // data URLs in `slides`. The daemon (which owns the data root) creates and
@@ -729,7 +734,7 @@ function normalizeDesktopExportPdfInput(input: unknown): DesktopExportPdfInput {
 
 function normalizeDesktopRenderSlidesInput(input: unknown): DesktopRenderSlidesInput {
   const value = assertObject(input, "desktop render slides input");
-  assertKnownKeys(value, ["baseHref", "deck", "html", "index", "outputDir", "pageImageFormat", "stitch"], "desktop render slides input");
+  assertKnownKeys(value, ["baseHref", "deck", "html", "index", "outputDir", "pageImageFormat", "stitch", "paginate"], "desktop render slides input");
   if (value.deck != null && typeof value.deck !== "boolean") {
     throw new Error("desktop render slides deck must be a boolean");
   }
@@ -741,6 +746,9 @@ function normalizeDesktopRenderSlidesInput(input: unknown): DesktopRenderSlidesI
   }
   if (value.stitch != null && typeof value.stitch !== "boolean") {
     throw new Error("desktop render slides stitch must be a boolean");
+  }
+  if (value.paginate != null && typeof value.paginate !== "boolean") {
+    throw new Error("desktop render slides paginate must be a boolean");
   }
   if (value.outputDir != null) {
     const dir = normalizeNonEmptyString(value.outputDir, "desktop render slides outputDir");
@@ -759,6 +767,7 @@ function normalizeDesktopRenderSlidesInput(input: unknown): DesktopRenderSlidesI
     ...(value.outputDir == null ? {} : { outputDir: normalizeNonEmptyString(value.outputDir, "desktop render slides outputDir") }),
     ...(value.pageImageFormat == null ? {} : { pageImageFormat: value.pageImageFormat }),
     ...(value.stitch == null ? {} : { stitch: value.stitch }),
+    ...(value.paginate == null ? {} : { paginate: value.paginate }),
   };
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  paginateViewportBand,
   scrollStitchGeometry,
   scrollStitchRowOffset,
   shouldCaptureAsDeck,
@@ -99,6 +100,48 @@ describe('shouldCaptureAsDeck', () => {
   });
   test('no signal falls back to the slide-count heuristic', () => {
     expect(shouldCaptureAsDeck(true, undefined)).toBe(true);
+  });
+});
+
+// The PDF path paginates a long non-deck page into one image per viewport
+// (PAGE_VIEW_H = 1000). paginateViewportBand picks the viewport sub-rectangle
+// for each page so the pages tile the document exactly — no overlap, no gap —
+// even when the final page can't scroll a full viewport (it captures the
+// remaining rows from a lower offset inside the clamped viewport).
+describe('paginateViewportBand', () => {
+  test('full viewport pages until the clamped remainder (2500px → 1000+1000+500)', () => {
+    // maxScroll = 2500 - 1000 = 1500.
+    expect(paginateViewportBand(0, 0, 2500)).toEqual({ top: 0, height: 1000 });
+    expect(paginateViewportBand(1, 1000, 2500)).toEqual({ top: 0, height: 1000 });
+    // Final page: requested offset 2000 clamps to actualY 1500, so the band
+    // starts 500px down the viewport and is 500px tall → doc rows [2000,2500).
+    expect(paginateViewportBand(2, 1500, 2500)).toEqual({ top: 500, height: 500 });
+  });
+
+  test('an exact multiple of the viewport tiles with no clamped page (2000px → 1000+1000)', () => {
+    expect(paginateViewportBand(0, 0, 2000)).toEqual({ top: 0, height: 1000 });
+    expect(paginateViewportBand(1, 1000, 2000)).toEqual({ top: 0, height: 1000 });
+  });
+
+  test('a page shorter than one viewport is a single partial page', () => {
+    expect(paginateViewportBand(0, 0, 600)).toEqual({ top: 0, height: 600 });
+  });
+
+  test('bands tile the document exactly (no overlap, no gap)', () => {
+    const total = 3300;
+    const viewportH = 1000;
+    const maxScroll = Math.max(0, total - viewportH);
+    const pageCount = Math.ceil(total / viewportH);
+    let covered = 0;
+    for (let p = 0; p < pageCount; p++) {
+      const actualY = Math.min(p * viewportH, maxScroll);
+      const band = paginateViewportBand(p, actualY, total);
+      // The document row this band's top maps to must continue exactly where the
+      // previous page ended.
+      expect(actualY + band.top).toBe(covered);
+      covered += band.height;
+    }
+    expect(covered).toBe(total);
   });
 });
 

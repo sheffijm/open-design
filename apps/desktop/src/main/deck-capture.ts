@@ -151,8 +151,11 @@ export async function renderDeckSlides(
     }
     const wantsDeck = shouldCaptureAsDeck(hasSlides, input.deck);
     if (!wantsDeck) {
-      // Page mode: capture the original, unmodified document.
-      return finish(await capturePage(window, input.pageImageFormat === "jpeg", input.outputDir));
+      // Page mode: capture the original, unmodified document. `paginate` (set by
+      // the PDF path) splits a long page into one image per viewport.
+      return finish(
+        await capturePage(window, input.pageImageFormat === "jpeg", input.outputDir, input.paginate === true),
+      );
     }
 
     // Deck mode only: now apply the deck DOM prep (hide presenter chrome, freeze
@@ -394,19 +397,25 @@ const PAGE_RAM_BUDGET_BYTES = 320 * 1024 * 1024;
 const FALLBACK_MAX_TEXTURE = 8192;
 
 /**
- * Captures an ordinary page as one long, viewport-independent image. Picks the
- * technique automatically (the caller and the user only ever see "full page"):
- *  1) Chromium's `captureBeyondViewport` — one clean off-screen pass; fixed
- *     elements are NOT duplicated. Used when the output fits the machine's real
- *     GPU texture limit AND below-the-fold content actually rendered.
- *  2) scroll-segment stitch — when (1) would exceed the texture limit, errors,
- *     or comes back blank below the fold (scroll-driven pages). RAM-bound, so it
- *     handles arbitrarily long pages; capped by a memory budget.
+ * Captures an ordinary page as one long, viewport-independent image.
+ *
+ * Image export (paginate=false) always SCROLL-SEGMENT STITCHES: it scrolls the
+ * page one viewport at a time, captures each screen in the state it actually
+ * paints at that scroll position, and stitches the frames by their real scroll
+ * offset into a single tall image. This is faithful to scroll-driven / parallax
+ * pages (a single `captureBeyondViewport` pass renders the whole document at
+ * scroll 0 and gets parallax/reveal-on-scroll content wrong). It is RAM-bound,
+ * so a page taller than the memory budget refuses (PNG) or paginates into a
+ * multi-page raster (the JPEG path that feeds a PDF).
+ *
+ * PDF export (paginate=true) is handled earlier via paginatePageViewports (one
+ * image per viewport, not stitched).
  */
 async function capturePage(
   window: BrowserWindow,
   jpeg: boolean,
   outputDir: string | undefined,
+  paginate = false,
 ): Promise<DesktopRenderSlidesResult> {
   // Lay the document out at a desktop width first so width-dependent content
   // (responsive layouts) renders the way a desktop visitor sees it.
@@ -415,9 +424,29 @@ async function capturePage(
 
   // Pre-pass: freeze animations and scroll the whole page once so reveal-on-
   // scroll content (IntersectionObserver / AOS / lazy images) is triggered and
-  // settles. This lets the clean one-shot captureBeyondViewport succeed for most
-  // animated pages instead of coming back blank and falling to scroll-segment.
+  // settles before we capture.
+  //
+  // Both the PDF (per-viewport pages) and image (per-viewport stitch) paths
+  // KEEP fixed/sticky positioning as authored and capture each viewport live at
+  // its real scroll offset — identical capture logic, they only differ in how
+  // the frames are assembled (separate PDF pages vs one tall stitched image).
+  // We do NOT neutralize fixed/sticky: on parallax / scroll-pinned designs the
+  // headline and foreground text are positioned by that very CSS, and flattening
+  // it (fixed→absolute, sticky→static) dropped the text entirely from the
+  // capture (the "exported image has no text" bug on reverie-style pages).
   await preparePageForCapture(window);
+
+  // PDF of a long non-deck page: capture one image PER VIEWPORT, top to bottom,
+  // so the daemon assembles a multi-page PDF (one screen per page) instead of a
+  // single giant page. Done before the single-pass/stitch path selection below.
+  if (paginate) {
+    const measured = (await window.webContents.executeJavaScript(
+      "Math.ceil(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0))",
+      true,
+    )) as number;
+    const totalLogical = Math.max(PAGE_VIEW_H, Number.isFinite(measured) ? measured : PAGE_VIEW_H);
+    return await paginatePageViewports(window, totalLogical, jpeg, outputDir);
+  }
 
   const maxTexture = await queryMaxTextureSize(window);
   // The window's device-pixel-ratio already scales the capture (2 on retina),
@@ -452,33 +481,15 @@ async function capturePage(
       )) as number;
       const docW = PAGE_W;
       const docH = Math.max(1, Number.isFinite(measuredH) ? measuredH : PAGE_VIEW_H);
-      const outWpx = docW * dpr;
       const outHpx = docH * dpr;
 
-      // captureBeyondViewport is viable only when the single output texture fits
-      // the machine's real limit on BOTH axes and within the RAM budget.
-      const fitsSinglePass =
-        outWpx <= maxTexture && outHpx <= maxTexture && outHpx <= ramMaxOutH;
-      if (fitsSinglePass && !(await isScrollBound(window, dbg, docW, docH))) {
-        // scale:1 — the window DPR already provides the pixel scale, so this
-        // avoids double-scaling (DPR x clip.scale).
-        const shot = (await dbg.sendCommand("Page.captureScreenshot", {
-          captureBeyondViewport: true,
-          clip: { x: 0, y: 0, width: docW, height: docH, scale: 1 },
-          ...(jpeg ? { format: "jpeg", quality: 82 } : { format: "png" }),
-        })) as { data: string };
-        return {
-          ok: true,
-          ...(await emitImages([{ buffer: Buffer.from(shot.data, "base64"), jpeg }], outputDir)),
-          width: outWpx,
-          height: outHpx,
-          mode: "page",
-        };
-      }
-      // Too tall for one image (RAM/texture limited). The PDF path (`jpeg`)
-      // paginates into a multi-page raster PDF so long landing pages still
-      // export; the single-image `/export/image` path refuses rather than
-      // silently truncate (it has nowhere to paginate to).
+      // Image export always stitches the page from per-viewport captures (scroll
+      // down one screen at a time, capture, stitch by real scroll offset). This
+      // is faithful to scroll-driven / parallax pages — each screen is captured
+      // in the state it actually paints at that scroll position — unlike a single
+      // captureBeyondViewport pass, which renders the whole document at scroll 0
+      // and gets parallax/reveal content wrong. Too-tall pages still refuse (PNG)
+      // or paginate into a multi-page raster (the JPEG/PDF-feeding path) below.
       if (outHpx > ramMaxOutH) {
         if (jpeg) {
           return await paginateTallPage(window, dbg, docW, docH, dpr, maxTexture, ramMaxOutH, jpeg, outputDir);
@@ -609,13 +620,13 @@ export function tallPageChunkHeights(docLogicalH: number, maxChunkDevH: number, 
 // scroll-segment via the blank-below-fold check.
 async function preparePageForCapture(window: BrowserWindow): Promise<void> {
   try {
-    // Drop scroll-independent positioning to document flow BEFORE measuring /
-    // prewarming, so a fixed/sticky hero is captured exactly once instead of
-    // being repeated in every scroll segment (see the helper's docblock).
-    await window.webContents.executeJavaScript(
-      `(${neutralizeFixedAndStickyPositioning.toString()})()`,
-      true,
-    );
+    // NOTE: fixed/sticky positioning is intentionally LEFT AS AUTHORED. We used
+    // to flatten it (fixed→absolute, sticky→static) so a pinned hero wasn't
+    // repeated down a stitched capture, but that dropped scroll-pinned headline/
+    // foreground TEXT on parallax pages (the "exported image has no text" bug).
+    // Capturing each viewport live at its real scroll offset is faithful to how
+    // the page actually paints, so we keep the CSS and accept that a genuinely
+    // fixed bar may appear in more than one viewport.
     await window.webContents.executeJavaScript(
       `(function(){try{var s=document.createElement('style');s.setAttribute('data-od-capture','1');s.textContent='*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important;scroll-behavior:auto!important}';(document.head||document.documentElement).appendChild(s);}catch(e){}})()`,
       true,
@@ -653,55 +664,6 @@ async function queryMaxTextureSize(window: BrowserWindow): Promise<number> {
     return Number.isFinite(v) && v > 0 ? v : FALLBACK_MAX_TEXTURE;
   } catch {
     return FALLBACK_MAX_TEXTURE;
-  }
-}
-
-// Detects whether the page is scroll-driven (content only paints when scrolled
-// into view) — the case where captureBeyondViewport comes back blank in the
-// middle. Compares the document's MIDDLE band rendered two ways:
-//   A = scrolled into view (live viewport) — the real content
-//   B = captureBeyondViewport at scroll 0 — what the one-shot would produce
-// If they differ a lot, the one-shot would be wrong for this page -> stitch.
-// This does NOT rely on color, so a legitimately dark design (where A == B,
-// both dark) is correctly NOT flagged, unlike a flat-color heuristic.
-async function isScrollBound(
-  window: BrowserWindow,
-  dbg: Electron.Debugger,
-  docW: number,
-  docH: number,
-): Promise<boolean> {
-  const vh = PAGE_VIEW_H;
-  if (docH <= vh * 2) return false; // too short to have a hidden middle
-  const mid = Math.max(0, Math.floor(docH / 2 - vh / 2));
-  try {
-    // A: scroll the middle into view and capture the live viewport.
-    await window.webContents.executeJavaScript(
-      `(function(){window.scrollTo(0, ${mid});return new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(function(){setTimeout(function(){r(true)},150)})})})})()`,
-      true,
-    );
-    const a = (await window.webContents.capturePage({ x: 0, y: 0, width: PAGE_W, height: vh })).toBitmap();
-    // B: the same document band as the one-shot renders it (scroll-independent).
-    await window.webContents.executeJavaScript("window.scrollTo(0,0); true", true);
-    const shot = (await dbg.sendCommand("Page.captureScreenshot", {
-      format: "png",
-      captureBeyondViewport: true,
-      clip: { x: 0, y: mid, width: docW, height: vh, scale: 1 },
-    })) as { data: string };
-    const b = nativeImage.createFromBuffer(Buffer.from(shot.data, "base64")).toBitmap();
-    const n = Math.min(a.length, b.length);
-    if (n < 16) return false;
-    let diff = 0;
-    let cnt = 0;
-    for (let i = 0; i + 2 < n; i += 4 * 97) {
-      diff += Math.abs(a[i]! - b[i]!) + Math.abs(a[i + 1]! - b[i + 1]!) + Math.abs(a[i + 2]! - b[i + 2]!);
-      cnt++;
-    }
-    const meanDiff = cnt ? diff / (cnt * 3) : 0;
-    // ~9% mean per-channel difference => the middle renders differently when
-    // scrolled vs one-shot => scroll-driven => use stitch.
-    return meanDiff > 24;
-  } catch {
-    return false;
   }
 }
 
@@ -792,6 +754,73 @@ async function scrollSegmentStitch(
   };
 }
 
+// Splits an ordinary (non-deck) page into one image PER VIEWPORT, top to
+// bottom — the PDF path uses this so a long scrolling site becomes a multi-page
+// PDF (one screen per page) instead of one giant page. Each page is a LIVE
+// viewport capture at its scroll offset, so scroll-driven parallax renders
+// correctly per screen (unlike a single off-screen capture). Pages don't
+// overlap: every page but the last is a full viewport; the last captures only
+// the remaining rows. Bounded by page count rather than RAM (each image is one
+// small viewport), so arbitrarily long pages are safe. Exported helpers
+// `paginateViewportPlan`/-`Geometry` keep the offset math unit-testable.
+async function paginatePageViewports(
+  window: BrowserWindow,
+  totalLogical: number,
+  jpeg: boolean,
+  outputDir: string | undefined,
+): Promise<DesktopRenderSlidesResult> {
+  window.setContentSize(PAGE_W, PAGE_VIEW_H);
+  await nextFrames(window);
+  const maxScroll = Math.max(0, totalLogical - PAGE_VIEW_H);
+  const pageCount = Math.max(1, Math.ceil(totalLogical / PAGE_VIEW_H));
+  const images: Array<{ buffer: Buffer; jpeg: boolean }> = [];
+  let width = PAGE_W;
+  let height = PAGE_VIEW_H;
+  for (let p = 0; p < pageCount; p++) {
+    const target = Math.min(p * PAGE_VIEW_H, maxScroll);
+    const actualY = (await window.webContents.executeJavaScript(
+      `(function(){window.scrollTo(0, ${target});return new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(function(){setTimeout(function(){r(Math.round(window.scrollY||window.pageYOffset||0))},180)})})})})()`,
+      true,
+    )) as number;
+    const band = paginateViewportBand(p, actualY, totalLogical);
+    const image = await window.webContents.capturePage({
+      x: 0,
+      y: band.top,
+      width: PAGE_W,
+      height: band.height,
+    });
+    const size = image.getSize();
+    width = size.width;
+    height = size.height;
+    images.push({ buffer: jpeg ? image.toJPEG(82) : image.toPNG(), jpeg });
+  }
+  return {
+    ok: true,
+    ...(await emitImages(images, outputDir)),
+    width,
+    height,
+    mode: "page",
+  };
+}
+
+// The viewport sub-rectangle to capture for page `p` given the scroll position
+// the browser actually landed at (`actualY`, which the final page clamps below
+// the requested offset when the page can't scroll further). `top` is where this
+// page's band begins inside the live viewport (>0 only on a clamped final page,
+// so its rows don't overlap the previous page); `height` is the remaining rows,
+// capped to the rest of the viewport. Exported for tests.
+export function paginateViewportBand(
+  p: number,
+  actualY: number,
+  totalLogical: number,
+): { top: number; height: number } {
+  const desiredTop = p * PAGE_VIEW_H;
+  const top = Math.max(0, Math.round(desiredTop - actualY));
+  const remaining = Math.ceil(totalLogical - desiredTop);
+  const height = Math.max(1, Math.min(PAGE_VIEW_H - top, remaining));
+  return { top, height };
+}
+
 function range(n: number): number[] {
   return Array.from({ length: n }, (_, i) => i);
 }
@@ -820,35 +849,6 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 // --- Functions serialized into the page (kept dependency-free) ---
-
-// Serialized into the page: neutralizes scroll-independent positioning so a
-// full-page capture renders each fixed/sticky element exactly once. The
-// scroll-segment stitch fallback captures the viewport at successive scroll
-// offsets; a `position:fixed` (or a stuck `position:sticky`) hero stays pinned to
-// the viewport and would otherwise be copied into EVERY segment, duplicating it
-// down the stitched output — the QA-reported "hero/section appears twice" in a
-// long-page export. Converting fixed -> absolute and sticky -> static drops them
-// into document flow so they appear once. Chromium's `captureBeyondViewport`
-// already de-dupes fixed elements, so this strictly matters for the stitch path,
-// but applying it before path selection keeps both capture paths consistent.
-// Exported for tests.
-export function neutralizeFixedAndStickyPositioning(): void {
-  const all = document.querySelectorAll("body *");
-  for (let i = 0; i < all.length; i++) {
-    const el = all[i] as HTMLElement;
-    let position = "";
-    try {
-      position = window.getComputedStyle(el).position;
-    } catch {
-      continue;
-    }
-    if (position === "fixed") {
-      el.style.setProperty("position", "absolute", "important");
-    } else if (position === "sticky") {
-      el.style.setProperty("position", "static", "important");
-    }
-  }
-}
 
 // Page-vs-deck decision (exported for tests). Deck capture requires real slide
 // surfaces AND the caller not having explicitly said `deck: false`. So an
