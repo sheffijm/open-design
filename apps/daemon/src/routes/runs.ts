@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   defaultScenarioPluginIdForProjectMetadata,
@@ -51,6 +52,7 @@ import {
   resolveProjectDir,
   SandboxImportedProjectError,
 } from '../projects.js';
+import { ensureCurrentProjectFileVersion } from '../project-file-versions.js';
 import {
   amrUserIdForRunAnalytics,
   hasExplicitRequestedModelForAnalytics,
@@ -467,6 +469,74 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
     } catch {
       return 'none';
     }
+  }
+
+  function latestRunPrompt(
+    run: ChatRun,
+    requestBody: JsonRecord,
+  ): { prompt: string | null; promptSource?: 'message' } {
+    if (run.conversationId) {
+      try {
+        const row = db.prepare(
+          `SELECT content
+             FROM messages
+            WHERE conversation_id = ?
+              AND role = 'user'
+              AND LENGTH(TRIM(content)) > 0
+            ORDER BY COALESCE(ended_at, started_at, created_at, 0) DESC,
+                     position DESC
+            LIMIT 1`,
+        ).get(run.conversationId) as { content?: string } | undefined;
+        if (typeof row?.content === 'string' && row.content.trim()) {
+          return { prompt: row.content.trim(), promptSource: 'message' };
+        }
+      } catch {
+        // Version prompt provenance is best-effort.
+      }
+    }
+    const requestPrompt =
+      typeof requestBody.currentPrompt === 'string' && requestBody.currentPrompt.trim()
+        ? requestBody.currentPrompt.trim()
+        : typeof requestBody.message === 'string' && requestBody.message.trim()
+          ? requestBody.message.trim()
+          : null;
+    return requestPrompt ? { prompt: requestPrompt, promptSource: 'message' } : { prompt: null };
+  }
+
+  async function snapshotAiHtmlVersionsForRun(
+    run: ChatRun,
+    artifactBaseline: RunArtifactBaseline,
+    diff: ReturnType<typeof diffRunArtifacts>,
+    requestBody: JsonRecord,
+  ): Promise<void> {
+    if (!run.projectId || diff.touchedPaths.length === 0) return;
+    const project = toProjectRecord(getProject(db, run.projectId));
+    const promptInfo = latestRunPrompt(run, requestBody);
+    const seen = new Set<string>();
+    const work = diff.touchedPaths.flatMap((filePath) => {
+      if (!/\.html?$/i.test(filePath)) return [];
+      const relativePath = path.relative(artifactBaseline.cwd, filePath);
+      if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return [];
+      const projectRelPath = relativePath.split(path.sep).join('/');
+      if (seen.has(projectRelPath)) return [];
+      seen.add(projectRelPath);
+      return [{ filePath, projectRelPath }];
+    });
+    await Promise.allSettled(work.map(async ({ filePath, projectRelPath }) => {
+      const content = await fs.promises.readFile(filePath, 'utf8');
+      await ensureCurrentProjectFileVersion(
+        PROJECTS_DIR,
+        run.projectId as string,
+        projectRelPath,
+        content,
+        {
+          source: 'ai',
+          prompt: promptInfo.prompt,
+          ...(promptInfo.promptSource ? { promptSource: promptInfo.promptSource } : {}),
+        },
+        project?.metadata,
+      );
+    }));
   }
 
   app.post('/api/runs', async (req: ApiRequest, res: ApiResponse) => {
@@ -1092,6 +1162,7 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
             artifactsModified = diff.modified;
             designSystemCreated = diff.designSystemCreated;
             previewModuleCount = diff.previewModuleCount;
+            await snapshotAiHtmlVersionsForRun(run, artifactBaseline, diff, reqBody).catch(() => {});
           } else {
             artifactCount = toolStreamArtifactCount();
             designSystemCreated = toolStreamDesignSystemCreated();

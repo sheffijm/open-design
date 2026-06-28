@@ -130,6 +130,10 @@ export interface RunArtifactDiff {
   // module is also an artifact, so it is counted in `touched` too (matching the
   // tool-stream counter, where preview writes also bumped artifact_count).
   previewModuleCount: number;
+  // Absolute paths for tracked files that were created or modified. Consumers
+  // that need per-file side effects, such as HTML version snapshots, can filter
+  // this list without re-walking the project tree.
+  touchedPaths: string[];
 }
 
 // Classify created vs modified tracked files between two snapshots into the
@@ -144,6 +148,7 @@ export function diffRunArtifacts(
   let modified = 0;
   let previewModuleCount = 0;
   let designSystemCreated = false;
+  const touchedPaths: string[] = [];
   for (const [filePath, fingerprint] of after) {
     const prior = before.get(filePath);
     const isNew = !prior;
@@ -161,11 +166,19 @@ export function diffRunArtifacts(
     if (isArtifactPath(classifyPath)) {
       if (isNew) created += 1;
       else modified += 1;
+      touchedPaths.push(filePath);
     }
     if (isPreviewModulePath(classifyPath)) previewModuleCount += 1;
     if (isDesignSystemFile(classifyPath)) designSystemCreated = true;
   }
-  return { created, modified, touched: created + modified, designSystemCreated, previewModuleCount };
+  return {
+    created,
+    modified,
+    touched: created + modified,
+    designSystemCreated,
+    previewModuleCount,
+    touchedPaths,
+  };
 }
 
 export interface RunArtifactBaseline {
