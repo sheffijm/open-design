@@ -119,6 +119,7 @@ interface Props {
   artifactKind?: TrackingArtifactKind;
   metricsConsent?: boolean;
   installationId?: string | null;
+  embedded?: boolean;
   // Optional fallback "always open in OS file manager" — falls back to the
   // existing shell.openPath bridge in case the daemon catalogue is empty
   // (highly unlikely on macOS / Win / Linux but harmless to support).
@@ -296,6 +297,7 @@ export function HandoffButton({
   artifactKind,
   metricsConsent = false,
   installationId,
+  embedded = false,
   onRequestRevealInFinder,
 }: Props) {
   const t = useT();
@@ -321,7 +323,7 @@ export function HandoffButton({
   const [editors, setEditors] = useState<HostEditor[]>([]);
   const [platform, setPlatform] = useState<HostEditorsResponse['platform']>('unknown');
   const [loaded, setLoaded] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [busy, setBusy] = useState<HostEditorId | null>(null);
   const [copyBusy, setCopyBusy] = useState<string | null>(null);
   const [copiedCliId, setCopiedCliId] = useState<string | null>(null);
@@ -368,6 +370,10 @@ export function HandoffButton({
   }, []);
 
   useEffect(() => {
+    if (embedded) {
+      setOpen(true);
+      return;
+    }
     if (!open) return;
     function onPointer(e: MouseEvent) {
       if (wrapRef.current?.contains(e.target as Node)) return;
@@ -382,7 +388,7 @@ export function HandoffButton({
       document.removeEventListener('mousedown', onPointer);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
+  }, [open, embedded]);
 
   useEffect(() => {
     return () => {
@@ -597,7 +603,7 @@ export function HandoffButton({
 
   return (
     <div
-      className={`handoff-wrap${open ? ' open' : ''}`}
+      className={`handoff-wrap${open ? ' open' : ''}${embedded ? ' handoff-wrap--embedded' : ''}`}
       ref={wrapRef}
       data-testid="handoff-wrap"
     >
@@ -605,6 +611,7 @@ export function HandoffButton({
           editor, the right caret opens the picker. Sibling buttons
           (instead of a nested caret) so the caret has its own real
           tap target and so we don't render an invalid button-in-button. */}
+      {embedded ? null : (
       <div className="handoff-split">
         <button
           type="button"
@@ -666,6 +673,7 @@ export function HandoffButton({
           <Icon name="chevron-down" size={14} />
         </button>
       </div>
+      )}
       {open ? (
         <div className="handoff-menu" role="dialog" aria-label={t('handoff.optionsAria')} data-testid="handoff-menu">
           <div className="handoff-menu-tabs" role="tablist" aria-label={t('handoff.optionsAria')}>

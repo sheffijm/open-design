@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Button } from '@open-design/components';
-import type { DesignSystemEditClickProps, TrackingProjectKind } from '@open-design/contracts/analytics';
+import type { DesignSystemEditClickProps, TrackingArtifactKind, TrackingProjectKind } from '@open-design/contracts/analytics';
 import { useAnalytics } from '../analytics/provider';
 import {
   trackFileManagerClick,
@@ -109,6 +109,7 @@ import { LibraryPicker } from './LibraryPicker';
 import { QuestionsPanel } from './QuestionsPanel';
 import { QuickSwitcher } from './QuickSwitcher';
 import { SketchEditor } from './SketchEditor';
+import type { DemoUseMode } from './DemoControlBar';
 import {
   buildSketchDocument,
   isSketchJsonFileName,
@@ -127,6 +128,7 @@ interface Props {
   // Threaded to DesignFilesPanel as the breadcrumb root label. Undefined for
   // default-storage projects.
   rootDirName?: string;
+  projectName?: string;
   // True while a working-dir replace is reindexing; shows a loading state.
   reloading?: boolean;
   /** Absolute on-disk project directory (from GET /api/projects/:id). Used by
@@ -233,7 +235,16 @@ interface Props {
   // right end of the Design Files tab row. The former standalone chrome header
   // row was removed; these moved here alongside the FileViewer present/Share
   // portal that targets the same actions container.
+  fileActionsBefore?: ReactNode;
   headerActions?: ReactNode;
+  demoUseMode?: DemoUseMode;
+  headerArtifact?: {
+    artifact_id?: string;
+    artifact_kind?: TrackingArtifactKind;
+  };
+  agents?: AgentInfo[];
+  metricsConsent?: boolean;
+  installationId?: string | null;
   // Active discovery question form, surfaced in the right-hand Questions tab
   // instead of inline in the chat. Owned by ProjectView (derived from the
   // latest assistant message).
@@ -409,6 +420,7 @@ export function FileWorkspace({
   projectId,
   projectKind,
   rootDirName,
+  projectName,
   reloading,
   resolvedDir,
   files,
@@ -470,7 +482,13 @@ export function FileWorkspace({
   onWorkspaceContextsChange,
   messages = [],
   conversationId,
+  fileActionsBefore,
   headerActions,
+  demoUseMode = 'cloud',
+  headerArtifact,
+  agents,
+  metricsConsent = false,
+  installationId,
   questionForm = null,
   questionFormPreview = null,
   questionFormKey = null,
@@ -2066,6 +2084,9 @@ export function FileWorkspace({
         {/* Pinned to the right for project/file actions; the tab launcher sits
             next to the file tabs so its spatial relationship stays clear. */}
         <div className="ws-tabs-actions">
+          {fileActionsBefore ? (
+            <div className="ws-tabs-file-actions-before">{fileActionsBefore}</div>
+          ) : null}
           <div
             id={APP_CHROME_FILE_ACTIONS_ID}
             className="ws-tabs-file-actions"
@@ -2334,6 +2355,14 @@ export function FileWorkspace({
             <FileViewer
               projectId={projectId}
               projectKind={projectKind}
+              projectName={projectName}
+              projectDir={resolvedDir}
+              agents={agents}
+              artifactId={headerArtifact?.artifact_id}
+              artifactKind={headerArtifact?.artifact_kind}
+              metricsConsent={metricsConsent}
+              installationId={installationId}
+              demoUseMode={demoUseMode}
               file={activeFile}
               filesRefreshKey={filesRefreshKey}
               isDeck={isDeck}

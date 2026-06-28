@@ -55,7 +55,7 @@ import {
 import { useProjectFileEvents, type ProjectEvent } from '../providers/project-events';
 import { claimRunTurnIndex } from '../analytics/identity';
 import { useCoalescedCallback } from '../hooks/useCoalescedCallback';
-import { isViewerScenario, type DemoScenario } from './DemoControlBar';
+import { isViewerScenario, type DemoScenario, type DemoUseMode } from './DemoControlBar';
 import {
   composeSystemPrompt,
   type AudioVoiceOption,
@@ -187,7 +187,6 @@ import {
 import { filterImplicitProducedFiles } from '../produced-files';
 import { AvatarMenu } from './AvatarMenu';
 import { EntrySettingsMenu } from './EntrySettingsMenu';
-import { HandoffButton } from './HandoffButton';
 import { Icon } from './Icon';
 import { DesignSystemPicker } from './DesignSystemPicker';
 import { PluginDetailsModal } from './PluginDetailsModal';
@@ -364,6 +363,7 @@ interface Props {
   onDesignSystemsRefresh?: () => Promise<void> | void;
   onCreateProjectFromDesignSystem?: (designSystemId: string, title: string) => Promise<void> | void;
   demoScenario?: DemoScenario;
+  demoUseMode?: DemoUseMode;
 }
 
 interface QueuedChatSend {
@@ -1002,6 +1002,7 @@ export function ProjectView({
   onDesignSystemsRefresh,
   onCreateProjectFromDesignSystem,
   demoScenario = 'home',
+  demoUseMode = 'cloud',
 }: Props) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -6848,6 +6849,7 @@ export function ProjectView({
         <FileWorkspace
           projectId={project.id}
           projectKind={projectKindFromMetadataToTracking(currentProject.metadata) ?? 'prototype'}
+          projectName={project.name}
           rootDirName={(() => {
             const baseDir = currentProject.metadata?.baseDir;
             return typeof baseDir === 'string'
@@ -6923,19 +6925,14 @@ export function ProjectView({
           conversationId={activeConversationId}
           viewerOnly={demoViewerOnly}
           commentAuthor={demoCommentAuthor}
+          demoUseMode={demoUseMode}
+          fileActionsBefore={<PresenceAvatarStack />}
+          headerArtifact={headerArtifact}
+          agents={agents}
+          metricsConsent={config.telemetry?.metrics === true}
+          installationId={config.installationId}
           headerActions={(
             <>
-              <PresenceAvatarStack />
-              <HandoffButton
-                projectId={project.id}
-                projectName={project.name}
-                projectDir={projectDetail.resolvedDir}
-                agents={agents}
-                artifactId={headerArtifact.artifact_id}
-                artifactKind={headerArtifact.artifact_kind}
-                metricsConsent={config.telemetry?.metrics === true}
-                installationId={config.installationId}
-              />
               <EntrySettingsMenu
                 config={config}
                 onThemeChange={handleThemeChange}

@@ -577,7 +577,7 @@
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: none;
   cursor: pointer;
   transition:
@@ -624,6 +624,7 @@
   flex-direction: column;
   gap: 18px;
   min-width: 0;
+  max-width: 760px;
   padding: 18px;
 }
 .media-provider-detail-head {
@@ -731,7 +732,7 @@
   color: #137a3d;
   background: color-mix(in srgb, #1f9d55 8%, var(--bg-panel));
   border: 1px solid color-mix(in srgb, #1f9d55 24%, var(--border));
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 .media-provider-no-key div {
   display: flex;
@@ -746,6 +747,46 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+.media-provider-cloud-callout {
+  margin: 0 0 14px;
+  max-width: 760px;
+}
+.media-provider-tabs {
+  max-width: 760px;
+  margin: 0 0 12px;
+}
+.media-provider-tabs .protocol-chip-group {
+  align-items: flex-start;
+}
+.media-provider-tabs .protocol-chip-group-label {
+  padding-top: 5px;
+}
+.media-provider-docs-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: var(--radius);
+}
+.media-provider-docs-callout div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.media-provider-docs-callout strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+.media-provider-docs-callout span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
 /*
  * "Coming soon" drawer under the media provider list. We render the
  * roadmap providers as a denser, read-only list rather than the same
@@ -756,6 +797,7 @@
  */
 .media-provider-coming-soon {
   margin-top: 12px;
+  max-width: 760px;
   padding: 10px 12px;
   background: var(--bg-subtle);
   border: 1px solid var(--border);

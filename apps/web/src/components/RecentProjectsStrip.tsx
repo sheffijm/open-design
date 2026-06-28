@@ -50,6 +50,8 @@ interface Props {
 }
 
 type BrowseTab = 'projects' | 'design-systems' | 'templates';
+type OwnerFilter = 'all' | 'mine' | 'others';
+type ProjectKindFilter = 'all' | 'prototype' | 'deck' | 'media' | 'other';
 
 const EMPTY_DESIGN_SYSTEMS: DesignSystemSummary[] = [];
 
@@ -99,6 +101,18 @@ const DEMO_PROJECT_NAMES = [
 
 const ME = { name: '我', initial: '我', img: '/team-avatars/a2.png' };
 type SpaceKind = 'recent' | 'drafts' | 'team';
+const OWNER_FILTER_OPTIONS: Array<{ id: OwnerFilter; label: string }> = [
+  { id: 'all', label: '所有' },
+  { id: 'mine', label: '仅自己' },
+  { id: 'others', label: '其他人' },
+];
+const KIND_FILTER_OPTIONS: Array<{ id: ProjectKindFilter; label: string }> = [
+  { id: 'all', label: '任何类型' },
+  { id: 'prototype', label: 'Prototype' },
+  { id: 'deck', label: 'Slides' },
+  { id: 'media', label: 'Media' },
+  { id: 'other', label: 'Other' },
+];
 function mockCardMeta(index: number, space: SpaceKind) {
   const time = MOCK_TIMES[index % MOCK_TIMES.length] ?? '刚刚';
   if (space === 'team') {
@@ -118,6 +132,14 @@ function mockCardMeta(index: number, space: SpaceKind) {
     return { ownerName: m.name, ownerInitial: m.initial, ownerImg: m.img, badge, time };
   }
   return { ownerName: '我', ownerInitial: '我', ownerImg: ME.img, badge, time };
+}
+
+function filterKindForProject(project: Project): ProjectKindFilter {
+  const kind = project.metadata?.kind;
+  if (kind === 'deck') return 'deck';
+  if (kind === 'image' || kind === 'video') return 'media';
+  if (kind === 'prototype' || kind === 'template') return 'prototype';
+  return 'other';
 }
 
 function withDemoProjects(projects: Project[], space: SpaceKind, targetCount: number): Project[] {
@@ -176,6 +198,9 @@ export function RecentProjectsStrip({
 }: Props) {
   const t = useT();
   const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all');
+  const [kindFilter, setKindFilter] = useState<ProjectKindFilter>('all');
+  const [openHeaderMenu, setOpenHeaderMenu] = useState<'owner' | 'kind' | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<{
     project: Project;
@@ -196,8 +221,28 @@ export function RecentProjectsStrip({
     () => withDemoProjects(sorted, space, Math.min(limit, DEMO_PROJECT_TARGET_COUNT)),
     [limit, sorted, space],
   );
-  // Canva-style "Recently used": all recent items, capped by `limit`.
-  const visibleProjects = useMemo(() => displayProjects.slice(0, limit), [displayProjects, limit]);
+  const visibleProjectCards = useMemo(
+    () => displayProjects
+      .map((project, index) => {
+        const baseMeta = mockCardMeta(index, space);
+        const meta = movedToTeam.has(project.id)
+          ? { ...baseMeta, badge: 'shared' as const }
+          : movedToPersonal.has(project.id)
+            ? { ...baseMeta, badge: 'private' as const, ownerName: '我', ownerInitial: '我', ownerImg: ME.img }
+            : baseMeta;
+        return { project, meta };
+      })
+      .filter(({ project, meta }) => {
+        const ownerMatches =
+          ownerFilter === 'all'
+          || (ownerFilter === 'mine' && meta.ownerName === '我')
+          || (ownerFilter === 'others' && meta.ownerName !== '我');
+        const kindMatches = kindFilter === 'all' || filterKindForProject(project) === kindFilter;
+        return ownerMatches && kindMatches;
+      })
+      .slice(0, limit),
+    [displayProjects, kindFilter, limit, movedToPersonal, movedToTeam, ownerFilter, space],
+  );
   const [coverByProject, setCoverByProject] = useState<
     Record<string, { kind: 'html' | 'image' | 'video' | 'logo'; name: string } | null>
   >({});
@@ -223,13 +268,13 @@ export function RecentProjectsStrip({
 
   useEffect(() => {
     let cancelled = false;
-    if (visibleProjects.length === 0) {
+    if (visibleProjectCards.length === 0) {
       setCoverByProject({});
       return;
     }
 
     void Promise.all(
-      visibleProjects.map(async (project) => {
+      visibleProjectCards.map(async ({ project }) => {
         const designSystemProject = isDesignSystemProject(project);
         if (project.id.startsWith('demo-')) return [project.id, null] as const;
         if (project.metadata?.entryFile && !designSystemProject) return [project.id, null] as const;
@@ -288,14 +333,14 @@ export function RecentProjectsStrip({
     return () => {
       cancelled = true;
     };
-  }, [visibleProjects]);
+  }, [visibleProjectCards]);
 
   // First-run home shouldn't reserve space for an empty "Recent
   // projects" rail — the dashed empty box just adds visual noise
   // above the plugin gallery. We also skip rendering during the
   // load window so the section doesn't pop in and then collapse;
   // the prompt hero is enough chrome on its own.
-  if (visibleProjects.length === 0) {
+  if (visibleProjectCards.length === 0) {
     return null;
   }
 
@@ -350,14 +395,62 @@ export function RecentProjectsStrip({
               <Icon name="share" size={15} /> 邀请同事
             </button>
           ) : null}
-          <button type="button" className="recent-projects__filter" aria-hidden>
-            所有者
-            <Icon name="chevron-down" size={13} />
-          </button>
-          <button type="button" className="recent-projects__filter" aria-hidden>
-            任何类型
-            <Icon name="chevron-down" size={13} />
-          </button>
+          <div className="recent-projects__filter-wrap">
+            <button
+              type="button"
+              className="recent-projects__filter"
+              aria-expanded={openHeaderMenu === 'owner'}
+              onClick={() => setOpenHeaderMenu((current) => current === 'owner' ? null : 'owner')}
+            >
+              {OWNER_FILTER_OPTIONS.find((option) => option.id === ownerFilter)?.label ?? '所有'}
+              <Icon name="chevron-down" size={13} />
+            </button>
+            {openHeaderMenu === 'owner' ? (
+              <div className="recent-projects__filter-menu" role="menu">
+                {OWNER_FILTER_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={ownerFilter === option.id ? 'is-active' : ''}
+                    onClick={() => {
+                      setOwnerFilter(option.id);
+                      setOpenHeaderMenu(null);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="recent-projects__filter-wrap">
+            <button
+              type="button"
+              className="recent-projects__filter"
+              aria-expanded={openHeaderMenu === 'kind'}
+              onClick={() => setOpenHeaderMenu((current) => current === 'kind' ? null : 'kind')}
+            >
+              {KIND_FILTER_OPTIONS.find((option) => option.id === kindFilter)?.label ?? '任何类型'}
+              <Icon name="chevron-down" size={13} />
+            </button>
+            {openHeaderMenu === 'kind' ? (
+              <div className="recent-projects__filter-menu" role="menu">
+                {KIND_FILTER_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={kindFilter === option.id ? 'is-active' : ''}
+                    onClick={() => {
+                      setKindFilter(option.id);
+                      setOpenHeaderMenu(null);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button type="button" className="recent-projects__view-btn" aria-label="排序">
             <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 7h6M3 12h10M3 17h14M17 4v8m0 0 3-3m-3 3-3-3" />
@@ -390,16 +483,8 @@ export function RecentProjectsStrip({
         className={`recent-projects__row recent-projects__row--${view}${menuOpenId ? ' recent-projects__row--menu-open' : ''}`}
         role="list"
       >
-        {visibleProjects.map((project, index) => {
+        {visibleProjectCards.map(({ project, meta }) => {
           const cover = projectCover(project, coverByProject[project.id] ?? null);
-          const baseMeta = mockCardMeta(index, space);
-          // A project moved to the team space reads as shared regardless of its
-          // original mock visibility; a project moved out reads as private.
-          const meta = movedToTeam.has(project.id)
-            ? { ...baseMeta, badge: 'shared' as 'private' | 'shared' }
-            : movedToPersonal.has(project.id)
-              ? { ...baseMeta, badge: 'private' as 'private' | 'shared', ownerName: '我', ownerInitial: '我', ownerImg: ME.img }
-            : baseMeta;
           const projectMoveAction: 'to-team' | 'to-personal' =
             meta.badge === 'shared' ? 'to-personal' : 'to-team';
           const designSystemProject = isDesignSystemProject(project);

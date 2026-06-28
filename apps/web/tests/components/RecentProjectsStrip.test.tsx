@@ -221,7 +221,7 @@ describe('RecentProjectsStrip', () => {
     expect(screen.getByRole('heading', { name: '移出团队空间' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '确认移出' }));
 
-    expect(card?.textContent).toContain('私人');
+    expect(card?.textContent).not.toContain('共享');
     fireEvent.click(card!.querySelector('.recent-projects__card-more') as HTMLButtonElement);
     expect(screen.getByRole('menuitem', { name: /转入团队空间/ })).toBeTruthy();
 

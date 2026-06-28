@@ -4764,6 +4764,7 @@ export function SettingsDialog({
             <MediaProvidersSection
               cfg={cfg}
               setCfg={setCfg}
+              demoUseMode={demoUseMode}
               mediaProvidersNotice={mediaProvidersNotice}
               onReloadMediaProviders={onReloadMediaProviders}
               pendingLocalProviderIds={pendingMediaProviderEditIds}
@@ -6432,6 +6433,7 @@ function OrbitSection({
 function MediaProvidersSection({
   cfg,
   setCfg,
+  demoUseMode,
   mediaProvidersNotice,
   onReloadMediaProviders,
   providerModelsCache: sharedProviderModelsCache,
@@ -6441,6 +6443,7 @@ function MediaProvidersSection({
 }: {
   cfg: AppConfig;
   setCfg: Dispatch<SetStateAction<AppConfig>>;
+  demoUseMode?: DemoUseMode;
   mediaProvidersNotice?: string | null;
   onReloadMediaProviders?: () => Promise<AppConfig['mediaProviders'] | null>;
   providerModelsCache?: Record<string, ProviderModelOption[]>;
@@ -6491,42 +6494,10 @@ function MediaProvidersSection({
     .filter((p) => !p.integrated)
     .slice()
     .sort((a, b) => a.label.localeCompare(b.label));
-  const groupedAvailableProviders = useMemo(() => {
-    const groups: Array<{
-      id: 'recommended' | 'visual' | 'voice' | 'research' | 'custom';
-      label: string;
-      description: string;
-      providers: MediaProvider[];
-    }> = [
-      { id: 'recommended', label: 'Recommended', description: 'Official and no-key defaults that work well for most review demos.', providers: [] },
-      { id: 'visual', label: 'Image & video', description: 'Generate images, product visuals, motion, and short videos.', providers: [] },
-      { id: 'voice', label: 'Speech & voice', description: 'Voice, narration, sound effects, and audio generation.', providers: [] },
-      { id: 'research', label: 'Research', description: 'Search and research providers used by agent workflows.', providers: [] },
-      { id: 'custom', label: 'Custom / gateway', description: 'Bring your own routing layer or OpenAI-compatible endpoint.', providers: [] },
-    ];
-    const groupById = new Map(groups.map((group) => [group.id, group]));
-    for (const provider of availableProviders) {
-      const hint = provider.hint.toLowerCase();
-      const label = provider.label.toLowerCase();
-      if (provider.id === 'openai' || provider.id === 'codex' || provider.id === 'nanobanana') {
-        groupById.get('recommended')?.providers.push(provider);
-      } else if (provider.id === 'tavily' || hint.includes('research') || label.includes('search')) {
-        groupById.get('research')?.providers.push(provider);
-      } else if (
-        provider.id === 'custom-image'
-        || provider.id === 'openrouter'
-        || provider.id === 'aihubmix'
-        || provider.id === 'imagerouter'
-      ) {
-        groupById.get('custom')?.providers.push(provider);
-      } else if (/voice|speech|audio|sfx|tts|clone/.test(hint) || provider.id === 'senseaudio') {
-        groupById.get('voice')?.providers.push(provider);
-      } else {
-        groupById.get('visual')?.providers.push(provider);
-      }
-    }
-    return groups.filter((group) => group.providers.length > 0);
-  }, [availableProviders]);
+  const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
+  const activeProvider = availableProviders.find((p) => p.id === activeProviderId)
+    ?? availableProviders[0]
+    ?? null;
   const providerCapabilityLabel = (provider: MediaProvider) => {
     const hint = provider.hint.toLowerCase();
     const parts: string[] = [];
@@ -6602,6 +6573,17 @@ function MediaProvidersSection({
       return next;
     });
   };
+  const activeEntry = activeProvider
+    ? cfg.mediaProviders?.[activeProvider.id] ?? { apiKey: '', baseUrl: '', model: '' }
+    : null;
+  const activeHasPendingEdit = Boolean(activeEntry?.apiKey.trim());
+  const activeIsSavedState = Boolean(
+    activeEntry && (activeHasPendingEdit || activeEntry.apiKeyConfigured) && !activeHasPendingEdit,
+  );
+  const activeTail = activeEntry?.apiKeyTail?.trim();
+  const activeClearable = Boolean(activeEntry && isStoredMediaProviderEntryPresent(activeEntry));
+  const activeApiKeyVisible = activeProvider ? visibleApiKeys.has(activeProvider.id) : false;
+  const activeRequiresCredentials = activeProvider?.credentialsRequired !== false;
 
   return (
     <section className="settings-section">
@@ -6661,207 +6643,228 @@ function MediaProvidersSection({
           </button>
         ) : null}
       </div>
-      <div className="media-provider-groups">
-        {groupedAvailableProviders.map((group) => (
-          <section key={group.id} className="media-provider-card-group" aria-labelledby={`media-provider-group-${group.id}`}>
-            <div className="media-provider-group-head">
-              <div>
-                <h4 id={`media-provider-group-${group.id}`}>{group.label}</h4>
-                <p>{group.description}</p>
-              </div>
-              <span>{group.providers.length}</span>
-            </div>
-            <div className="media-provider-card-list">
-              {group.providers.map((provider) => {
-                const entry = cfg.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '', model: '' };
-                const hasPendingEdit = Boolean(entry.apiKey.trim());
-                const isSavedState = Boolean(
-                  (hasPendingEdit || entry.apiKeyConfigured) && !hasPendingEdit,
-                );
-                const tail = entry.apiKeyTail?.trim();
-                const clearable = isStoredMediaProviderEntryPresent(entry);
-                const apiKeyVisible = visibleApiKeys.has(provider.id);
-                const requiresCredentials = provider.credentialsRequired !== false;
-                return (
-                  <article key={provider.id} className="media-provider-card">
-                    <div className="media-provider-card-head">
-                      <div>
-                        <div className="media-provider-name-row">
-                          <h3>{provider.label}</h3>
-                          {isSavedState ? (
-                            <span
-                              className="field-status-badge field-status-badge--inline"
-                              title={t('settings.connectorsSavedTitle')}
-                            >
-                              {tail
-                                ? t('settings.connectorsSavedWithTail', { tail })
-                                : t('settings.connectorsSaved')}
-                            </span>
-                          ) : null}
-                        </div>
-                        <p>{provider.hint || providerCapabilityLabel(provider)}</p>
-                      </div>
-                      <span className="media-provider-badge integrated">
-                        {providerCapabilityLabel(provider)}
-                      </span>
-                    </div>
-                    {provider.id === 'grok' ? <XaiOAuthControl /> : null}
-                    {requiresCredentials ? (
-                      <div className="media-provider-card-fields">
-                        <label className="media-provider-detail-field">
-                          <span>{t('settings.mediaProviderApiKey')}</span>
-                          <div className="media-provider-secret-field">
-                            <input
-                              type={apiKeyVisible ? 'text' : 'password'}
-                              value={entry.apiKey}
-                              placeholder={isSavedState ? t('settings.connectorsReplaceKeyPlaceholder') : t('settings.mediaProviderPlaceholder')}
-                              aria-label={`${provider.label} ${t('settings.mediaProviderApiKey')}`}
-                              onFocus={() => {
-                                trackSettingsMediaProvidersClick(analytics.track, {
-                                  page_name: 'settings',
-                                  area: 'media_providers',
-                                  element: 'key_input',
-                                  providers_id: provider.id,
-                                  is_configured: clearable,
-                                });
-                              }}
-                              onChange={(e) => updateProvider(provider, { apiKey: e.target.value })}
-                            />
-                            <button
-                              type="button"
-                              className="secret-visibility-button"
-                              aria-label={
-                                apiKeyVisible
-                                  ? `${provider.label} ${t('settings.hideKey')}`
-                                  : `${provider.label} ${t('settings.showKey')}`
-                              }
-                              aria-pressed={apiKeyVisible}
-                              onClick={() => toggleApiKeyVisibility(provider.id)}
-                            >
-                              <Icon name={apiKeyVisible ? 'eye' : 'eye-off'} size={15} />
-                            </button>
-                          </div>
-                        </label>
-                        <label className="media-provider-detail-field">
-                          <span>{t('settings.mediaProviderBaseUrl')}</span>
-                          <input
-                            value={entry.baseUrl}
-                            placeholder={provider.defaultBaseUrl || t('settings.mediaProviderBaseUrlPlaceholder')}
-                            aria-label={`${provider.label} ${t('settings.mediaProviderBaseUrl')}`}
-                            onFocus={() => {
-                              trackSettingsMediaProvidersClick(analytics.track, {
-                                page_name: 'settings',
-                                area: 'media_providers',
-                                element: 'url_input',
-                                providers_id: provider.id,
-                                is_configured: clearable,
-                              });
-                            }}
-                            onChange={(e) => updateProvider(provider, { baseUrl: e.target.value })}
-                          />
-                        </label>
-                        {provider.supportsCustomModel ? (
-                          <label className="media-provider-detail-field">
-                            <span>Model</span>
-                            <input
-                              value={entry.model ?? ''}
-                              placeholder={provider.customModelPlaceholder ?? 'gemini-3.1-flash-image-preview'}
-                              aria-label={`${provider.label} model`}
-                              onChange={(e) => updateProvider(provider, { model: e.target.value })}
-                            />
-                          </label>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="media-provider-no-key">
-                        <Icon name="check" size={15} />
-                        <div>
-                          <strong>No key required</strong>
-                          <span>This provider uses a local login or bundled runtime.</span>
-                        </div>
-                      </div>
-                    )}
-                    <div className="media-provider-card-actions">
-                      {provider.docsUrl ? (
-                        <a
-                          href={sanitizeHttpsUrl(provider.docsUrl) ?? undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ghost-link"
-                        >
-                          {t('settings.agentInstall.docs')}
-                          <Icon name="external-link" size={11} />
-                        </a>
-                      ) : <span />}
-                      <button
-                        type="button"
-                        className="ghost"
-                        disabled={!clearable}
-                        onClick={() => {
-                          trackSettingsMediaProvidersClick(analytics.track, {
-                            page_name: 'settings',
-                            area: 'media_providers',
-                            element: 'clear',
-                            providers_id: provider.id,
-                            is_configured: clearable,
-                          });
-                          if (
-                            !confirm(
-                              t('settings.mediaProviderClearConfirm', {
-                                name: provider.label,
-                              }),
-                            )
-                          ) {
-                            return;
-                          }
-                          updateProvider(provider, {
-                            apiKey: '',
-                            baseUrl: '',
-                            model: '',
-                            apiKeyConfigured: false,
-                            apiKeyTail: '',
-                          });
-                        }}
-                      >
-                        {t('settings.mediaProviderClear')}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-        {comingSoonProviders.length > 0 ? (
-          <details className="library-group media-provider-coming-soon">
-            <summary className="memory-details-summary">
-              <span className="memory-details-title">
-                {t('tasks.comingSoon')}
-              </span>
-              <span className="filter-pill-count">
-                {comingSoonProviders.length}
-              </span>
-            </summary>
-            <ul className="media-provider-coming-soon-list">
-              {comingSoonProviders.map((provider) => (
-                <li
+      {demoUseMode === 'local' ? (
+        <div className="settings-cloud-signin-callout media-provider-cloud-callout">
+          <div>
+            <strong>使用 Open Design Cloud</strong>
+            <p>登录云端版本后可使用托管模型供应商，并为团队共享媒体生成配置。</p>
+          </div>
+          <button type="button" className="settings-cloud-signin-callout__button">
+            登录 / 注册
+          </button>
+        </div>
+      ) : null}
+      <div
+        className="protocol-chips protocol-chips--providers media-provider-tabs"
+        role="tablist"
+        aria-label="Media providers"
+      >
+        <div className="protocol-chip-group protocol-chip-group--providers">
+          <span className="protocol-chip-group-label">模型供应商</span>
+          <div className="protocol-chip-group-options">
+            {availableProviders.map((provider) => {
+              const active = activeProvider?.id === provider.id;
+              return (
+                <button
                   key={provider.id}
-                  className="media-provider-coming-soon-item"
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={'protocol-chip' + (active ? ' active' : '')}
+                  onClick={() => setActiveProviderId(provider.id)}
                 >
-                  <div className="media-provider-coming-soon-meta">
-                    <span className="media-provider-name">
-                      {provider.label}
-                    </span>
-                    <span className="media-provider-hint">
-                      {provider.hint}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
+                  {provider.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
+      {activeProvider && activeEntry ? (
+        <article className="media-provider-detail">
+          <div className="media-provider-detail-head">
+            <div className="media-provider-meta">
+              <div className="media-provider-name-row">
+                <h3>{activeProvider.label}</h3>
+                {activeIsSavedState ? (
+                  <span
+                    className="field-status-badge field-status-badge--inline"
+                    title={t('settings.connectorsSavedTitle')}
+                  >
+                    {activeTail
+                      ? t('settings.connectorsSavedWithTail', { tail: activeTail })
+                      : t('settings.connectorsSaved')}
+                  </span>
+                ) : null}
+              </div>
+              <p>{activeProvider.hint || providerCapabilityLabel(activeProvider)}</p>
+            </div>
+            <div className="media-provider-badges">
+              <span className="media-provider-badge integrated">
+                {providerCapabilityLabel(activeProvider)}
+              </span>
+              {activeProvider.credentialsRequired === false ? (
+                <span className="media-provider-badge on">No key required</span>
+              ) : null}
+            </div>
+          </div>
+          {activeProvider.id === 'grok' ? <XaiOAuthControl /> : null}
+          {activeRequiresCredentials ? (
+            <div className="media-provider-detail-grid">
+              <label className="media-provider-detail-field">
+                <span>{t('settings.mediaProviderApiKey')}</span>
+                <div className="media-provider-secret-field">
+                  <input
+                    type={activeApiKeyVisible ? 'text' : 'password'}
+                    value={activeEntry.apiKey}
+                    placeholder={activeIsSavedState ? t('settings.connectorsReplaceKeyPlaceholder') : t('settings.mediaProviderPlaceholder')}
+                    aria-label={`${activeProvider.label} ${t('settings.mediaProviderApiKey')}`}
+                    onFocus={() => {
+                      trackSettingsMediaProvidersClick(analytics.track, {
+                        page_name: 'settings',
+                        area: 'media_providers',
+                        element: 'key_input',
+                        providers_id: activeProvider.id,
+                        is_configured: activeClearable,
+                      });
+                    }}
+                    onChange={(e) => updateProvider(activeProvider, { apiKey: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="secret-visibility-button"
+                    aria-label={
+                      activeApiKeyVisible
+                        ? `${activeProvider.label} ${t('settings.hideKey')}`
+                        : `${activeProvider.label} ${t('settings.showKey')}`
+                    }
+                    aria-pressed={activeApiKeyVisible}
+                    onClick={() => toggleApiKeyVisibility(activeProvider.id)}
+                  >
+                    <Icon name={activeApiKeyVisible ? 'eye' : 'eye-off'} size={15} />
+                  </button>
+                </div>
+              </label>
+              <label className="media-provider-detail-field">
+                <span>{t('settings.mediaProviderBaseUrl')}</span>
+                <input
+                  value={activeEntry.baseUrl}
+                  placeholder={activeProvider.defaultBaseUrl || t('settings.mediaProviderBaseUrlPlaceholder')}
+                  aria-label={`${activeProvider.label} ${t('settings.mediaProviderBaseUrl')}`}
+                  onFocus={() => {
+                    trackSettingsMediaProvidersClick(analytics.track, {
+                      page_name: 'settings',
+                      area: 'media_providers',
+                      element: 'url_input',
+                      providers_id: activeProvider.id,
+                      is_configured: activeClearable,
+                    });
+                  }}
+                  onChange={(e) => updateProvider(activeProvider, { baseUrl: e.target.value })}
+                />
+              </label>
+              <label className="media-provider-detail-field">
+                <span>Model</span>
+                <input
+                  value={activeEntry.model ?? ''}
+                  placeholder={activeProvider.customModelPlaceholder ?? 'Default model from provider'}
+                  aria-label={`${activeProvider.label} model`}
+                  onChange={(e) => updateProvider(activeProvider, { model: e.target.value })}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="media-provider-no-key">
+              <Icon name="check" size={15} />
+              <div>
+                <strong>No key required</strong>
+                <span>This provider uses a local login or bundled runtime.</span>
+              </div>
+            </div>
+          )}
+          <div className="media-provider-docs-callout">
+            <div>
+              <strong>Documentation</strong>
+              <span>查看该 Provider 的 API Key、Model 和 Base URL 配置说明。</span>
+            </div>
+            {activeProvider.docsUrl ? (
+              <a
+                href={sanitizeHttpsUrl(activeProvider.docsUrl) ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ghost-link"
+              >
+                {t('settings.agentInstall.docs')}
+                <Icon name="external-link" size={11} />
+              </a>
+            ) : null}
+          </div>
+          <div className="media-provider-detail-actions">
+            <span className="hint">Changes are saved with the Settings action bar.</span>
+            <button
+              type="button"
+              className="ghost"
+              disabled={!activeClearable}
+              onClick={() => {
+                trackSettingsMediaProvidersClick(analytics.track, {
+                  page_name: 'settings',
+                  area: 'media_providers',
+                  element: 'clear',
+                  providers_id: activeProvider.id,
+                  is_configured: activeClearable,
+                });
+                if (
+                  !confirm(
+                    t('settings.mediaProviderClearConfirm', {
+                      name: activeProvider.label,
+                    }),
+                  )
+                ) {
+                  return;
+                }
+                updateProvider(activeProvider, {
+                  apiKey: '',
+                  baseUrl: '',
+                  model: '',
+                  apiKeyConfigured: false,
+                  apiKeyTail: '',
+                });
+              }}
+            >
+              {t('settings.mediaProviderClear')}
+            </button>
+          </div>
+        </article>
+      ) : null}
+      {comingSoonProviders.length > 0 ? (
+        <details className="library-group media-provider-coming-soon">
+          <summary className="memory-details-summary">
+            <span className="memory-details-title">
+              {t('tasks.comingSoon')}
+            </span>
+            <span className="filter-pill-count">
+              {comingSoonProviders.length}
+            </span>
+          </summary>
+          <ul className="media-provider-coming-soon-list">
+            {comingSoonProviders.map((provider) => (
+              <li
+                key={provider.id}
+                className="media-provider-coming-soon-item"
+              >
+                <div className="media-provider-coming-soon-meta">
+                  <span className="media-provider-name">
+                    {provider.label}
+                  </span>
+                  <span className="media-provider-hint">
+                    {provider.hint}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </section>
   );
 }

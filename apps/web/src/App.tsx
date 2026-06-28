@@ -2300,6 +2300,7 @@ function AppInner() {
           onDesignSystemsRefresh={refreshDesignSystems}
           onCreateProjectFromDesignSystem={handleCreateProjectFromDesignSystem}
           demoScenario={projectDemoScenario}
+          demoUseMode={projectDemoUseMode}
         />
         <DemoControlBar
           page={route.kind === 'home' && route.view === 'onboarding' ? 'onboarding' : 'home'}

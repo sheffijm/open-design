@@ -25,28 +25,30 @@ describe('PluginMarketplaceDemo', () => {
 
     fireEvent.click(within(area).getByText('GitHub').closest('article') as HTMLElement);
 
-    expect(within(area).getByText('账号授权、权限范围和外部数据连接。')).toBeTruthy();
-    expect(within(area).getByText('暴露给 Agent 调用的工具与上下文能力。')).toBeTruthy();
-    expect(within(area).getByText('可复用的任务流程、审查规则和生成策略。')).toBeTruthy();
-    expect(within(area).getByText('GitHub OAuth')).toBeTruthy();
-    expect(within(area).getByText('search_issues')).toBeTruthy();
-    expect(within(area).getByText('PR review')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'GitHub' })).toBeTruthy();
+    expect(screen.getByText('@OpenDesign')).toBeTruthy();
+    expect(screen.getByText('/pr-review')).toBeTruthy();
+    expect(screen.getByText('GitHub OAuth')).toBeTruthy();
+    expect(screen.getByText('PR review')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /快捷命令/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /数据连接/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /知识技能/ })).toBeTruthy();
   });
 
-  it('switches the source filter when selecting an installed workspace plugin icon', () => {
+  it('switches the source filter to team expert suites', () => {
     render(<PluginMarketplaceDemo />);
 
     const area = catalog();
     expect(within(area).queryByText('Notion')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Notion' }));
+    fireEvent.click(screen.getByRole('button', { name: '团队' }));
 
-    expect(within(area).getByText('Notion')).toBeTruthy();
-    expect(within(area).getByRole('button', { name: 'Try it' })).toBeTruthy();
-    expect(within(area).getByRole('button', { name: 'Notion more actions' })).toBeTruthy();
+    const notionRow = within(area).getByText('Notion').closest('article') as HTMLElement;
+    expect(notionRow).toBeTruthy();
+    expect(within(notionRow).getByRole('button', { name: 'Try it' })).toBeTruthy();
+    expect(within(notionRow).getByRole('button', { name: 'Notion more actions' })).toBeTruthy();
     expect(within(area).queryByText('Workspace connection')).toBeNull();
-    expect(screen.getByRole('button', { name: '由你的工作空间提供' }).className).toContain('is-active');
-    expect(screen.getByRole('button', { name: 'Productivity' }).className).toContain('is-active');
+    expect(screen.getByRole('button', { name: '团队' }).className).toContain('is-active');
   });
 
   it('lets installed plugins open an uninstall menu and try from home', () => {
@@ -69,20 +71,20 @@ describe('PluginMarketplaceDemo', () => {
     fireEvent.click(screen.getByRole('button', { name: '新增' }));
 
     expect(screen.getByRole('dialog', { name: '新增 Plugin' })).toBeTruthy();
-    expect(screen.getByText('从 GitHub 链接导入')).toBeTruthy();
-    expect(screen.getByText('导入本地文件夹')).toBeTruthy();
-    expect(screen.getByPlaceholderText('https://github.com/org/open-design-plugin')).toBeTruthy();
+    expect(screen.getByText('从链接导入')).toBeTruthy();
+    expect(screen.getByText('上传本地文件夹')).toBeTruthy();
+    expect(screen.getByPlaceholderText('https://example.com/open-design-suite')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Skill' }));
     expect(screen.getByRole('dialog', { name: '新增 Skill' })).toBeTruthy();
-    expect(screen.getByPlaceholderText('例如 Brand QA Reviewer')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '创建 Skill' })).toBeTruthy();
+    expect(screen.getByPlaceholderText('https://example.com/skill')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '上传 Skill' })).toBeTruthy();
   });
 
   it('keeps search scoped to plugin names, descriptions, and categories', () => {
     render(<PluginMarketplaceDemo />);
 
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search plugins' }), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search expert suites' }), {
       target: { value: 'drive' },
     });
 
@@ -96,8 +98,7 @@ describe('PluginMarketplaceDemo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '技能' }));
 
-    expect(screen.getByRole('heading', { name: '技能' })).toBeTruthy();
-    expect(screen.getByText('技能是可复用的任务流程和审查规则。它可以被插件携带，也可以作为独立能力直接使用。')).toBeTruthy();
+    expect(screen.getByText('技能是可复用的任务流程和审查规则，可独立使用，也可以被专家套件组合调用。')).toBeTruthy();
     expect(screen.getByText('Template Creator')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Template Creator more actions' })).toBeNull();
     expect(screen.queryByText('Installed')).toBeNull();

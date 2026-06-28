@@ -11,6 +11,7 @@ import {
 import {
   anonymizeArtifactId,
   artifactKindToTracking,
+  type TrackingArtifactKind,
   type TrackingProjectKind,
   type TrackingDeployProvider,
 } from '@open-design/contracts/analytics';
@@ -103,9 +104,12 @@ import type {
   LiveArtifactViewerTab,
   LiveArtifactWorkspaceEntry,
   ProjectFile,
+  AgentInfo,
 } from '../types';
 import { Icon } from './Icon';
 import { RemixIcon } from './RemixIcon';
+import { HandoffButton } from './HandoffButton';
+import type { DemoUseMode } from './DemoControlBar';
 import { SocialShareGrid } from './SocialShareGrid';
 import { Toast } from './Toast';
 import { PreviewDrawOverlay, type DrawToolbarElement } from './PreviewDrawOverlay';
@@ -969,6 +973,14 @@ interface Props {
   slideNavRequest?: { slideIndex: number; nonce: number } | null;
   viewerOnly?: boolean;
   commentAuthor?: PreviewCommentAuthor;
+  projectName?: string;
+  projectDir?: string | null;
+  agents?: AgentInfo[];
+  artifactId?: string;
+  artifactKind?: TrackingArtifactKind;
+  metricsConsent?: boolean;
+  installationId?: string | null;
+  demoUseMode?: DemoUseMode;
 }
 
 interface PreviewCommentAuthor {
@@ -1014,6 +1026,14 @@ export function FileViewer({
   slideNavRequest,
   viewerOnly = false,
   commentAuthor,
+  projectName,
+  projectDir,
+  agents,
+  artifactId,
+  artifactKind,
+  metricsConsent,
+  installationId,
+  demoUseMode = 'cloud',
 }: Props) {
   const rendererMatch = artifactRendererRegistry.resolve({
     file,
@@ -1059,6 +1079,14 @@ export function FileViewer({
         slideNavRequest={slideNavRequest}
         viewerOnly={viewerOnly}
         commentAuthor={commentAuthor}
+        projectName={projectName}
+        projectDir={projectDir}
+        agents={agents}
+        artifactId={artifactId}
+        artifactKind={artifactKind}
+        metricsConsent={metricsConsent}
+        installationId={installationId}
+        demoUseMode={demoUseMode}
       />
     );
   }
@@ -4489,6 +4517,14 @@ function HtmlViewer({
   slideNavRequest,
   viewerOnly = false,
   commentAuthor,
+  projectName,
+  projectDir,
+  agents,
+  artifactId,
+  artifactKind: handoffArtifactKind,
+  metricsConsent = false,
+  installationId,
+  demoUseMode = 'cloud',
 }: {
   projectId: string;
   projectKind: TrackingProjectKind;
@@ -4511,6 +4547,14 @@ function HtmlViewer({
   slideNavRequest?: { slideIndex: number; nonce: number } | null;
   viewerOnly?: boolean;
   commentAuthor?: PreviewCommentAuthor;
+  projectName?: string;
+  projectDir?: string | null;
+  agents?: AgentInfo[];
+  artifactId?: string;
+  artifactKind?: TrackingArtifactKind;
+  metricsConsent?: boolean;
+  installationId?: string | null;
+  demoUseMode?: DemoUseMode;
 }) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -4749,6 +4793,9 @@ function HtmlViewer({
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
   const [deployMenuOpen, setDeployMenuOpen] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [unifiedActionTab, setUnifiedActionTab] = useState<'share' | 'export' | 'send'>('share');
+  const [shareAccess, setShareAccess] = useState<'private' | 'workspace' | 'everyone'>('private');
+  const [shareAccessMenuOpen, setShareAccessMenuOpen] = useState(false);
   const [exportReadyNudge, setExportReadyNudge] = useState(false);
   const exportReadyNudgeSeenRef = useRef<Set<string>>(new Set());
   // Template save UX. We surface a transient "Saved" pill in the share
@@ -4761,6 +4808,13 @@ function HtmlViewer({
   useEffect(() => {
     setPreviewViewportState(htmlPreviewViewportState.get(fileViewportKey) ?? 'desktop');
   }, [fileViewportKey]);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.dataset.artifactShareAccess = shareAccess;
+    return () => {
+      delete document.body.dataset.artifactShareAccess;
+    };
+  }, [shareAccess]);
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
   const [deployment, setDeployment] = useState<WebDeploymentInfo | null>(null);
@@ -7126,6 +7180,7 @@ function HtmlViewer({
   // from the same artifact output surface as files.
   function openSaveAsTemplateModal() {
     setDownloadMenuOpen(false);
+    setDeployMenuOpen(false);
     // Start the template click→result correlation; the result fires later from
     // handleSaveAsTemplate once the save actually resolves.
     const requestId = analytics.newRequestId();
@@ -7852,6 +7907,7 @@ function HtmlViewer({
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
     setDownloadMenuOpen(false);
+    setUnifiedActionTab('share');
     setDeployMenuOpen(true);
   }, [shareRequest?.nonce, canShare, projectId, file.name]);
 
@@ -7867,8 +7923,9 @@ function HtmlViewer({
     consumedDownloadNonceRef.current = nonce;
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
-    setDeployMenuOpen(false);
-    setDownloadMenuOpen(true);
+    setDownloadMenuOpen(false);
+    setUnifiedActionTab('export');
+    setDeployMenuOpen(true);
   }, [downloadRequest?.nonce, canShare, projectId, file.name]);
 
   // A queued chat send for this deck just started: flip the preview to the
@@ -7894,20 +7951,13 @@ function HtmlViewer({
     syncCachedSlideStateToIframe();
   }, [slideNavRequest?.nonce, slideNavRequest?.slideIndex, effectiveDeck, previewStateKey, slideState?.count]);
 
-  const openDownloadMenu = () => {
-    if (viewerOnly) return;
-    fireArtifactHeaderClick('download_dropdown');
-    setExportReadyNudge(false);
-    markExportReadyNudgeSeen(projectId, file.name);
-    setDeployMenuOpen(false);
-    setDownloadMenuOpen((v) => !v);
-  };
   const openDeployMenu = () => {
     if (viewerOnly) return;
     fireArtifactHeaderClick('share_dropdown');
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
     setDownloadMenuOpen(false);
+    setUnifiedActionTab(canShare ? 'share' : 'export');
     setDeployMenuOpen((v) => !v);
   };
   const captureExportImageSnapshot = useCallback(async () => {
@@ -8037,6 +8087,7 @@ function HtmlViewer({
   const openImageExportModal = async () => {
     flushSync(() => {
       setDownloadMenuOpen(false);
+      setDeployMenuOpen(false);
     });
     // Start the image export's own click→result correlation (separate modal
     // flow, so it can't ride fireShareExport).
@@ -8943,37 +8994,161 @@ function HtmlViewer({
           ) : null}
           {rawCanShare || rawCanDownload ? (
             <div className="chrome-file-action-menus" ref={shareRef}>
-              {rawCanShare ? (
-                <div className="share-menu chrome-share-menu">
-                  <button
-                    type="button"
-                    className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only"
-                    aria-haspopup="menu"
-                    aria-expanded={deployMenuOpen}
-                    aria-label={shareMenuLabel}
-                    disabled={viewerOnly}
-                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
-                    onClick={openDeployMenu}
-                  >
-                    <span>{shareMenuLabel}</span>
-                  </button>
-                  {deployMenuOpen && canShare ? (
-                    <div className="share-menu-popover" role="menu">
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('fileViewer.shareMenuShareLink')}
-                      </div>
-                      {sharePageUrl ? (
-                        <>
+              <div className="share-menu chrome-share-menu chrome-share-menu--unified">
+                <button
+                  type="button"
+                  className={
+                    'chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified' +
+                    (exportReadyNudge ? ' export-ready-nudge' : '')
+                  }
+                  aria-haspopup="menu"
+                  aria-expanded={deployMenuOpen}
+                  aria-label={shareMenuLabel}
+                  disabled={viewerOnly}
+                  title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
+                  onClick={openDeployMenu}
+                >
+                  <RemixIcon name="share-forward-line" size={15} />
+                  <span>{shareMenuLabel}</span>
+                </button>
+                {deployMenuOpen && (canShare || canDownload) ? (
+                  <div className="share-menu-popover chrome-unified-popover" role="menu">
+                    <div className="chrome-unified-tabs" role="tablist" aria-label="Share and export actions">
+                      {([
+                        ['share', 'Share link'],
+                        ['export', 'Export'],
+                        ['send', 'Send to...'],
+                      ] as const).map(([tab, label]) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          className={unifiedActionTab === tab ? 'is-active' : undefined}
+                          role="tab"
+                          aria-selected={unifiedActionTab === tab}
+                          onClick={() => setUnifiedActionTab(tab)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {unifiedActionTab === 'share' ? (
+                      <div className="chrome-unified-panel chrome-unified-panel--share">
+                        {demoUseMode === 'local' ? (
+                          <>
+                            <div className="share-menu-section-label" role="presentation">
+                              {t('fileViewer.shareMenuPublishOnline')}
+                            </div>
+                            {DEPLOY_PROVIDER_OPTIONS.map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                className="share-menu-item"
+                                role="menuitem"
+                                onClick={() => {
+                                  void openDeployModal(option.id);
+                                }}
+                              >
+                                <span className="share-menu-icon">
+                                  <RemixIcon name={deployActionIconFor(option.id)} size={15} />
+                                </span>
+                                <span>{deployActionLabelFor(option.id)}</span>
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              className="share-menu-item chrome-cloud-guide"
+                              role="menuitem"
+                              onClick={() => {
+                                setDeployMenuOpen(false);
+                                void openDeployModal(CLOUDFLARE_PAGES_PROVIDER_ID);
+                              }}
+                            >
+                              <span className="share-menu-icon"><RemixIcon name="cloud-line" size={15} /></span>
+                              <span className="share-menu-text">
+                                <span>登录 Open Design Cloud 后可一键部署</span>
+                                <small>连接云端账号后可直接生成分享链接</small>
+                              </span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="share-menu-section-label" role="presentation">
+                              Who can access
+                            </div>
+                            <div className="chrome-access-select">
+                              <button
+                                type="button"
+                                className="chrome-access-trigger"
+                                aria-haspopup="listbox"
+                                aria-expanded={shareAccessMenuOpen}
+                                onClick={() => setShareAccessMenuOpen((v) => !v)}
+                              >
+                                <span className="share-menu-icon">
+                                  <RemixIcon
+                                    name={
+                                      shareAccess === 'private'
+                                        ? 'lock-line'
+                                        : shareAccess === 'workspace'
+                                          ? 'team-line'
+                                          : 'earth-line'
+                                    }
+                                    size={16}
+                                  />
+                                </span>
+                                <span>
+                                  {shareAccess === 'private'
+                                    ? 'Only you'
+                                    : shareAccess === 'workspace'
+                                      ? 'Your workspace'
+                                      : 'Everyone'}
+                                </span>
+                                <RemixIcon name="arrow-down-s-line" size={16} />
+                              </button>
+                              {shareAccessMenuOpen ? (
+                                <div className="chrome-access-options" role="listbox">
+                                  {([
+                                    ['private', 'lock-line', 'Only you'],
+                                    ['workspace', 'team-line', 'Your workspace'],
+                                    ['everyone', 'earth-line', 'Everyone'],
+                                  ] as const).map(([value, icon, label]) => (
+                                    <button
+                                      key={value}
+                                      type="button"
+                                      role="option"
+                                      aria-selected={shareAccess === value}
+                                      className={shareAccess === value ? 'is-active' : undefined}
+                                      onClick={() => {
+                                        setShareAccess(value);
+                                        setShareAccessMenuOpen(false);
+                                      }}
+                                    >
+                                      <span className="share-menu-icon"><RemixIcon name={icon} size={16} /></span>
+                                      <span>{label}</span>
+                                      {shareAccess === value ? <RemixIcon name="check-line" size={15} /> : null}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                            <p className="chrome-share-status">
+                              {shareAccess === 'private'
+                                ? 'Only you can see this design.'
+                                : shareAccess === 'workspace'
+                                  ? 'Everyone in your workspace can view this design.'
+                                  : 'Anyone with the link can view this design.'}
+                            </p>
+                          </>
+                        )}
+                        {demoUseMode === 'cloud' && shareAccess !== 'private' ? (
                           <button
                             type="button"
                             className="share-menu-item"
                             role="menuitem"
-                            disabled={!canCopyShareLink}
-                            title={!canCopyShareLink ? shareUnavailableHint : shareLinkStatusHint || undefined}
+                            title={shareLinkStatusHint || undefined}
                             onClick={() => {
-                              if (!canCopyShareLink || !sharePageUrl) return;
+                              const href = sharePageUrl ?? window.location.href;
                               fireShareExport('share_link', async () => {
-                                const ok = await copyShareLink(sharePageUrl);
+                                const ok = await copyShareLink(href);
                                 if (!ok) throw new Error('copy_share_link_failed');
                               });
                             }}
@@ -8981,242 +9156,134 @@ function HtmlViewer({
                             <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
                             <span className="share-menu-text">
                               <span>{copyShareLinkLabel}</span>
-                              {shareLinkStatusHint ? (
-                                <small>{shareLinkStatusHint}</small>
-                              ) : null}
+                              {shareLinkStatusHint ? <small>{shareLinkStatusHint}</small> : null}
                             </span>
                           </button>
-                          <button
-                            type="button"
-                            className="share-menu-item"
-                            role="menuitem"
-                            disabled={!canOpenSharePage}
-                            title={!canOpenSharePage ? shareLinkStatusHint || shareUnavailableHint : shareLinkStatusHint || undefined}
-                            onClick={() => {
-                              if (!canOpenSharePage || !sharePageUrl) return;
-                              setDeployMenuOpen(false);
-                              fireShareExport('share_page', () => {
-                                window.open(sharePageUrl, '_blank', 'noopener');
-                              });
-                            }}
-                          >
-                            <span className="share-menu-icon"><RemixIcon name="external-link-line" size={15} /></span>
-                            <span className="share-menu-text">
-                              <span>{t('fileViewer.openSharePage')}</span>
-                              {shareLinkStatusHint ? (
-                                <small>{shareLinkStatusHint}</small>
-                              ) : null}
-                            </span>
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="share-menu-item share-menu-guide"
-                          role="menuitem"
-                          title={shareUnavailableHint}
-                          onClick={() => {
-                            // Share-intent-but-blocked signal: user wants a
-                            // share link but nothing is deployed yet.
-                            trackShareOptionPopoverClick(
-                              analytics.track,
-                              {
-                                page_name: 'artifact',
-                                area: 'share_option_popover',
-                                artifact_id: anonymizeArtifactId({ projectId, fileName: file.name }),
-                                artifact_kind: artifactKindToTracking({ fileKind: file.kind ?? null }),
-                                element: 'publish_required_guide',
-                                project_id: projectId,
-                                project_kind: projectKind,
-                              },
-                              { requestId: analytics.newRequestId() },
-                            );
-                            setShareGuideToast(shareUnavailableHint);
-                          }}
-                        >
-                          <span className="share-menu-icon"><RemixIcon name="link" size={15} /></span>
-                          <span className="share-menu-text">
-                            <span>
-                              {streaming
-                                ? t('fileViewer.shareAfterGenerationComplete')
-                                : t('fileViewer.shareLinkPublishGuide')}
-                            </span>
-                          </span>
-                        </button>
-                      )}
-                      <div className="share-menu-divider" />
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('fileViewer.shareMenuPublishOnline')}
+                        ) : null}
                       </div>
-                      {DEPLOY_PROVIDER_OPTIONS.map((option) => (
+                    ) : null}
+                    {unifiedActionTab === 'export' ? (
+                      <div className="chrome-unified-panel">
                         <button
-                          key={option.id}
                           type="button"
                           className="share-menu-item"
                           role="menuitem"
                           onClick={() => {
-                            // Just open the deploy modal. The real publish is
-                            // tracked by artifact_deploy_result from
-                            // deployToSelectedProvider — no "popover opened"
-                            // export event here.
-                            void openDeployModal(option.id);
+                            setDeployMenuOpen(false);
+                            fireShareExport('pdf', () => exportProjectAsPdf({
+                              deck: effectiveDeck,
+                              fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck, onProgress: onExportProgress }),
+                              filePath: file.name,
+                              projectId,
+                              title: exportTitle,
+                            }));
                           }}
                         >
-                          <span className="share-menu-icon">
-                            <RemixIcon name={deployActionIconFor(option.id)} size={15} />
-                          </span>
-                          <span>{deployActionLabelFor(option.id)}</span>
+                          <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
+                          <span>{t('fileViewer.exportPdf')}</span>
                         </button>
-                      ))}
-                      <div className="share-menu-divider" />
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('socialShare.projectSection')}
+                        {showImageExport ? (
+                          <button
+                            type="button"
+                            className="share-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                              setDeployMenuOpen(false);
+                              openImageExportModal();
+                            }}
+                          >
+                            <span className="share-menu-icon"><RemixIcon name="image-line" size={15} /></span>
+                            <span>{t('fileViewer.exportImage')}</span>
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setDeployMenuOpen(false);
+                            fireShareExport('zip', () => exportProjectAsZip({
+                              projectId,
+                              filePath: file.name,
+                              fallbackHtml: source ?? '',
+                              fallbackTitle: exportTitle,
+                            }));
+                          }}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name="file-zip-line" size={15} /></span>
+                          <span>{t('fileViewer.exportZip')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setDeployMenuOpen(false);
+                            fireShareExport('html', () => exportProjectAsHtml({
+                              projectId,
+                              filePath: file.name,
+                              fallbackHtml: source ?? '',
+                              fallbackTitle: exportTitle,
+                            }));
+                          }}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name="file-code-line" size={15} /></span>
+                          <span>{t('fileViewer.exportHtml')}</span>
+                        </button>
+                        {showMarkdownExport ? (
+                          <button
+                            type="button"
+                            className="share-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                              setDeployMenuOpen(false);
+                              fireShareExport('markdown', () => exportAsMd(source ?? '', exportTitle));
+                            }}
+                          >
+                            <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
+                            <span>{t('fileViewer.exportMd')}</span>
+                          </button>
+                        ) : null}
+                        <div className="share-menu-divider" />
+                        <div className="share-menu-section-label" role="presentation">
+                          {t('fileViewer.shareMenuSave')}
+                        </div>
+                        <button
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          disabled={savingTemplate}
+                          onClick={openSaveAsTemplateModal}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
+                          <span>
+                            {savingTemplate
+                              ? t('fileViewer.savingTemplate')
+                              : templateNote
+                                ? templateNote
+                                : t('fileViewer.saveAsTemplate')}
+                          </span>
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        className="share-menu-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setDeployMenuOpen(false);
-                          // Deploy-then-share also routes through the deploy
-                          // modal; the real publish is tracked by
-                          // artifact_deploy_result, not an export event.
-                          void openSocialShareFlow();
-                        }}
-                      >
-                        <span className="share-menu-icon">
-                          <RemixIcon
-                            name={activeProjectSocialShare ? 'share-forward-line' : 'upload-cloud-line'}
-                            size={15}
-                          />
-                        </span>
-                        <span>{socialShareMenuLabel}</span>
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {rawCanDownload ? (
-                <div className="share-menu chrome-share-menu">
-                  <button
-                    type="button"
-                    className={
-                      'chrome-action chrome-action-primary chrome-action-export' +
-                      (exportReadyNudge ? ' export-ready-nudge' : '')
-                    }
-                    aria-haspopup="menu"
-                    aria-expanded={downloadMenuOpen}
-                    disabled={viewerOnly}
-                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
-                    onClick={openDownloadMenu}
-                  >
-                    <span>{t('fileViewer.download')}</span>
-                  </button>
-                  {downloadMenuOpen && canDownload ? (
-                    <div className="share-menu-popover" role="menu">
-                  <button
-                    type="button"
-                    className="share-menu-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setDownloadMenuOpen(false);
-                      fireShareExport('pdf', () => exportProjectAsPdf({
-                        deck: effectiveDeck,
-                        fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck, onProgress: onExportProgress }),
-                        filePath: file.name,
-                        projectId,
-                        title: exportTitle,
-                      }));
-                    }}
-                  >
-                    <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
-                    <span>{t('fileViewer.exportPdf')}</span>
-                  </button>
-                  {showImageExport ? (
-                    <button
-                      type="button"
-                      className="share-menu-item"
-                      role="menuitem"
-                      onClick={openImageExportModal}
-                    >
-                      <span className="share-menu-icon"><RemixIcon name="image-line" size={15} /></span>
-                      <span>{t('fileViewer.exportImage')}</span>
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="share-menu-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setDownloadMenuOpen(false);
-                      fireShareExport('zip', () => exportProjectAsZip({
-                        projectId,
-                        filePath: file.name,
-                        fallbackHtml: source ?? '',
-                        fallbackTitle: exportTitle,
-                      }));
-                    }}
-                  >
-                    <span className="share-menu-icon"><RemixIcon name="file-zip-line" size={15} /></span>
-                    <span>{t('fileViewer.exportZip')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="share-menu-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setDownloadMenuOpen(false);
-                      fireShareExport('html', () => exportProjectAsHtml({
-                        projectId,
-                        filePath: file.name,
-                        fallbackHtml: source ?? '',
-                        fallbackTitle: exportTitle,
-                      }));
-                    }}
-                  >
-                    <span className="share-menu-icon"><RemixIcon name="file-code-line" size={15} /></span>
-                    <span>{t('fileViewer.exportHtml')}</span>
-                  </button>
-                  {showMarkdownExport ? (
-                    <button
-                      type="button"
-                      className="share-menu-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setDownloadMenuOpen(false);
-                        fireShareExport('markdown', () => exportAsMd(source ?? '', exportTitle));
-                      }}
-                    >
-                      <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
-                      <span>{t('fileViewer.exportMd')}</span>
-                    </button>
-                  ) : null}
-                  <div className="share-menu-divider" />
-                  <div className="share-menu-section-label" role="presentation">
-                    {t('fileViewer.shareMenuSave')}
+                    ) : null}
+                    {unifiedActionTab === 'send' ? (
+                      <div className="chrome-unified-panel chrome-unified-panel--handoff">
+                        <HandoffButton
+                          projectId={projectId}
+                          projectName={projectName}
+                          projectDir={projectDir}
+                          agents={agents}
+                          artifactId={artifactId}
+                          artifactKind={handoffArtifactKind}
+                          metricsConsent={metricsConsent}
+                          installationId={installationId}
+                          embedded
+                        />
+                      </div>
+                    ) : null}
                   </div>
-                  <button
-                    type="button"
-                    className="share-menu-item"
-                    role="menuitem"
-                    disabled={savingTemplate}
-                    onClick={() => {
-                      openSaveAsTemplateModal();
-                    }}
-                  >
-                    <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
-                    <span>
-                      {savingTemplate
-                        ? t('fileViewer.savingTemplate')
-                        : templateNote
-                          ? templateNote
-                          : t('fileViewer.saveAsTemplate')}
-                    </span>
-                  </button>
-                </div>
                 ) : null}
               </div>
-              ) : null}
             </div>
           ) : null}
         </>)}

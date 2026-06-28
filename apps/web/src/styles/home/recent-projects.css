@@ -432,6 +432,10 @@
   align-items: center;
   gap: 8px;
 }
+.recent-projects__filter-wrap {
+  position: relative;
+  display: inline-flex;
+}
 .recent-projects__search {
   display: flex;
   align-items: center;
@@ -540,6 +544,43 @@
 .recent-projects__filter svg {
   color: var(--text-soft);
 }
+.recent-projects__filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 80;
+  min-width: 148px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+}
+.recent-projects__filter-menu {
+  display: grid;
+  gap: 2px;
+}
+.recent-projects__filter-menu button {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.recent-projects__filter-menu button:hover,
+.recent-projects__filter-menu button.is-active {
+  background: var(--bg-subtle);
+  color: var(--accent);
+}
 
 /* "邀请同事" entry on the team "全部项目" header (UC-2 entry point 2). */
 .recent-projects__invite {
@@ -563,7 +604,7 @@
   filter: brightness(1.05);
 }
 
-/* "私人" badge on the thumbnail + creator avatar in the meta row (Canva-style). */
+/* Shared badge on the thumbnail + creator avatar in the meta row. Private projects stay unbadged. */
 .recent-projects__card-badge {
   position: absolute;
   top: 8px;

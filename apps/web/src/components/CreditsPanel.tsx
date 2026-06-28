@@ -4,7 +4,6 @@
 // header with an upgrade CTA for free users, the remaining-credits breakdown,
 // the daily-refresh allowance, and a usage link. Demo-only mock numbers.
 
-import { AMR_CONSOLE_URL } from '../runtime/amr-guidance';
 import { Icon } from './Icon';
 
 export interface CreditsInfo {
@@ -64,15 +63,6 @@ export function CreditsPanel({ open, onClose, info, onUpgrade }: Props) {
           查看使用情况
           <Icon name="chevron-right" size={14} />
         </button>
-        <a
-          className="credits-panel__console"
-          href={AMR_CONSOLE_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          AMR Console
-          <Icon name="external-link" size={13} />
-        </a>
       </div>
     </>
   );
