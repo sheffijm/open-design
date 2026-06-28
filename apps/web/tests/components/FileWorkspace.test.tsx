@@ -1552,6 +1552,52 @@ describe('scrollWorkspaceTabsWithWheel', () => {
 });
 
 describe('FileWorkspace sketch save', () => {
+  it('opens a persisted sketch through the editor path without rendering the static preview first', async () => {
+    const file: ProjectFile = {
+      name: 'test.sketch.json',
+      path: 'test.sketch.json',
+      type: 'file',
+      size: 100,
+      mtime: 1700000000,
+      kind: 'sketch',
+      mime: 'application/json',
+    };
+
+    mockedFetchProjectFileText.mockResolvedValue(
+      JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        elements: [{ id: 'box', type: 'rectangle', isDeleted: false }],
+        appState: { viewBackgroundColor: '#ffffff' },
+        files: {},
+      }),
+    );
+
+    const { container } = render(
+      <FileWorkspace
+        projectId="project-1"
+        projectKind="prototype"
+        files={[file]}
+        liveArtifacts={[]}
+        onRefreshFiles={vi.fn()}
+        isDeck={false}
+        tabsState={{ tabs: ['test.sketch.json'], active: 'test.sketch.json' }}
+        onTabsStateChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Loading sketch…')).toBeTruthy();
+    expect(container.querySelector('[data-testid="sketch-preview-svg"]')).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('excalidraw')).toBeTruthy();
+    });
+
+    expect(mockedFetchProjectFileText).toHaveBeenCalledTimes(1);
+    expect(mockedFetchProjectFileText).toHaveBeenCalledWith('project-1', 'test.sketch.json');
+    expect(container.querySelector('[data-testid="sketch-preview-svg"]')).toBeNull();
+  });
+
   it('keeps saving state visible for at least 500ms', async () => {
     // Simulate user doing some edits in the workspace
     const file: ProjectFile = {

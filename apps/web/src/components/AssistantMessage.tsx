@@ -475,17 +475,26 @@ function AssistantMessageImpl({
   const fileOps = useMemo(() => deriveFileOps(displayEvents), [displayEvents]);
   const produced = message.producedFiles ?? [];
   const displayedProduced = useMemo(
-    () =>
-      produced.length > 0
-        ? produced
-        : inferProducedFilesFromTurn({
-            message,
-            projectFiles,
-            blocks,
-            fileOps,
-            streaming,
-          }),
-    [blocks, fileOps, message, produced, projectFiles, streaming],
+    () => {
+      const linkedFiles = recoverLinkedProjectFilesFromContent(
+        message.content,
+        projectFiles,
+        projectId,
+        message,
+      );
+      const baseFiles =
+        produced.length > 0
+          ? produced
+          : inferProducedFilesFromTurn({
+              message,
+              projectFiles,
+              blocks,
+              fileOps,
+              streaming,
+            });
+      return mergeProjectFiles(baseFiles, linkedFiles);
+    },
+    [blocks, fileOps, message, produced, projectFiles, projectId, streaming],
   );
   const turnFileOps = useMemo(
     () => mergeProducedFilesIntoFileOps(fileOps, displayedProduced),
@@ -968,6 +977,184 @@ function mergeProducedFilesIntoFileOps(
 
 function normalizeTouchedPath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function recoverLinkedProjectFilesFromContent(
+  content: string,
+  projectFiles: ProjectFile[],
+  projectId?: string | null,
+  message?: ChatMessage,
+): ProjectFile[] {
+  if (!content || projectFiles.length === 0) return [];
+  const projectFileNames = new Set<string>();
+  const byPath = new Map<string, ProjectFile>();
+  const basenameFiles = new Map<string, ProjectFile | null>();
+  for (const file of projectFiles) {
+    if (file.type === "dir") continue;
+    for (const value of [file.name, file.path, file.localPath]) {
+      if (!value) continue;
+      const normalized = normalizeTouchedPath(value);
+      projectFileNames.add(normalized);
+      byPath.set(normalized, file);
+      const basename = normalized.split("/").filter(Boolean).pop();
+      if (basename && basename !== normalized) {
+        basenameFiles.set(
+          basename,
+          basenameFiles.has(basename) ? null : file,
+        );
+      }
+    }
+  }
+  for (const [basename, file] of basenameFiles) {
+    if (!file) continue;
+    projectFileNames.add(basename);
+    byPath.set(basename, file);
+  }
+  if (projectFileNames.size === 0) return [];
+
+  const recovered = new Map<string, ProjectFile>();
+  for (const href of extractContentFileReferences(content, projectFileNames)) {
+    const filePath = asInProjectFilePath(href, projectFileNames, projectId);
+    if (!filePath) continue;
+    const file = byPath.get(normalizeTouchedPath(filePath));
+    if (!file) continue;
+    if (!shouldRecoverReferencedFile(content, href, file, message)) continue;
+    recovered.set(file.path || file.name, file);
+  }
+  return Array.from(recovered.values());
+}
+
+function extractContentFileReferences(
+  content: string,
+  projectFileNames: ReadonlySet<string>,
+): string[] {
+  const refs = new Set<string>();
+  for (const href of extractMarkdownLinkHrefs(content)) refs.add(href);
+  for (const ref of extractInlineCodeFileRefs(content)) refs.add(ref);
+  for (const ref of extractKnownProjectFileRefs(content, projectFileNames)) refs.add(ref);
+  return Array.from(refs);
+}
+
+function extractInlineCodeFileRefs(content: string): string[] {
+  const refs: string[] = [];
+  const codePattern = /`([^`\n]+)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = codePattern.exec(content)) !== null) {
+    const raw = match[1]?.trim();
+    if (raw && looksLikeFileReference(raw)) refs.push(raw);
+  }
+  return refs;
+}
+
+function extractKnownProjectFileRefs(
+  content: string,
+  projectFileNames: ReadonlySet<string>,
+): string[] {
+  const refs: string[] = [];
+  const names = Array.from(projectFileNames)
+    .filter((name) => name.length > 0)
+    .sort((a, b) => b.length - a.length);
+  if (names.length === 0) return refs;
+  for (const line of content.split(/\r?\n/)) {
+    for (const name of names) {
+      if (lineContainsFileReference(line, name)) refs.push(name);
+    }
+  }
+  return refs;
+}
+
+function shouldRecoverReferencedFile(
+  content: string,
+  rawRef: string,
+  file: ProjectFile,
+  message?: ChatMessage,
+): boolean {
+  if (isFileMtimeInsideRun(file, message)) return true;
+  return contentHasOutputHintForFile(content, rawRef, file);
+}
+
+function isFileMtimeInsideRun(file: ProjectFile, message?: ChatMessage): boolean {
+  if (!message?.startedAt || !message.endedAt) return false;
+  const start = message.startedAt - 1_000;
+  const end = message.endedAt + 60_000;
+  return file.mtime >= start && file.mtime <= end;
+}
+
+function contentHasOutputHintForFile(
+  content: string,
+  rawRef: string,
+  file: ProjectFile,
+): boolean {
+  const refs = [
+    rawRef,
+    file.name,
+    file.path,
+    file.localPath,
+    file.name.split("/").filter(Boolean).pop(),
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+  return content.split(/\r?\n/).some((line) => {
+    if (!lineHasOutputFileHint(line)) return false;
+    return refs.some((ref) => lineContainsFileReference(line, normalizeTouchedPath(ref)));
+  });
+}
+
+function lineHasOutputFileHint(line: string): boolean {
+  return /(?:\b(?:add(?:ed)?|built|chang(?:e|ed)|creat(?:e|ed)|deliverable|edit(?:ed)?|file(?:s)?|generat(?:e|ed)|modif(?:y|ied)|output|produc(?:e|ed)|sav(?:e|ed)|updat(?:e|ed)|writ(?:e|ten|ing)|wrote)\b|产物|创建|生成|交付|输出|保存|文件|新增|更新|修改|完成|已创建|已生成|已写入|写入)/i.test(line);
+}
+
+function lineContainsFileReference(line: string, ref: string): boolean {
+  const normalizedLine = normalizeTouchedPath(line);
+  const normalizedRef = normalizeTouchedPath(ref);
+  if (!normalizedRef) return false;
+  const escaped = escapeRegExp(normalizedRef);
+  return new RegExp(`(^|[\\s\`"'“”‘’\\[\\]()<>{}:：,，.。;；!?！？])${escaped}($|[\\s\`"'“”‘’\\[\\]()<>{}:：,，.。;；!?！？])`).test(normalizedLine);
+}
+
+function looksLikeFileReference(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 240) return false;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return true;
+  return /(?:^|[/\\])[^/\\]+\.[a-z0-9]{1,12}(?:[#?].*)?$/i.test(trimmed);
+}
+
+function extractMarkdownLinkHrefs(content: string): string[] {
+  const hrefs: string[] = [];
+  const linkPattern = /(!?)\[[^\]\n]*\]\(([^)\n]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = linkPattern.exec(content)) !== null) {
+    if (match[1] === "!") continue;
+    const href = normalizeMarkdownHref(match[2] ?? "");
+    if (href) hrefs.push(href);
+  }
+  return hrefs;
+}
+
+function normalizeMarkdownHref(rawHref: string): string | null {
+  const trimmed = rawHref.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("<")) {
+    const end = trimmed.indexOf(">");
+    return end > 1 ? trimmed.slice(1, end).trim() : null;
+  }
+  const titled = /^(\S+)\s+(?:"[^"]*"|'[^']*'|\([^)]*\))$/.exec(trimmed);
+  return (titled?.[1] ?? trimmed).trim() || null;
+}
+
+function mergeProjectFiles(
+  first: ProjectFile[],
+  second: ProjectFile[],
+): ProjectFile[] {
+  if (first.length === 0) return second;
+  if (second.length === 0) return first;
+  const seen = new Set<string>();
+  const merged: ProjectFile[] = [];
+  for (const file of [...first, ...second]) {
+    const key = normalizeTouchedPath(file.path || file.name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(file);
+  }
+  return merged;
 }
 
 // A run that reached a terminal state — succeeded, failed, or canceled — has a

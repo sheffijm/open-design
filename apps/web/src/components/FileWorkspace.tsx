@@ -1391,12 +1391,14 @@ export function FileWorkspace({
     openFile(file.name);
   }
 
+  const activeSketchLoaded = isSketchName(activeTab) ? sketches[activeTab]?.loaded : undefined;
+
   // When the active tab is a sketch we don't have items for yet, load from
   // disk. Pending sketches start with loaded=true and skip this path.
   useEffect(() => {
     if (activeTab === DESIGN_FILES_TAB) return;
     if (!isSketchName(activeTab)) return;
-    if (sketches[activeTab]?.loaded) return;
+    if (activeSketchLoaded) return;
     let cancelled = false;
     void fetchProjectFileText(projectId, activeTab).then((text) => {
       if (cancelled) return;
@@ -1419,7 +1421,7 @@ export function FileWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, projectId, sketches]);
+  }, [activeSketchLoaded, activeTab, projectId]);
 
   function setSketchScene(
     name: string,
@@ -2289,8 +2291,8 @@ export function FileWorkspace({
           />
         ) : isBrowserTabId(activeTab) ? (
           null
-        ) : isActiveSketch && activeSketch && activeFile ? (
-          activeSketch.loaded ? (
+        ) : isActiveSketch && activeFile ? (
+          activeSketch?.loaded ? (
             <SketchEditor
               fileName={activeFile.name}
               scene={activeSketch.scene}
@@ -2346,7 +2348,6 @@ export function FileWorkspace({
             projectId={projectId}
             projectKind={projectKind}
             file={activeFile}
-            projectFiles={visibleFiles}
             filesRefreshKey={filesRefreshKey}
             isDeck={isDeck}
             streaming={streaming}
@@ -4355,7 +4356,6 @@ ${t('designFiles.documentTemplate.goalBody')}
 - ${t('designFiles.documentTemplate.capabilityMarkdown')}
 - ${t('designFiles.documentTemplate.capabilityAgent')}
 - ${t('designFiles.documentTemplate.capabilityImages')}
-- ${t('designFiles.documentTemplate.capabilityReferences')}
 
 ## ${t('designFiles.documentTemplate.scenarioHeading')}
 

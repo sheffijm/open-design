@@ -133,4 +133,16 @@ describe('FileViewer markdown code block copy', () => {
     });
     expect(copyButton).toBe(document.activeElement);
   });
+
+  it('treats @ as plain markdown editor text instead of opening a file mention picker', async () => {
+    mockedFetchProjectFileText.mockResolvedValue('');
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={baseFile()} />);
+
+    const editor = await screen.findByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: '@landing' } });
+
+    expect(editor.value).toBe('@landing');
+    expect(container.querySelector('[data-testid="markdown-file-mention-popover"]')).toBeNull();
+    expect(container.querySelector('.mention-popover')).toBeNull();
+  });
 });

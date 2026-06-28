@@ -68,4 +68,44 @@ describe('SketchPreview', () => {
     });
     expect(fetchProjectFileText).toHaveBeenCalledWith('project-1', 'board.sketch.json', { cache: 'no-store' });
   });
+
+  it('does not refetch when parent rerenders with the same sketch metadata', async () => {
+    mockedFetchProjectFileText.mockResolvedValue(JSON.stringify({
+      type: 'excalidraw',
+      version: 2,
+      elements: [
+        { id: 'box', type: 'rectangle', isDeleted: false, x: 0, y: 0, width: 10, height: 10 },
+      ],
+      appState: { viewBackgroundColor: '#ffffff' },
+      files: {},
+    }));
+
+    const { container, rerender } = render(
+      <SketchPreview
+        projectId="project-cache"
+        file={{
+          name: 'cached.sketch.json',
+          kind: 'sketch',
+          mtime: 1700000000,
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-preview="excalidraw"]')).toBeTruthy();
+    });
+
+    rerender(
+      <SketchPreview
+        projectId="project-cache"
+        file={{
+          name: 'cached.sketch.json',
+          kind: 'sketch',
+          mtime: 1700000000,
+        }}
+      />,
+    );
+
+    expect(fetchProjectFileText).toHaveBeenCalledTimes(1);
+  });
 });

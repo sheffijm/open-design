@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
 import {
   Excalidraw,
   convertToExcalidrawElements,
@@ -56,19 +57,40 @@ export function SketchEditor({
 }: Props) {
   const { t, locale } = useI18n();
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
-  const firstProgrammaticChangeRef = useRef(true);
   const [resetNonce, setResetNonce] = useState(0);
   const [showSaved, setShowSaved] = useState(false);
   const [theme, setTheme] = useState(readExcalidrawTheme);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const onSceneChangeRef = useLatestRef(onSceneChange);
+  const onClearRef = useLatestRef(onClear);
+  const onSaveRef = useLatestRef(onSave);
+  const onCancelRef = useLatestRef(onCancel);
+  const sceneRef = useLatestRef(scene);
+  const fileNameRef = useLatestRef(fileName);
+  const skipHydrationChangeRef = useRef(true);
+  const lastContentSignatureRef = useRef<string | null>(null);
+  const editorInstanceKey = `${fileName}:${resetNonce}`;
+  const previousEditorInstanceKeyRef = useRef<string | null>(null);
+  const initialDataRef = useRef<{
+    key: string;
+    value: ExcalidrawInitialDataState;
+  } | null>(null);
 
-  useEffect(() => {
-    firstProgrammaticChangeRef.current = true;
-    const frame = window.requestAnimationFrame(() => {
-      firstProgrammaticChangeRef.current = false;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [fileName, resetNonce]);
+  if (previousEditorInstanceKeyRef.current !== editorInstanceKey) {
+    previousEditorInstanceKeyRef.current = editorInstanceKey;
+    skipHydrationChangeRef.current = true;
+    lastContentSignatureRef.current = null;
+  }
+
+  let initialDataEntry = initialDataRef.current;
+  if (!initialDataEntry || initialDataEntry.key !== editorInstanceKey) {
+    initialDataEntry = {
+      key: editorInstanceKey,
+      value: buildInitialData(scene, legacyItems, fileName),
+    };
+    initialDataRef.current = initialDataEntry;
+  }
+  const initialData = initialDataEntry.value;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -88,59 +110,46 @@ export function SketchEditor({
     }
   }, [dirty]);
 
-  const initialData = useMemo<ExcalidrawInitialDataState>(() => {
-    const convertedLegacyElements = legacyItems.length > 0
-      ? convertLegacySketchItemsToExcalidrawElements(legacyItems)
-      : null;
-    const initialElements = convertedLegacyElements ?? scene.elements;
-    return {
-      elements: initialElements as ExcalidrawInitialDataState['elements'],
-      appState: {
-        ...(scene.appState ?? {}),
-        name: fileName,
-        currentItemStrokeColor: readDefaultSketchToolColor(),
-        viewBackgroundColor: typeof scene.appState?.viewBackgroundColor === 'string'
-          ? scene.appState.viewBackgroundColor
-          : '#ffffff',
-      } as ExcalidrawInitialDataState['appState'],
-      files: scene.files as ExcalidrawInitialDataState['files'],
-      scrollToContent: initialElements.length > 0,
-    };
-  }, [fileName, legacyItems, scene]);
-
   const handleChange = useCallback<NonNullable<ExcalidrawProps['onChange']>>((elements, appState, files) => {
-    const nextScene = sceneFromExcalidraw(elements, appState, files);
-    const isProgrammatic = firstProgrammaticChangeRef.current;
-    onSceneChange(nextScene, {
-      markDirty: !isProgrammatic,
-      discardLegacyItems: !isProgrammatic,
+    const contentSignature = sceneContentSignature(elements, appState, files);
+    if (skipHydrationChangeRef.current) {
+      skipHydrationChangeRef.current = false;
+      lastContentSignatureRef.current = contentSignature;
+      return;
+    }
+    if (lastContentSignatureRef.current === contentSignature) return;
+    lastContentSignatureRef.current = contentSignature;
+
+    onSceneChangeRef.current(sceneFromExcalidraw(elements, appState, files), {
+      markDirty: true,
+      discardLegacyItems: true,
     });
-  }, [onSceneChange]);
+  }, [onSceneChangeRef]);
 
   const currentScene = useCallback((): ExcalidrawSketchScene => {
     const api = apiRef.current;
-    if (!api) return scene;
+    if (!api) return sceneRef.current;
     return sceneFromExcalidraw(
       api.getSceneElementsIncludingDeleted(),
       api.getAppState(),
       api.getFiles(),
     );
-  }, [scene]);
+  }, [sceneRef]);
 
   const handleClear = useCallback(() => {
-    if (onClear) {
-      onClear();
+    if (onClearRef.current) {
+      onClearRef.current();
     } else {
-      onSceneChange(emptySketchScene(fileName), {
+      onSceneChangeRef.current(emptySketchScene(fileNameRef.current), {
         markDirty: true,
         discardLegacyItems: true,
       });
     }
     setResetNonce((value) => value + 1);
-  }, [fileName, onClear, onSceneChange]);
+  }, [fileNameRef, onClearRef, onSceneChangeRef]);
 
   const handleSave = useCallback(async () => {
-    const ok = await onSave(currentScene());
+    const ok = await onSaveRef.current(currentScene());
     if (ok === false) {
       clearTimeout(savedTimerRef.current);
       setShowSaved(false);
@@ -149,10 +158,31 @@ export function SketchEditor({
     setShowSaved(true);
     clearTimeout(savedTimerRef.current);
     savedTimerRef.current = setTimeout(() => setShowSaved(false), SAVED_VISIBLE_MS);
-  }, [currentScene, onSave]);
+  }, [currentScene, onSaveRef]);
+
+  const handleCancel = useCallback(() => {
+    onCancelRef.current?.();
+  }, [onCancelRef]);
+
+  const handleExcalidrawAPI = useCallback((api: ExcalidrawImperativeAPI) => {
+    apiRef.current = api;
+  }, []);
+
+  const excalidrawUIOptions = useMemo<ExcalidrawProps['UIOptions']>(() => ({
+    canvasActions: {
+      saveToActiveFile: false,
+      loadScene: false,
+      toggleTheme: false,
+      export: { saveFileToDisk: false },
+    },
+    tools: {
+      image: true,
+    },
+  }), []);
 
   const canClear = sketchSceneHasContent(scene) || legacyItems.length > 0 || hasPreservedRawItems;
   const canSave = dirty || sketchSceneHasContent(scene) || legacyItems.length > 0 || hasPreservedRawItems;
+  const canCancel = Boolean(onCancel);
 
   const renderTopRightUI = useCallback(() => (
     <div
@@ -166,8 +196,8 @@ export function SketchEditor({
       <Button variant="ghost" onClick={handleClear} disabled={!canClear}>
         {t('sketch.clear')}
       </Button>
-      {onCancel ? (
-        <Button variant="ghost" onClick={onCancel}>
+      {canCancel ? (
+        <Button variant="ghost" onClick={handleCancel}>
           {t('sketch.close')}
         </Button>
       ) : null}
@@ -180,17 +210,15 @@ export function SketchEditor({
         {saving ? t('sketch.saving') : showSaved ? <Icon name="check" size={14} /> : t('common.save')}
       </Button>
     </div>
-  ), [canClear, canSave, dirty, fileName, handleClear, handleSave, onCancel, saving, showSaved, t]);
+  ), [canCancel, canClear, canSave, dirty, fileName, handleCancel, handleClear, handleSave, saving, showSaved, t]);
 
   return (
     <div className="sketch-editor">
       <div className="sketch-canvas-wrap sketch-excalidraw-wrap" data-testid="sketch-excalidraw-editor">
         <Excalidraw
-          key={`${fileName}:${resetNonce}`}
+          key={editorInstanceKey}
           initialData={initialData}
-          excalidrawAPI={(api) => {
-            apiRef.current = api;
-          }}
+          excalidrawAPI={handleExcalidrawAPI}
           onChange={handleChange}
           renderTopRightUI={renderTopRightUI}
           langCode={excalidrawLangCode(locale)}
@@ -199,21 +227,35 @@ export function SketchEditor({
           handleKeyboardGlobally={false}
           autoFocus
           name={fileName}
-          UIOptions={{
-            canvasActions: {
-              saveToActiveFile: false,
-              loadScene: false,
-              toggleTheme: false,
-              export: { saveFileToDisk: false },
-            },
-            tools: {
-              image: true,
-            },
-          }}
+          UIOptions={excalidrawUIOptions}
         />
       </div>
     </div>
   );
+}
+
+function buildInitialData(
+  scene: ExcalidrawSketchScene,
+  legacyItems: SketchItem[],
+  fileName: string,
+): ExcalidrawInitialDataState {
+  const convertedLegacyElements = legacyItems.length > 0
+    ? convertLegacySketchItemsToExcalidrawElements(legacyItems)
+    : null;
+  const initialElements = convertedLegacyElements ?? scene.elements;
+  return {
+    elements: initialElements as ExcalidrawInitialDataState['elements'],
+    appState: {
+      ...(scene.appState ?? {}),
+      name: fileName,
+      currentItemStrokeColor: readDefaultSketchToolColor(),
+      viewBackgroundColor: typeof scene.appState?.viewBackgroundColor === 'string'
+        ? scene.appState.viewBackgroundColor
+        : '#ffffff',
+    } as ExcalidrawInitialDataState['appState'],
+    files: scene.files as ExcalidrawInitialDataState['files'],
+    scrollToContent: initialElements.length > 0,
+  };
 }
 
 function sceneFromExcalidraw(
@@ -226,6 +268,64 @@ function sceneFromExcalidraw(
     appState: cloneJson<Record<string, unknown> | null>(appState as unknown, null),
     files: cloneJson<Record<string, unknown>>(files, {}),
   };
+}
+
+function sceneContentSignature(
+  elements: readonly OrderedExcalidrawElement[],
+  appState: AppState,
+  files: BinaryFiles,
+): string {
+  const elementSignature = elements.map((element) => {
+    if (typeof element.version === 'number') {
+      return [
+        element.id,
+        element.version,
+        element.versionNonce,
+        element.isDeleted ? 1 : 0,
+      ].join(':');
+    }
+    return stableJsonStringify(element);
+  }).join('|');
+  const fileSignature = Object.keys(files).sort().map((id) => {
+    const file = files[id];
+    if (!file || typeof file !== 'object') return id;
+    const record = file as Record<string, unknown>;
+    const dataURL = record.dataURL;
+    return [
+      id,
+      record.mimeType ?? '',
+      record.created ?? '',
+      typeof dataURL === 'string' ? dataURL.length : 0,
+    ].join(':');
+  }).join('|');
+  const viewBackgroundColor = typeof appState.viewBackgroundColor === 'string'
+    ? appState.viewBackgroundColor
+    : '';
+  return `${elementSignature}\n${fileSignature}\n${viewBackgroundColor}`;
+}
+
+function stableJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(sortJsonValue(value));
+  } catch {
+    return '';
+  }
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonValue);
+  if (!value || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).sort().reduce<Record<string, unknown>>((acc, key) => {
+    acc[key] = sortJsonValue(record[key]);
+    return acc;
+  }, {});
+}
+
+function useLatestRef<T>(value: T): MutableRefObject<T> {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
 }
 
 function convertLegacySketchItemsToExcalidrawElements(items: SketchItem[]): unknown[] {

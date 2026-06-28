@@ -4,6 +4,7 @@ import { trackFileManagerClick } from '../analytics/events';
 import { useT } from '../i18n';
 import { LIBRARY_UI_VISIBLE } from '../features/libraryUi';
 import type { Dict } from '../i18n/types';
+import { copyToClipboard } from '../lib/copy-to-clipboard';
 import { projectFileUrl, projectRawUrl } from '../providers/registry';
 import { buildSrcdoc } from '../runtime/srcdoc';
 import type { LiveArtifactWorkspaceEntry, ProjectFile, ProjectFileKind, ProjectFolder } from '../types';
@@ -308,7 +309,7 @@ export function DesignFilesPanel({
   const dragDepthRef = useRef(0);
   const [hover, setHover] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ name: string; top: number; left: number } | null>(null);
-  const MENU_ESTIMATED_HEIGHT = 145;
+  const MENU_ESTIMATED_HEIGHT = 180;
   const MENU_SAFE_PADDING = 8;
   const [preview, setPreview] = useState<string | null>(null);
   const autoPreviewAppliedRef = useRef(false);
@@ -319,6 +320,7 @@ export function DesignFilesPanel({
   const [sharingFolder, setSharingFolder] = useState<string | null>(null);
   const [installNotice, setInstallNotice] = useState<ActionNotice | null>(null);
   const [renaming, setRenaming] = useState<{ name: string; draft: string; saving: boolean } | null>(null);
+  const [copiedLocalPath, setCopiedLocalPath] = useState<string | null>(null);
   const [currentDir, setCurrentDir] = useState<string>(() => navState?.currentDir ?? '');
 
   // Keep the parent's create-target in sync with the folder being viewed, so
@@ -519,6 +521,18 @@ export function DesignFilesPanel({
     const left = Math.max(MENU_SAFE_PADDING, rect.right - 160);
 
     setMenuPos({ name, top, left });
+  }
+
+  async function copyLocalPath(fileName: string) {
+    const localPath = files.find((file) => file.name === fileName)?.localPath;
+    if (!localPath) return;
+    const copied = await copyToClipboard(localPath);
+    if (copied) {
+      setCopiedLocalPath(fileName);
+      window.setTimeout(() => {
+        setCopiedLocalPath((current) => (current === fileName ? null : current));
+      }, 1600);
+    }
   }
 
   function startRename(name: string) {
@@ -1218,6 +1232,20 @@ export function DesignFilesPanel({
             }}
           >
             {t('common.rename')}
+          </button>
+          <button
+            type="button"
+            disabled={!files.some((file) => file.name === menuPos.name && file.localPath)}
+            onClick={(e) => {
+              e.stopPropagation();
+              const name = menuPos.name;
+              setMenuPos(null);
+              void copyLocalPath(name);
+            }}
+          >
+            {copiedLocalPath === menuPos.name
+              ? t('designFiles.copiedLocalPath')
+              : t('designFiles.copyLocalPath')}
           </button>
           <a
             href={projectFileUrl(projectId, menuPos.name)}

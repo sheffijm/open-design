@@ -253,6 +253,37 @@ describe('DesignFilesPanel selection', () => {
     expect(onOpenFile).not.toHaveBeenCalled();
   });
 
+  it('copies the local file path from the row menu', async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    try {
+      const { container } = renderPanel([
+        file({
+          name: 'alpha.html',
+          localPath: '/tmp/open-design/projects/test-project/alpha.html',
+        }),
+      ]);
+
+      fireEvent.click(screen.getByTestId('design-file-menu-alpha.html'));
+      fireEvent.click(screen.getByRole('button', { name: 'Copy local file path' }));
+
+      await waitFor(() => {
+        expect(writeText).toHaveBeenCalledWith('/tmp/open-design/projects/test-project/alpha.html');
+      });
+      expect(container.querySelector('[data-testid="design-file-preview"]')).toBeNull();
+    } finally {
+      if (originalClipboard) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      } else {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    }
+  });
+
   it('uses non-control row targets to preview and open', () => {
     const files = generateFiles(1);
     const { container, onOpenFile } = renderPanel(files);

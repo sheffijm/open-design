@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent as ReactChangeEvent, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type SyntheticEvent as ReactSyntheticEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { Button, Input, Select } from '@open-design/components';
 import { APP_CHROME_FILE_ACTIONS_ID, APP_CHROME_FILE_ACTIONS_SELECTOR } from './AppChromeHeader';
@@ -104,14 +104,11 @@ import type {
   LiveArtifactWorkspaceEntry,
   ProjectFile,
 } from '../types';
-import { Icon, type IconName } from './Icon';
+import { Icon } from './Icon';
 import { RemixIcon } from './RemixIcon';
-import { CaretFloatingLayer } from './composer/CaretFloatingLayer';
-import type { CaretRect } from './composer/LexicalComposerInput';
 import { SocialShareGrid } from './SocialShareGrid';
 import { Toast } from './Toast';
 import { PreviewDrawOverlay, type DrawToolbarElement } from './PreviewDrawOverlay';
-import { inlineMentionToken } from '../utils/inlineMentions';
 import {
   buildBoardCommentAttachments,
   commentSnapshotEqual,
@@ -1016,7 +1013,6 @@ interface Props {
   projectId: string;
   projectKind: TrackingProjectKind;
   file: ProjectFile;
-  projectFiles?: ProjectFile[];
   liveHtml?: string;
   filesRefreshKey?: number;
   isDeck?: boolean;
@@ -1049,7 +1045,6 @@ export function FileViewer({
   projectId,
   projectKind,
   file,
-  projectFiles = [],
   liveHtml,
   filesRefreshKey = 0,
   isDeck,
@@ -1127,7 +1122,6 @@ export function FileViewer({
       <MarkdownViewer
         projectId={projectId}
         file={file}
-        projectFiles={projectFiles}
         onFileSaved={onFileSaved}
       />
     );
@@ -2749,17 +2743,6 @@ export function CommentSidePanel({
               </div>
             </div>
             <div className="composer-row comment-side-new-comment-actions">
-              <button
-                type="button"
-                className="icon-btn"
-                title={t('chat.cliSettingsTitle')}
-                aria-label={t('chat.cliSettingsAria')}
-                disabled
-              >
-                <span className="composer-tools-at" aria-hidden>
-                  @
-                </span>
-              </button>
               <button
                 type="button"
                 className="icon-btn"
@@ -10696,12 +10679,10 @@ function markdownScrollTopForRatio(element: HTMLElement, ratio: number): number 
 function MarkdownViewer({
   projectId,
   file,
-  projectFiles,
   onFileSaved,
 }: {
   projectId: string;
   file: ProjectFile;
-  projectFiles: ProjectFile[];
   onFileSaved?: () => Promise<void> | void;
 }) {
   const t = useT();
@@ -10711,16 +10692,15 @@ function MarkdownViewer({
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [mode, setMode] = useState<MarkdownViewerMode>('split');
   const [saveState, setSaveState] = useState<MarkdownSaveState>('idle');
-  const [fileMention, setFileMention] = useState<MarkdownFileMentionState | null>(null);
-  const [fileMentionIndex, setFileMentionIndex] = useState(0);
-  const viewerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const markdownPreviewPaneRef = useRef<HTMLElement | null>(null);
   const markdownArticleRef = useRef<HTMLElement | null>(null);
   const copyBlockTimerRef = useRef<number | null>(null);
   const copiedMarkdownBlockRef = useRef<HTMLElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
-  const scrollSyncTimerRef = useRef<number | null>(null);
+  const scrollSyncFrameRef = useRef<number | null>(null);
+  const programmaticScrollClearFrameRef = useRef<number | null>(null);
+  const pendingScrollSyncRef = useRef<{ sourcePane: MarkdownScrollPane; targetPane: MarkdownScrollPane } | null>(null);
   const programmaticScrollRef = useRef<{ pane: MarkdownScrollPane; top: number } | null>(null);
   const previousModeRef = useRef<MarkdownViewerMode>('split');
   const saveInFlightRef = useRef(false);
@@ -10731,32 +10711,9 @@ function MarkdownViewer({
   const isStreaming = status === 'streaming';
   const isError = status === 'error';
   const exportTitle = file.name.replace(/\.mdx?$/i, '') || file.name;
-  const filteredMentionFiles = useMemo(() => {
-    if (!fileMention) return [];
-    const query = fileMention.q.trim().toLowerCase();
-    return projectFiles
-      .filter((candidate) => (candidate.path ?? candidate.name) !== file.name)
-      .filter((candidate) => {
-        if (!query) return true;
-        const path = candidate.path ?? candidate.name;
-        return `${candidate.name} ${path} ${candidate.kind}`.toLowerCase().includes(query);
-      })
-      .slice(0, 12);
-  }, [file.name, fileMention, projectFiles]);
-
-  useEffect(() => {
-    setFileMentionIndex(0);
-  }, [fileMention?.q, fileMention?.start]);
-
-  useEffect(() => {
-    setFileMentionIndex((current) => (
-      filteredMentionFiles.length === 0 ? 0 : Math.min(current, filteredMentionFiles.length - 1)
-    ));
-  }, [filteredMentionFiles.length]);
 
   useEffect(() => {
     setText(null);
-    setFileMention(null);
     copiedMarkdownBlockRef.current = null;
     if (copyBlockTimerRef.current) {
       window.clearTimeout(copyBlockTimerRef.current);
@@ -10786,9 +10743,16 @@ function MarkdownViewer({
       if (saveTimerRef.current) {
         window.clearTimeout(saveTimerRef.current);
       }
-      if (scrollSyncTimerRef.current) {
-        window.clearTimeout(scrollSyncTimerRef.current);
+      if (scrollSyncFrameRef.current) {
+        window.cancelAnimationFrame(scrollSyncFrameRef.current);
+        scrollSyncFrameRef.current = null;
       }
+      if (programmaticScrollClearFrameRef.current) {
+        window.cancelAnimationFrame(programmaticScrollClearFrameRef.current);
+        programmaticScrollClearFrameRef.current = null;
+      }
+      pendingScrollSyncRef.current = null;
+      programmaticScrollRef.current = null;
     };
   }, []);
 
@@ -10871,30 +10835,6 @@ function MarkdownViewer({
     });
   }, []);
 
-  const updateFileMention = useCallback((textarea: HTMLTextAreaElement) => {
-    setFileMention(readMarkdownFileMention(textarea.value, textarea.selectionStart, textarea));
-  }, []);
-
-  const insertFileMention = useCallback((picked: ProjectFile) => {
-    const mention = fileMention;
-    if (!mention) return;
-    const token = inlineMentionToken(picked.path ?? picked.name);
-    setText((current) => {
-      if (current === null) return current;
-      const suffix = mention.end < current.length && !/\s/.test(current[mention.end] ?? '') ? ' ' : '';
-      const next = `${current.slice(0, mention.start)}${token}${suffix}${current.slice(mention.end)}`;
-      window.requestAnimationFrame(() => {
-        const editor = editorRef.current;
-        if (!editor) return;
-        const nextCursor = mention.start + token.length + suffix.length;
-        editor.focus();
-        editor.setSelectionRange(nextCursor, nextCursor);
-      });
-      return next;
-    });
-    setFileMention(null);
-  }, [fileMention]);
-
   const insertImageFiles = useCallback(
     async (files: File[]): Promise<boolean> => {
       const images = files.filter((item) => isMarkdownImageFile(item));
@@ -10924,44 +10864,6 @@ function MarkdownViewer({
     void insertImageFiles(files);
   }
 
-  function handleEditorChange(event: ReactChangeEvent<HTMLTextAreaElement>) {
-    setText(event.currentTarget.value);
-    updateFileMention(event.currentTarget);
-  }
-
-  function handleEditorSelect(event: ReactSyntheticEvent<HTMLTextAreaElement>) {
-    updateFileMention(event.currentTarget);
-  }
-
-  function handleEditorKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if (!fileMention) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setFileMention(null);
-      return;
-    }
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setFileMentionIndex((current) => (
-        filteredMentionFiles.length === 0 ? 0 : (current + 1) % filteredMentionFiles.length
-      ));
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setFileMentionIndex((current) => (
-        filteredMentionFiles.length === 0
-          ? 0
-          : (current - 1 + filteredMentionFiles.length) % filteredMentionFiles.length
-      ));
-      return;
-    }
-    if ((event.key === 'Enter' || event.key === 'Tab') && filteredMentionFiles.length > 0) {
-      event.preventDefault();
-      insertFileMention(filteredMentionFiles[fileMentionIndex] ?? filteredMentionFiles[0]!);
-    }
-  }
-
   function handleEditorDrop(event: ReactDragEvent<HTMLTextAreaElement>) {
     const files = Array.from(event.dataTransfer.files ?? []);
     if (!files.some(isMarkdownImageFile)) return;
@@ -10986,26 +10888,49 @@ function MarkdownViewer({
     return rewriteMarkdownImageSources(decorateMarkdownCodeBlocks(renderPartial(text)), projectId, file.name);
   }, [file.name, projectId, text]);
 
-  const queueProgrammaticScrollClear = useCallback(() => {
-    if (scrollSyncTimerRef.current) {
-      window.clearTimeout(scrollSyncTimerRef.current);
+  const clearProgrammaticScrollSoon = useCallback(() => {
+    if (programmaticScrollClearFrameRef.current) {
+      window.cancelAnimationFrame(programmaticScrollClearFrameRef.current);
     }
-    scrollSyncTimerRef.current = window.setTimeout(() => {
-      programmaticScrollRef.current = null;
-      scrollSyncTimerRef.current = null;
-    }, 80);
+    programmaticScrollClearFrameRef.current = window.requestAnimationFrame(() => {
+      programmaticScrollClearFrameRef.current = window.requestAnimationFrame(() => {
+        programmaticScrollRef.current = null;
+        programmaticScrollClearFrameRef.current = null;
+      });
+    });
   }, []);
 
   const applyMarkdownScrollSync = useCallback(
-    (source: HTMLElement | null, target: HTMLElement | null, targetPane: MarkdownScrollPane) => {
+    (sourcePane: MarkdownScrollPane, targetPane: MarkdownScrollPane) => {
+      const source = sourcePane === 'editor' ? editorRef.current : markdownPreviewPaneRef.current;
+      const target = targetPane === 'editor' ? editorRef.current : markdownPreviewPaneRef.current;
       if (mode !== 'split' || !source || !target) return;
       const targetTop = markdownScrollTopForRatio(target, markdownScrollRatio(source));
       if (Math.abs(target.scrollTop - targetTop) < 1) return;
       programmaticScrollRef.current = { pane: targetPane, top: targetTop };
       target.scrollTop = targetTop;
-      queueProgrammaticScrollClear();
+      clearProgrammaticScrollSoon();
     },
-    [mode, queueProgrammaticScrollClear],
+    [clearProgrammaticScrollSoon, mode],
+  );
+
+  const scheduleMarkdownScrollSync = useCallback(
+    (sourcePane: MarkdownScrollPane, targetPane: MarkdownScrollPane) => {
+      if (mode !== 'split') {
+        pendingScrollSyncRef.current = null;
+        return;
+      }
+      pendingScrollSyncRef.current = { sourcePane, targetPane };
+      if (scrollSyncFrameRef.current !== null) return;
+      scrollSyncFrameRef.current = window.requestAnimationFrame(() => {
+        scrollSyncFrameRef.current = null;
+        const pending = pendingScrollSyncRef.current;
+        pendingScrollSyncRef.current = null;
+        if (!pending) return;
+        applyMarkdownScrollSync(pending.sourcePane, pending.targetPane);
+      });
+    },
+    [applyMarkdownScrollSync, mode],
   );
 
   const shouldIgnoreMarkdownScroll = useCallback((pane: MarkdownScrollPane, element: HTMLElement): boolean => {
@@ -11019,14 +10944,14 @@ function MarkdownViewer({
   const handleMarkdownEditorScroll = useCallback(() => {
     const editor = editorRef.current;
     if (!editor || shouldIgnoreMarkdownScroll('editor', editor)) return;
-    applyMarkdownScrollSync(editor, markdownPreviewPaneRef.current, 'preview');
-  }, [applyMarkdownScrollSync, shouldIgnoreMarkdownScroll]);
+    scheduleMarkdownScrollSync('editor', 'preview');
+  }, [scheduleMarkdownScrollSync, shouldIgnoreMarkdownScroll]);
 
   const handleMarkdownPreviewScroll = useCallback(() => {
     const previewPane = markdownPreviewPaneRef.current;
     if (!previewPane || shouldIgnoreMarkdownScroll('preview', previewPane)) return;
-    applyMarkdownScrollSync(previewPane, editorRef.current, 'editor');
-  }, [applyMarkdownScrollSync, shouldIgnoreMarkdownScroll]);
+    scheduleMarkdownScrollSync('preview', 'editor');
+  }, [scheduleMarkdownScrollSync, shouldIgnoreMarkdownScroll]);
 
   useEffect(() => {
     const article = markdownArticleRef.current;
@@ -11039,18 +10964,24 @@ function MarkdownViewer({
 
   useEffect(() => {
     if (mode !== 'split') {
+      if (scrollSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollSyncFrameRef.current);
+        scrollSyncFrameRef.current = null;
+      }
+      if (programmaticScrollClearFrameRef.current !== null) {
+        window.cancelAnimationFrame(programmaticScrollClearFrameRef.current);
+        programmaticScrollClearFrameRef.current = null;
+      }
+      pendingScrollSyncRef.current = null;
+      programmaticScrollRef.current = null;
       previousModeRef.current = mode;
       return;
     }
-    const editor = editorRef.current;
-    const previewPane = markdownPreviewPaneRef.current;
-    if (previousModeRef.current === 'preview') {
-      applyMarkdownScrollSync(previewPane, editor, 'editor');
-    } else {
-      applyMarkdownScrollSync(editor, previewPane, 'preview');
-    }
+    const sourcePane = previousModeRef.current === 'preview' ? 'preview' : 'editor';
+    const targetPane = sourcePane === 'preview' ? 'editor' : 'preview';
+    scheduleMarkdownScrollSync(sourcePane, targetPane);
     previousModeRef.current = mode;
-  }, [applyMarkdownScrollSync, html, mode]);
+  }, [html, mode, scheduleMarkdownScrollSync]);
 
   async function handleMarkdownBodyClick(event: ReactMouseEvent<HTMLElement>) {
     const target = event.target;
@@ -11081,7 +11012,7 @@ function MarkdownViewer({
   }
 
   return (
-    <div className="viewer text-viewer" ref={viewerRef}>
+    <div className="viewer text-viewer">
       <div className="viewer-toolbar">
         <div className="viewer-toolbar-left">
           {isStreaming ? <span className="viewer-meta">{t('fileViewer.markdownStreamingMeta')}</span> : null}
@@ -11181,17 +11112,8 @@ function MarkdownViewer({
                   className="markdown-editor"
                   value={text}
                   spellCheck
-                  aria-autocomplete="list"
-                  aria-expanded={Boolean(fileMention)}
-                  aria-controls={fileMention ? 'markdown-file-mention-listbox' : undefined}
-                  onChange={handleEditorChange}
-                  onSelect={handleEditorSelect}
-                  onClick={handleEditorSelect}
-                  onKeyDown={handleEditorKeyDown}
-                  onScroll={(event) => {
-                    handleMarkdownEditorScroll();
-                    if (fileMention) updateFileMention(event.currentTarget);
-                  }}
+                  onChange={(event) => setText(event.currentTarget.value)}
+                  onScroll={handleMarkdownEditorScroll}
                   onPaste={handleEditorPaste}
                   onDrop={handleEditorDrop}
                 />
@@ -11215,182 +11137,11 @@ function MarkdownViewer({
                 />
               </section>
             ) : null}
-            <CaretFloatingLayer
-              caret={fileMention?.caret ?? null}
-              open={Boolean(fileMention)}
-              boundaryRef={viewerRef}
-            >
-              <MarkdownFileMentionPopover
-                files={filteredMentionFiles}
-                query={fileMention?.q ?? ''}
-                activeIndex={fileMentionIndex}
-                onPick={insertFileMention}
-              />
-            </CaretFloatingLayer>
           </>
         )}
       </div>
     </div>
   );
-}
-
-interface MarkdownFileMentionState {
-  q: string;
-  start: number;
-  end: number;
-  caret: CaretRect;
-}
-
-function readMarkdownFileMention(
-  value: string,
-  cursor: number,
-  textarea: HTMLTextAreaElement,
-): MarkdownFileMentionState | null {
-  const before = value.slice(0, cursor);
-  const lineStart = before.lastIndexOf('\n') + 1;
-  const line = before.slice(lineStart);
-  const match = /(^|[\s([{"'])@([^\s@]*)$/u.exec(line);
-  if (!match) return null;
-  const query = match[2] ?? '';
-  const start = cursor - query.length - 1;
-  if (start < 0) return null;
-  return {
-    q: query,
-    start,
-    end: cursor,
-    caret: readTextareaCaretRect(textarea),
-  };
-}
-
-function readTextareaCaretRect(textarea: HTMLTextAreaElement): CaretRect {
-  if (typeof document === 'undefined') {
-    const rect = textarea.getBoundingClientRect();
-    return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.left };
-  }
-  const rect = textarea.getBoundingClientRect();
-  const style = window.getComputedStyle(textarea);
-  const mirror = document.createElement('div');
-  const mirroredProperties = [
-    'boxSizing',
-    'width',
-    'fontFamily',
-    'fontSize',
-    'fontWeight',
-    'fontStyle',
-    'letterSpacing',
-    'lineHeight',
-    'textTransform',
-    'paddingTop',
-    'paddingRight',
-    'paddingBottom',
-    'paddingLeft',
-    'borderTopWidth',
-    'borderRightWidth',
-    'borderBottomWidth',
-    'borderLeftWidth',
-  ] as const;
-  for (const property of mirroredProperties) {
-    mirror.style[property] = style[property];
-  }
-  mirror.style.position = 'fixed';
-  mirror.style.visibility = 'hidden';
-  mirror.style.pointerEvents = 'none';
-  mirror.style.whiteSpace = 'pre-wrap';
-  mirror.style.overflowWrap = 'break-word';
-  mirror.style.overflow = 'hidden';
-  mirror.style.top = `${rect.top - textarea.scrollTop}px`;
-  mirror.style.left = `${rect.left - textarea.scrollLeft}px`;
-  mirror.style.width = `${textarea.offsetWidth}px`;
-  mirror.textContent = textarea.value.slice(0, textarea.selectionStart);
-  const marker = document.createElement('span');
-  marker.textContent = '\u200b';
-  mirror.appendChild(marker);
-  document.body.appendChild(mirror);
-  const markerRect = marker.getBoundingClientRect();
-  document.body.removeChild(mirror);
-
-  const fontSize = Number.parseFloat(style.fontSize) || 13;
-  const parsedLineHeight = Number.parseFloat(style.lineHeight);
-  const lineHeight = Number.isFinite(parsedLineHeight) ? parsedLineHeight : fontSize * 1.2;
-  const top = markerRect.top || rect.top + lineHeight;
-  const left = markerRect.left || rect.left;
-  return {
-    top,
-    bottom: top + lineHeight,
-    left,
-    right: left,
-  };
-}
-
-function MarkdownFileMentionPopover({
-  files,
-  query,
-  activeIndex,
-  onPick,
-}: {
-  files: ProjectFile[];
-  query: string;
-  activeIndex: number;
-  onPick: (file: ProjectFile) => void;
-}) {
-  const t = useT();
-  return (
-    <div className="mention-popover markdown-file-mention-popover" data-testid="markdown-file-mention-popover">
-      <div className="mention-results" role="listbox" id="markdown-file-mention-listbox">
-        {files.length === 0 ? (
-          <div className="mention-empty">
-            {query ? t('chat.mentionNoResults', { query }) : t('chat.mentionSearchPrompt')}
-          </div>
-        ) : (
-          <>
-            <div className="mention-section-label">{t('chat.mentionSectionFiles')}</div>
-            {files.map((candidate, index) => {
-              const path = candidate.path ?? candidate.name;
-              const active = index === activeIndex;
-              return (
-                <button
-                  key={path}
-                  id={`markdown-file-mention-opt-${index}`}
-                  role="option"
-                  aria-selected={active}
-                  className={`mention-item${active ? ' is-active' : ''}`}
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => onPick(candidate)}
-                >
-                  <Icon name={markdownMentionIconName(candidate.kind)} size={12} />
-                  <span className="mention-item-body">
-                    <strong>{markdownMentionTitle(candidate, path)}</strong>
-                    <span className="mention-meta mention-meta--desc mention-meta--path">
-                      {markdownMentionDescription(candidate, path)}
-                    </span>
-                  </span>
-                  <span className="mention-meta mention-item-kind">{humanSize(candidate.size)}</span>
-                </button>
-              );
-            })}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function markdownMentionIconName(kind: ProjectFile['kind']): IconName {
-  if (kind === 'html' || kind === 'code') return 'file-code';
-  if (kind === 'image') return 'image';
-  if (kind === 'sketch') return 'pencil';
-  return 'file';
-}
-
-function markdownMentionTitle(file: ProjectFile, fallback: string): string {
-  return file.name || fallback.split('/').filter(Boolean).pop() || fallback;
-}
-
-function markdownMentionDescription(file: ProjectFile, fallback: string): string {
-  const title = markdownMentionTitle(file, fallback);
-  const path = file.path ?? fallback;
-  return path === title ? file.kind : path;
 }
 
 function isMarkdownImageFile(file: File): boolean {

@@ -2813,7 +2813,6 @@ export interface Dict {
   'designFiles.documentTemplate.capabilityMarkdown': string;
   'designFiles.documentTemplate.capabilityAgent': string;
   'designFiles.documentTemplate.capabilityImages': string;
-  'designFiles.documentTemplate.capabilityReferences': string;
   'designFiles.documentTemplate.scenarioHeading': string;
   'designFiles.documentTemplate.scenario.prototype': string;
   'designFiles.documentTemplate.scenario.wireframe': string;
@@ -2875,6 +2874,8 @@ export interface Dict {
   'designFiles.move': string;
   'designFiles.copyPath': string;
   'designFiles.copiedPath': string;
+  'designFiles.copyLocalPath': string;
+  'designFiles.copiedLocalPath': string;
   'designFiles.deleteFolderConfirm': string;
   'designFiles.folderCreated': string;
   'designFiles.folderDeleted': string;
