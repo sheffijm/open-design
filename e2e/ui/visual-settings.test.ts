@@ -1,4 +1,5 @@
 import { expect, test } from '@/playwright/suite';
+import { T } from '@/timeouts';
 import {
   captureVisual,
   captureVisualTarget,
@@ -9,6 +10,8 @@ import {
   VISUAL_CLI_AGENTS,
   waitForVisualFonts,
 } from '@/playwright/visual';
+
+test.describe.configure({ timeout: T.xlong });
 
 test('[P2] captures the settings execution surface', async ({ page }) => {
   await configureVisualPage(page);

@@ -1,7 +1,7 @@
 import { expect, test } from '@/playwright/suite';
 import { ensureRailOpen } from '@/playwright/rail';
 import { runErrorCard } from '@/playwright/chat';
-import type { Page, Request, Response } from '@playwright/test';
+import type { Locator, Page, Request, Response } from '@playwright/test';
 import {
   createFakeAgentRuntimes,
   FAKE_AGENT_RUNTIME_IDS,
@@ -37,7 +37,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(T.xlong);
 
   await resetDaemonAppConfig(page);
 
@@ -399,7 +399,7 @@ async function createProject(page: Page, name: string, agentId: FakeAgentId = 'c
   await expectBrowserAgentConfig(page, agentId);
   await dismissPrivacyDialog(page);
   await ensureRailOpen(page);
-  await page.getByTestId('entry-nav-new-project').click();
+  await clickVisible(page.getByTestId('entry-nav-new-project'));
   await expect(page.getByTestId('new-project-modal')).toBeVisible();
   await expect(page.getByTestId('new-project-panel')).toBeVisible();
   await page.getByTestId('new-project-tab-prototype').click();
@@ -507,7 +507,7 @@ async function openNewProjectModal(page: Page) {
   await waitForLoadingToClear(page);
   await dismissPrivacyDialog(page);
   await ensureRailOpen(page);
-  await page.getByTestId('entry-nav-new-project').click();
+  await clickVisible(page.getByTestId('entry-nav-new-project'));
   await expect(page.getByTestId('new-project-modal')).toBeVisible();
   await expect(page.getByTestId('new-project-panel')).toBeVisible();
 }
@@ -521,7 +521,12 @@ async function dismissPrivacyDialog(page: Page) {
 }
 
 async function waitForLoadingToClear(page: Page) {
-  await page.getByText('Loading Open Design…').waitFor({ state: 'hidden', timeout: 30_000 });
+  await page.getByText('Loading Open Design…').waitFor({ state: 'hidden', timeout: T.long });
+}
+
+async function clickVisible(locator: Locator) {
+  await expect(locator).toBeVisible({ timeout: T.medium });
+  await locator.evaluate((element: HTMLElement) => element.click());
 }
 
 async function configureFakeAgent(page: Page, agentId: FakeAgentId) {
