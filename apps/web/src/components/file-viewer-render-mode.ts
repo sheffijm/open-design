@@ -39,10 +39,6 @@ export interface UrlLoadDecision {
   paletteActive?: boolean;
   /** Draw annotations need the srcDoc snapshot bridge for screenshot export. */
   drawMode?: boolean;
-  /** Full annotation/inspect popup mode needs the srcDoc bridge. */
-  annotateMode?: boolean;
-  /** Screenshot capture uses srcDoc snapshot support. */
-  screenshotCapture?: boolean;
   /**
    * Artifact ships the class based tweaks template (`.tw-panel` / `.tw-hidden`)
    * and therefore needs the srcDoc tweaks bridge so the toolbar toggle can
@@ -89,8 +85,6 @@ export function shouldUrlLoadHtmlPreview(d: UrlLoadDecision): boolean {
   // no parent-injected listener to recolor against.
   if (d.paletteActive) return false;
   if (d.drawMode) return false;
-  if (d.annotateMode) return false;
-  if (d.screenshotCapture) return false;
   // The class based tweaks template relies on the srcDoc tweaks bridge
   // emitting `od:tweaks-available` on mount; on the URL load path the bridge
   // is never injected, so the toolbar toggle would stay disabled even though

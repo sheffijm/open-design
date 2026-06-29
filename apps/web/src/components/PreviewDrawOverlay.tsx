@@ -12,7 +12,6 @@ interface Point { x: number; y: number }
 interface Stroke { points: Point[] }
 interface NormalizedRect { x: number; y: number; width: number; height: number }
 type MarkTool = 'box' | 'pen';
-export type PreviewDrawMode = 'click' | 'draw';
 interface CaptureTarget {
   filePath?: string;
   elementId?: string;
@@ -66,7 +65,6 @@ interface Props {
   sendDisabled?: boolean;
   sendDisabledReason?: string;
   onToolbarClick?: (element: DrawToolbarElement, submitAction?: AnnotationAction) => void;
-  onModeChange?: (mode: PreviewDrawMode) => void;
 }
 
 const STROKE_COLOR = '#ff3b30';

@@ -1135,6 +1135,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
         nextAttachmentOrderRef.current = Math.max(order, nextChatAttachmentOrder(next));
         return next;
       });
+      window.requestAnimationFrame(() => {
+        editorRef.current?.focus();
+      });
       onIncomingAttachmentsAccepted?.(acceptedPaths);
     }, [incomingAttachments, onIncomingAttachmentsAccepted]);
 

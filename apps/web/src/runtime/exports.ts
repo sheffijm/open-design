@@ -357,21 +357,7 @@ export function exportAsMd(source: string, title: string): void {
  * injected into a srcdoc preview iframe. Returns null if the bridge is not
  * present (e.g. URL-load mode) or the capture times out.
  */
-export type PreviewSnapshot = {
-  dataUrl: string;
-  blob?: Blob;
-  mime?: string;
-  w: number;
-  h: number;
-};
-
-export type PreviewSnapshotViewport = { x?: number; y?: number; w?: number; h?: number };
-
-export type PreviewSnapshotOptions = {
-  skipOverlay?: boolean;
-  overlay?: unknown;
-  viewport?: PreviewSnapshotViewport | null;
-};
+export type PreviewSnapshot = { dataUrl: string; w: number; h: number };
 
 export type PreviewSnapshotResult =
   | { ok: true; snapshot: PreviewSnapshot }
@@ -380,7 +366,6 @@ export type PreviewSnapshotResult =
 export function requestPreviewSnapshotResult(
   iframe: HTMLIFrameElement,
   timeout = 8000,
-  options?: PreviewSnapshotOptions,
 ): Promise<PreviewSnapshotResult> {
   const win = iframe.contentWindow;
   if (!win) return Promise.resolve({ ok: false, reason: 'loading' });
@@ -406,7 +391,7 @@ export function requestPreviewSnapshotResult(
     }
     window.addEventListener('message', onMsg);
     try {
-      win.postMessage({ type: 'od:snapshot', id, ...(options ?? {}) }, '*');
+      win.postMessage({ type: 'od:snapshot', id }, '*');
     } catch {
       done = true;
       window.removeEventListener('message', onMsg);
@@ -425,9 +410,8 @@ export function requestPreviewSnapshotResult(
 export async function requestPreviewSnapshot(
   iframe: HTMLIFrameElement,
   timeout = 8000,
-  options?: PreviewSnapshotOptions,
 ): Promise<PreviewSnapshot | null> {
-  const result = await requestPreviewSnapshotResult(iframe, timeout, options);
+  const result = await requestPreviewSnapshotResult(iframe, timeout);
   return result.ok ? result.snapshot : null;
 }
 
@@ -486,7 +470,7 @@ export async function captureHostIframeSnapshot(
 }
 
 /** Convert a data-URL to a Blob without re-encoding through canvas. */
-export function dataUrlToBlob(dataUrl: string): Blob {
+function dataUrlToBlob(dataUrl: string): Blob {
   if (!dataUrl.startsWith('data:')) {
     throw new Error('Invalid data URL');
   }
