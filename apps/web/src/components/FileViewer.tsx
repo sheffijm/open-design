@@ -7746,7 +7746,14 @@ function HtmlViewer({
     artifactKind === 'deck' ||
     rendererId === 'deck-html' ||
     file.kind === 'presentation';
-  const deckExportSignal = isDeckArtifact || structuredDeckExportSignal;
+  const explicitHtmlPageArtifact =
+    !isDeckArtifact &&
+    !structuredDeckExportSignal &&
+    (artifactKind === 'html' || rendererId === 'html');
+  const deckExportSignal =
+    isDeckArtifact ||
+    structuredDeckExportSignal ||
+    (effectiveDeck && !explicitHtmlPageArtifact);
   const isMarkdownArtifact =
     artifactKind === 'markdown-document' ||
     rendererId === 'markdown' ||
@@ -7758,9 +7765,9 @@ function HtmlViewer({
     rendererId === 'html';
   const canShare = source !== null && isShareableArtifact;
   const canDownload = source !== null && (isShareableArtifact || isMarkdownArtifact);
-  // PPTX export is slide-based, so show it only for explicit decks plus
-  // structured deck runtimes. Do not key this off plain `.slide`: ordinary
-  // parallax/long pages may use that class but must remain page-mode exports.
+  // PPTX export is slide-based. Preserve freeform `.slide` decks that the viewer
+  // already treats as decks, but keep explicitly declared HTML page artifacts on
+  // page-mode export routing.
   const showPptxExport = canShare && deckExportSignal;
   const canPptx = showPptxExport && !streaming;
   const showMarkdownExport = source !== null && isMarkdownArtifact;
