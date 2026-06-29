@@ -431,10 +431,14 @@ export function AvatarMenu({
                           </span>
                           {amrBalanceLabel ? (
                             <span className="avatar-amr-row__subtitle">
-                              <span className="avatar-amr-row__meta-label">
-                                {t('settings.amrBalance')}
-                              </span>{' '}
-                              {amrBalanceLabel}
+                              <span className="avatar-amr-row__stat">
+                                <span className="avatar-amr-row__stat-label">
+                                  {t('settings.amrBalance')}
+                                </span>
+                                <span className="avatar-amr-row__stat-value">
+                                  {amrBalanceLabel}
+                                </span>
+                              </span>
                             </span>
                           ) : null}
                         </span>

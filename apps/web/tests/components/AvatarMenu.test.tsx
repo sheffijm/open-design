@@ -254,6 +254,13 @@ describe('AvatarMenu', () => {
     // Plan badge + balance render once the signed-in status resolves.
     expect(await screen.findByText('Plus')).toBeTruthy();
     expect(dialog.textContent).toContain('$247.51');
+    const amrRow = screen.getByTestId('avatar-agent-option-amr');
+    expect(amrRow.querySelector('.avatar-amr-row__stat-label')?.textContent).toBe(
+      'settings.amrBalance',
+    );
+    expect(amrRow.querySelector('.avatar-amr-row__stat-value')?.textContent).toBe(
+      '$247.51',
+    );
 
     const upgrade = screen.getByRole('link', {
       name: 'settings.amrUpgrade',
