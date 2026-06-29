@@ -41,6 +41,7 @@ export interface ProjectFile {
   artifactKind?: ArtifactKind;
   artifactManifest?: ArtifactManifest;
   stubGuardWarning?: ProjectFileStubGuardWarning;
+  traceObjectReason?: 'new' | 'modified' | 'recovered';
 }
 
 export interface ProjectFolder {

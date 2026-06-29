@@ -64,8 +64,7 @@ type SketchTooltipLabelKey =
   | 'frame'
   | 'embeddable'
   | 'laser'
-  | 'moreTools'
-  | 'library';
+  | 'moreTools';
 
 type SketchTooltipLabels = Record<SketchTooltipLabelKey, string>;
 
@@ -201,7 +200,6 @@ export function SketchEditor({
     embeddable: t('sketch.tooltipEmbeddable'),
     laser: t('sketch.tooltipLaser'),
     moreTools: t('sketch.tooltipMoreTools'),
-    library: t('sketch.tooltipLibrary'),
   }), [t]);
 
   const closeActiveSketchDialog = useCallback(() => {
@@ -217,6 +215,8 @@ export function SketchEditor({
       frame = null;
       applySketchEditorTooltips(root, sketchTooltipLabels);
       applySketchDomI18nOverrides(root, locale);
+      applySketchContextMenuSimplification(root, root);
+      applySketchContextMenuSimplification(document.body, root);
       rewriteExcalidrawUnableToEmbedToasts(root, sketchTooltipLabels.embeddable);
       rewriteExcalidrawUnableToEmbedToasts(document.body, sketchTooltipLabels.embeddable);
       enhanceSketchExcalidrawPortals(locale, closeActiveSketchDialog);
@@ -783,6 +783,69 @@ function normalizeTooltipLabel(value: string | null | undefined): string | null 
 function setTooltipAttribute(target: HTMLElement, name: string, value: string): void {
   if (target.getAttribute(name) === value) return;
   target.setAttribute(name, value);
+}
+
+const SKETCH_CONTEXT_MENU_ACTION_ORDER = ['copy', 'paste', 'copyAsPng', 'copyAsSvg'] as const;
+const SKETCH_CONTEXT_MENU_ALLOWED_ACTIONS = new Set<string>(SKETCH_CONTEXT_MENU_ACTION_ORDER);
+const SKETCH_CONTEXT_MENU_MARGIN = 8;
+
+export function applySketchContextMenuSimplification(root: HTMLElement, viewportRoot: HTMLElement = root): void {
+  for (const menu of Array.from(root.querySelectorAll<HTMLUListElement>('ul.context-menu'))) {
+    const popover = menu.closest<HTMLElement>('.popover') ?? menu.parentElement;
+    if (!popover) continue;
+
+    menu.classList.add('od-sketch-context-menu');
+    popover.classList.add('od-sketch-context-popover');
+
+    const allowedByAction = new Map<string, HTMLLIElement>();
+    for (const child of Array.from(menu.children)) {
+      if (child instanceof HTMLHRElement) {
+        child.remove();
+        continue;
+      }
+      if (!(child instanceof HTMLLIElement)) continue;
+      const actionName = child.getAttribute('data-testid') ?? '';
+      if (!SKETCH_CONTEXT_MENU_ALLOWED_ACTIONS.has(actionName)) {
+        child.remove();
+        continue;
+      }
+      allowedByAction.set(actionName, child);
+    }
+
+    const orderedItems = SKETCH_CONTEXT_MENU_ACTION_ORDER
+      .map((actionName) => allowedByAction.get(actionName))
+      .filter((item): item is HTMLLIElement => Boolean(item));
+    if (orderedItems.length === 0) {
+      popover.remove();
+      continue;
+    }
+    for (const item of orderedItems) menu.appendChild(item);
+
+    clampSketchContextPopover(popover, viewportRoot);
+  }
+}
+
+function clampSketchContextPopover(popover: HTMLElement, viewportRoot: HTMLElement): void {
+  const viewportRect = viewportRoot.getBoundingClientRect();
+  const rect = popover.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  let nextLeft = Number.parseFloat(popover.style.left || `${rect.left}`);
+  let nextTop = Number.parseFloat(popover.style.top || `${rect.top}`);
+  if (!Number.isFinite(nextLeft) || !Number.isFinite(nextTop)) return;
+
+  const maxRight = viewportRect.right - SKETCH_CONTEXT_MENU_MARGIN;
+  const minLeft = viewportRect.left + SKETCH_CONTEXT_MENU_MARGIN;
+  const maxBottom = viewportRect.bottom - SKETCH_CONTEXT_MENU_MARGIN;
+  const minTop = viewportRect.top + SKETCH_CONTEXT_MENU_MARGIN;
+
+  if (rect.right > maxRight) nextLeft -= rect.right - maxRight;
+  if (rect.left < minLeft) nextLeft += minLeft - rect.left;
+  if (rect.bottom > maxBottom) nextTop -= rect.bottom - maxBottom;
+  if (rect.top < minTop) nextTop += minTop - rect.top;
+
+  if (nextLeft !== Number.parseFloat(popover.style.left || 'NaN')) popover.style.left = `${Math.max(0, Math.round(nextLeft))}px`;
+  if (nextTop !== Number.parseFloat(popover.style.top || 'NaN')) popover.style.top = `${Math.max(0, Math.round(nextTop))}px`;
 }
 
 const SKETCH_TEXT_OVERRIDE_ATTRS = ['title', 'aria-label', 'placeholder'] as const;
