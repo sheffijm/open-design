@@ -351,11 +351,58 @@
 .markdown-mode-tabs {
   margin-left: 8px;
 }
-.markdown-save-state {
-  margin-left: 8px;
+/* Passive auto-save status that replaces the old manual Save button. */
+.markdown-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
 }
-.markdown-save-state-error {
+.markdown-autosave svg {
+  flex-shrink: 0;
+}
+.markdown-autosave-saved {
+  color: var(--green);
+}
+.markdown-autosave-saving {
+  color: var(--text-muted);
+}
+.markdown-autosave-idle {
+  color: var(--text-faint);
+}
+.markdown-autosave-error {
   color: var(--danger, #d04b4b);
+}
+
+/* Split-view column headers. They only appear in split mode, where it is
+   otherwise ambiguous which pane accepts edits; the editor header is
+   accent-tinted to signal the typeable side. */
+.markdown-pane-bar {
+  display: none;
+}
+.markdown-workbench-split .markdown-pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in oklab, var(--bg-panel) 72%, var(--bg));
+  color: var(--text-faint);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  user-select: none;
+}
+.markdown-workbench-split .markdown-pane-bar svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.markdown-workbench-split .markdown-pane-bar-edit {
+  color: var(--accent-strong, var(--accent));
 }
 .markdown-workbench {
   display: grid;
@@ -372,12 +419,25 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .markdown-editor-pane,
+.markdown-preview-pane-wrap {
+  min-width: 0;
+  min-height: 0;
+}
+.markdown-preview-pane-wrap {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .markdown-preview-pane {
   min-width: 0;
   min-height: 0;
+  flex: 1 1 auto;
   overflow: auto;
 }
 .markdown-editor-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-right: 1px solid var(--border-soft);
   background: color-mix(in oklab, var(--bg-panel) 62%, var(--bg));
 }
@@ -387,8 +447,8 @@
 .markdown-editor {
   display: block;
   width: 100%;
-  min-height: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   resize: none;
   border: none;
   outline: none;
@@ -589,10 +649,15 @@
 .sketch-excalidraw-wrap .od-sketch-context-menu,
 .od-sketch-context-menu {
   min-width: 168px;
-  max-width: min(240px, calc(100vw - 24px));
+  /* Widen enough for the longest localized row ("复制为 PNG 到剪贴板" plus its
+     Shift+Option shortcut) and never expose a horizontal scrollbar — the old
+     240px cap clipped that row and `overflow: auto` turned the clip into an ugly
+     sideways scroll. Vertical scroll stays available for safety. */
+  max-width: min(320px, calc(100vw - 24px));
   max-height: min(240px, calc(100vh - 24px));
   padding: 5px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg-elevated) 94%, black);
@@ -605,6 +670,7 @@
   border-radius: 6px;
   font-size: 13px;
   line-height: 1.25;
+  white-space: nowrap;
 }
 .sketch-excalidraw-wrap .od-sketch-context-menu .context-menu-item__shortcut,
 .od-sketch-context-menu .context-menu-item__shortcut {
@@ -638,10 +704,10 @@
   overflow: hidden;
 }
 .od-sketch-modal.od-sketch-help-modal .Modal {
-  max-height: min(82vh, calc(100vh - 80px));
+  max-height: none;
 }
 .od-sketch-modal.od-sketch-help-modal .Modal__content {
-  max-height: inherit;
+  max-height: min(82vh, calc(100vh - 80px));
   overflow: auto;
   padding-right: 48px;
   scrollbar-gutter: stable;

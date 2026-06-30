@@ -607,6 +607,16 @@ export function composeSystemPrompt({
     parts.push('\n\n---\n\n');
   }
 
+  // Ask mode (`chat`) is the deliberately bare conversation mode: the
+  // CHAT_MODE_OVERRIDE below IS the whole charter, and every artifact-oriented
+  // block (the ~3k-token discovery layer, direction library, device frames, the
+  // full designer charter, deck framework, media contracts, codex imagegen
+  // override, critique panel, DS visual-direction override) is gated off so the
+  // turn stays cheap. Memory, custom instructions, the active design system,
+  // attached skills, plugins, MCP tools, and the clarifying-questions surface
+  // are still composed in — Ask mode is light, not amnesiac.
+  const isAskMode = sessionMode === 'chat';
+
   if (sessionMode === 'plan') {
     parts.push(PLAN_MODE_OVERRIDE);
     parts.push('\n\n---\n\n');
@@ -644,7 +654,7 @@ export function composeSystemPrompt({
     parts.push('\n\n---\n\n');
   }
 
-  if (!isMediaSurfaceEarly) {
+  if (!isMediaSurfaceEarly && !isAskMode) {
     parts.push(renderDiscoveryAndPhilosophy(resolvedExecutionProfile), '\n\n---\n\n');
     // Direction library is only useful when the agent must pick a visual
     // direction itself. When an active design system is present it is the
@@ -672,10 +682,14 @@ export function composeSystemPrompt({
     }
   }
 
-  parts.push(
-    '# Identity and workflow charter (background)\n\n',
-    renderOfficialDesignerPrompt(resolvedExecutionProfile),
-  );
+  // Ask mode skips the multi-thousand-token designer charter entirely — the
+  // CHAT_MODE_OVERRIDE above is its self-contained identity. Plan/Design keep it.
+  if (!isAskMode) {
+    parts.push(
+      '# Identity and workflow charter (background)\n\n',
+      renderOfficialDesignerPrompt(resolvedExecutionProfile),
+    );
+  }
 
   if (memoryBody && memoryBody.trim().length > 0) {
     parts.push(
@@ -834,9 +848,9 @@ export function composeSystemPrompt({
   const isFreeformProject = activeSkillModes.size === 0 && (!metadata || metadata.kind === 'other');
   const hasSkillSeed =
     !!skillBody && /assets\/template\.html/.test(skillBody);
-  if (isDeckProject && !hasSkillSeed) {
+  if (!isAskMode && isDeckProject && !hasSkillSeed) {
     parts.push(`\n\n---\n\n${DECK_FRAMEWORK_DIRECTIVE}`);
-  } else if (isFreeformProject && !hasSkillSeed) {
+  } else if (!isAskMode && isFreeformProject && !hasSkillSeed) {
     // Freeform / kind=other projects skip the kind picker entirely and
     // land here. If the user's brief is a deck/keynote/slides ("讲解",
     // "presentation", "make a deck"), the agent used to invent its own
@@ -855,7 +869,11 @@ export function composeSystemPrompt({
     resolvedExclusiveSurface === 'image'
     || resolvedExclusiveSurface === 'video'
     || resolvedExclusiveSurface === 'audio';
-  if (isMediaSurface) {
+  if (isAskMode) {
+    // Ask mode ships neither the media-generation contract nor the dispatch
+    // hint. The override above tells the agent to nudge the user toward Design
+    // mode for anything that actually generates media.
+  } else if (isMediaSurface) {
     parts.push(renderMediaGenerationContract(mediaExecution));
   } else {
     // Non-media projects (prototype, deck, etc.): inject a lightweight hint
@@ -864,7 +882,7 @@ export function composeSystemPrompt({
     parts.push(MEDIA_DISPATCH_HINT);
   }
 
-  if (includeCodexImagegenOverride && shouldAllowCodexImagegenOverride(metadata, mediaExecution)) {
+  if (!isAskMode && includeCodexImagegenOverride && shouldAllowCodexImagegenOverride(metadata, mediaExecution)) {
     const codexImagegenOverride = renderCodexImagegenOverride(
       agentId,
       metadata,
@@ -885,11 +903,11 @@ export function composeSystemPrompt({
   // the critique flag is a no-op there until a media-aware panel template
   // lands.
   const cfg = critique ?? defaultCritiqueConfig();
-  if (cfg.enabled && critiqueBrand && critiqueSkill && !isMediaSurface) {
+  if (cfg.enabled && critiqueBrand && critiqueSkill && !isMediaSurface && !isAskMode) {
     parts.push('\n\n' + renderPanelPrompt({ cfg, brand: critiqueBrand, skill: critiqueSkill }));
   }
 
-  if (activeDesignSystemBody && activeDesignSystemBody.length > 0) {
+  if (!isAskMode && activeDesignSystemBody && activeDesignSystemBody.length > 0) {
     parts.push(ACTIVE_DESIGN_SYSTEM_VISUAL_DIRECTION_OVERRIDE);
   }
 
@@ -962,13 +980,24 @@ Every later instruction in this prompt that tells you to "call TodoWrite", "run 
 
 If the rules below tell you to plan with TodoWrite, write the plan as prose instead. If they tell you to read skill side files before writing, describe in one sentence which patterns/conventions you're going to apply and proceed. If they tell you to run brand-spec extraction via Bash + Read + WebFetch, ask the user the missing brand questions in the discovery form instead.`;
 
-const CHAT_MODE_OVERRIDE = `# Chat mode — standard conversation (read first — overrides every rule below)
+// Ask mode is the deliberately light conversation mode. Unlike Plan/Design,
+// the daemon does NOT append the discovery layer or the full designer charter
+// after this override (see `isAskMode` gating in composeSystemPrompt) — so this
+// block is the whole behavioral charter for the turn and must read as
+// self-contained, not as a preface that overrides "rules below". Keep it
+// BYTE-IDENTICAL to the @open-design/contracts copy so a daemon chat and a
+// BYOK/API chat behave the same.
+const CHAT_MODE_OVERRIDE = `# Ask mode — bare conversation (this is the whole charter for this turn)
 
-This conversation is in Open Design Chat mode. Open Design is the open-source Claude Design alternative and a native Figma counterpart. Official links: GitHub https://github.com/nexu-io/open-design, website https://open-design.ai/, Discord https://discord.gg/mHAjSMV6gz.
+This conversation is in Open Design Ask mode: a fast, low-overhead chat kept deliberately light to save tokens. Open Design is the open-source Claude Design alternative and a native Figma counterpart. Official links: GitHub https://github.com/nexu-io/open-design, website https://open-design.ai/, Discord https://discord.gg/mHAjSMV6gz.
 
-Use the same available context, files, attachments, connectors, MCP servers, project memory, and model capabilities as Design mode. The difference is behavior: answer like a fast, direct, multi-turn desktop chat assistant. Prefer concise prose, explanations, comparisons, debugging help, and follow-up questions only when needed.
+Behave like a direct, multi-turn desktop chat assistant. Prefer concise prose: answer the question, explain, compare options, debug prompts, and review existing work. You still have the user's project files, attachments, connectors, MCP servers, project memory, any active design system, and any skills they attached for this turn — use them as context, and follow an attached skill's workflow when one is present.
 
-Override artifact-first discovery rules below: do not emit a default discovery \`<question-form>\`, do not call TodoWrite just to plan a chat answer, and do not create or edit project files, HTML, PPT, slide decks, images, video, or audio unless the user explicitly asks you to generate/build/design/export/modify something. When the user does ask for a design artifact or file change, you may use the normal Open Design agent workflow and the same tools/capabilities available in Design mode.`;
+This mode does not load the heavy design-discovery workflow or the full designer charter, on purpose. Do not emit a default discovery \`<question-form>\`, do not open with a TodoWrite plan for a chat answer, and do not create or edit project files, HTML, slide decks, images, video, or audio on your own.
+
+If the user explicitly asks you to build, generate, design, or export a concrete artifact (a page, prototype, deck, image, video, audio, or a file change), handle it inline only when it is genuinely trivial; for anything substantial, say so in one line and suggest switching to Design mode (or Plan mode for a document-first brief), where the full design workflow, brand discipline, and artifact tooling are loaded. Keep this turn conversational.
+
+For mid-conversation clarification you may still emit a \`<question-form>\` block — it is markup the Open Design UI parses, not a native tool call.`;
 
 const PLAN_MODE_OVERRIDE = `# Plan mode — editable document first (read first — overrides every rule below)
 

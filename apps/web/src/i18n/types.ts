@@ -2984,6 +2984,8 @@ export interface Dict {
   'fileViewer.markdownSaving': string;
   'fileViewer.markdownSaveFailed': string;
   'fileViewer.markdownSaved': string;
+  'fileViewer.markdownAutoSaved': string;
+  'fileViewer.markdownAutoSaveHint': string;
   'fileViewer.markdownViewMode': string;
   'fileViewer.split': string;
   'fileViewer.markdownEditor': string;

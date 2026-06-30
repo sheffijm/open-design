@@ -2219,6 +2219,8 @@ export const zhCN: Dict = {
   'fileViewer.markdownSaving': "保存中...",
   'fileViewer.markdownSaveFailed': "保存失败",
   'fileViewer.markdownSaved': "已保存",
+  'fileViewer.markdownAutoSaved': "已自动保存 · {time}",
+  'fileViewer.markdownAutoSaveHint': "自动保存已开启",
   'fileViewer.markdownViewMode': "Markdown 视图模式",
   'fileViewer.split': "分栏",
   'fileViewer.markdownEditor': "Markdown 编辑器",

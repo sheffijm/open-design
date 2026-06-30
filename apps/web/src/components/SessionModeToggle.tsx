@@ -19,6 +19,15 @@ const MODE_META: Array<{
   queryKeys: [ModeCopyKey, ModeCopyKey, ModeCopyKey];
 }> = [
   {
+    mode: 'chat',
+    icon: 'comment',
+    labelKey: 'chat.mode.chat.label',
+    titleKey: 'chat.mode.chat.title',
+    summaryKey: 'chat.mode.chat.summary',
+    solvesKey: 'chat.mode.chat.solves',
+    queryKeys: ['chat.mode.chat.query1', 'chat.mode.chat.query2', 'chat.mode.chat.query3'],
+  },
+  {
     mode: 'plan',
     icon: 'file',
     labelKey: 'chat.mode.plan.label',

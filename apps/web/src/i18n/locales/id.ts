@@ -2219,6 +2219,8 @@ export const id: Dict = {
   'fileViewer.markdownSaving': "Saving...",
   'fileViewer.markdownSaveFailed': "Save failed",
   'fileViewer.markdownSaved': "Saved",
+  'fileViewer.markdownAutoSaved': "Auto-saved · {time}",
+  'fileViewer.markdownAutoSaveHint': "Auto-save on",
   'fileViewer.markdownViewMode': "Markdown view mode",
   'fileViewer.split': "Split",
   'fileViewer.markdownEditor': "Markdown editor",

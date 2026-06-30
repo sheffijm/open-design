@@ -239,7 +239,9 @@ describe('FileViewer markdown code block copy', () => {
     expect(onFileSaved).not.toHaveBeenCalled();
     expect(screen.queryByText('Saving...')).toBeNull();
     expect(container.querySelector('.icon-spin')).toBeNull();
-    expect((screen.getByRole('button', { name: /^save$/i }) as HTMLButtonElement).disabled).toBe(true);
+    // The manual Save button was replaced by a passive auto-save status; once
+    // the debounced write lands it reflects the saved state instead.
+    expect(container.querySelector('.markdown-autosave-saved')).toBeTruthy();
     expect(document.activeElement).toBe(editor);
     expect(editor.selectionStart).toBe(7);
     expect(editor.selectionEnd).toBe(7);

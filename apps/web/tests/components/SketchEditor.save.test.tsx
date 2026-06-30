@@ -246,6 +246,49 @@ describe('SketchEditor save', () => {
     expect(mockData.updateScene).toHaveBeenCalledWith({ appState: { openDialog: null } });
   });
 
+  it('submits the Mermaid dialog when pressing command-enter inside its textarea', async () => {
+    renderEditor({ dirty: true });
+
+    const portal = document.createElement('div');
+    portal.className = 'excalidraw-modal-container';
+    portal.innerHTML = `
+      <div class="Modal">
+        <div class="Modal__content">
+          <h2>Mermaid to Excalidraw</h2>
+          <textarea placeholder="Write Mermaid diagram definition here..."></textarea>
+          <button type="button">Insert <span>→</span><kbd>Cmd</kbd><kbd>Enter</kbd></button>
+        </div>
+      </div>
+    `;
+    const insert = portal.querySelector<HTMLButtonElement>('button')!;
+    const textarea = portal.querySelector<HTMLTextAreaElement>('textarea')!;
+    const onInsert = vi.fn();
+    insert.addEventListener('click', onInsert);
+    document.body.appendChild(portal);
+
+    await waitFor(() => expect(portal.classList.contains('od-sketch-modal')).toBe(true));
+
+    const enter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea.dispatchEvent(enter);
+    expect(onInsert).not.toHaveBeenCalled();
+    expect(enter.defaultPrevented).toBe(false);
+
+    const commandEnter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea.dispatchEvent(commandEnter);
+
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(commandEnter.defaultPrevented).toBe(true);
+  });
+
   it('does not wire Excalidraw library state into sketch editing', () => {
     renderEditor({
       scene: {
@@ -321,6 +364,56 @@ describe('SketchEditor save', () => {
     expect(menu.classList.contains('od-sketch-context-menu')).toBe(true);
     expect(popover.classList.contains('od-sketch-context-popover')).toBe(true);
     expect(popover.style.left).toBe('92px');
+  });
+
+  it('does not re-append already-ordered context menu items on repeat runs', () => {
+    // Regression: this runs on every MutationObserver tick. Re-`appendChild`-ing
+    // nodes that are already in place detaches/re-inserts them each frame, which
+    // cancels the in-flight pointer interaction and makes items unclickable.
+    const root = document.createElement('div');
+    const popover = document.createElement('div');
+    const menu = document.createElement('ul');
+    root.appendChild(popover);
+    popover.appendChild(menu);
+    popover.className = 'popover';
+    popover.style.left = '40px';
+    popover.style.top = '20px';
+    menu.className = 'context-menu';
+    for (const actionName of ['copy', 'paste', 'copyAsPng', 'copyAsSvg']) {
+      const item = document.createElement('li');
+      item.setAttribute('data-testid', actionName);
+      item.textContent = actionName;
+      menu.appendChild(item);
+    }
+    document.body.appendChild(root);
+
+    const rect = {
+      x: 0,
+      y: 0,
+      left: 40,
+      top: 20,
+      right: 200,
+      bottom: 180,
+      width: 160,
+      height: 160,
+      toJSON: () => ({}),
+    } as DOMRect;
+    vi.spyOn(root, 'getBoundingClientRect').mockReturnValue({ ...rect, left: 0, top: 0, right: 600, bottom: 600, width: 600, height: 600 } as DOMRect);
+    vi.spyOn(popover, 'getBoundingClientRect').mockReturnValue(rect);
+
+    // First pass: already in canonical order, so nothing should be reordered.
+    applySketchContextMenuSimplification(root, root);
+    const appendSpy = vi.spyOn(menu, 'appendChild');
+    // Second pass (mimics a later MutationObserver tick).
+    applySketchContextMenuSimplification(root, root);
+
+    expect(appendSpy).not.toHaveBeenCalled();
+    expect(Array.from(menu.querySelectorAll('li')).map((item) => item.getAttribute('data-testid'))).toEqual([
+      'copy',
+      'paste',
+      'copyAsPng',
+      'copyAsSvg',
+    ]);
   });
 
   it('allows explicit http and https web embeds while rejecting missing or unsafe protocols', () => {

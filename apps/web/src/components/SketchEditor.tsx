@@ -228,11 +228,16 @@ export function SketchEditor({
       event.stopPropagation();
       closeActiveSketchDialog();
     };
+    const handleCommandEnter = (event: KeyboardEvent) => {
+      handleSketchPortalCommandEnter(event);
+    };
     document.addEventListener('keydown', handleEscape, true);
+    document.addEventListener('keydown', handleCommandEnter, true);
     return () => {
       observer.disconnect();
       if (frame !== null) window.cancelAnimationFrame(frame);
       document.removeEventListener('keydown', handleEscape, true);
+      document.removeEventListener('keydown', handleCommandEnter, true);
     };
   }, [closeActiveSketchDialog, locale, sketchTooltipLabels]);
 
@@ -798,7 +803,20 @@ export function applySketchContextMenuSimplification(root: HTMLElement, viewport
       popover.remove();
       continue;
     }
-    for (const item of orderedItems) menu.appendChild(item);
+    // Only touch the DOM when the order is actually wrong. This runs on every
+    // MutationObserver tick, and re-`appendChild`-ing nodes that are already in
+    // place detaches and re-inserts them each frame. Because those mutations
+    // re-trigger the observer, an unconditional reorder becomes a self-sustaining
+    // per-frame churn that cancels the in-flight pointer interaction, making the
+    // menu items impossible to click.
+    const currentItems = Array.from(menu.children).filter(
+      (child): child is HTMLLIElement => child instanceof HTMLLIElement,
+    );
+    const alreadyOrdered = currentItems.length === orderedItems.length
+      && currentItems.every((item, index) => item === orderedItems[index]);
+    if (!alreadyOrdered) {
+      for (const item of orderedItems) menu.appendChild(item);
+    }
 
     clampSketchContextPopover(popover, viewportRoot);
   }
@@ -1003,6 +1021,34 @@ function enhanceSketchExcalidrawPortals(locale: Locale, onClose: () => void): vo
       close.setAttribute('title', label);
     }
   }
+}
+
+function handleSketchPortalCommandEnter(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey) || event.altKey) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const portal = target.closest<HTMLElement>('.od-sketch-modal');
+  const content = target.closest<HTMLElement>('.Modal__content');
+  if (!portal || !content || !portal.contains(content)) return;
+  if (!content.querySelector('textarea')) return;
+
+  const insertButton = findSketchMermaidInsertButton(content);
+  if (!insertButton || insertButton.disabled || insertButton.getAttribute('aria-disabled') === 'true') return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  insertButton.click();
+}
+
+function findSketchMermaidInsertButton(content: HTMLElement): HTMLButtonElement | null {
+  const dialogText = normalizeTooltipLabel(content.textContent);
+  if (!dialogText || !/Mermaid/i.test(dialogText)) return null;
+  for (const button of Array.from(content.querySelectorAll<HTMLButtonElement>('button'))) {
+    const label = normalizeTooltipLabel(button.textContent) ?? normalizeTooltipLabel(button.getAttribute('aria-label'));
+    if (!label) continue;
+    if (/^(Insert|插入)(\s|$|→)/i.test(label)) return button;
+  }
+  return null;
 }
 
 function validateSketchEmbeddableUrl(link: string): boolean {

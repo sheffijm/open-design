@@ -29,6 +29,13 @@ import {
 } from '../analytics/events';
 import { MarkdownRenderer, artifactRendererRegistry } from '../artifacts/renderer-registry';
 import { renderMarkdownToSafeHtml } from '../artifacts/markdown';
+import {
+  buildScrollAnchors,
+  extractMarkdownBlockLines,
+  mapScrollPosition,
+  measureEditorBlockOffsets,
+  measurePreviewBlockOffsets,
+} from './markdown-scroll-sync';
 import { useT, useI18n } from '../i18n';
 import type { Dict, Locale } from '../i18n/types';
 import {
@@ -10982,13 +10989,14 @@ function MarkdownViewer({
   file: ProjectFile;
   onFileSaved?: () => Promise<void> | void;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [text, setText] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [copied, setCopied] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [mode, setMode] = useState<MarkdownViewerMode>('split');
   const [saveState, setSaveState] = useState<MarkdownSaveState>('idle');
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [highlightedHtml, setHighlightedHtml] = useState<{ source: string; html: string; themeRevision: number } | null>(null);
   const [highlightThemeRevision, setHighlightThemeRevision] = useState(0);
   const [, bumpSavedRevision] = useState(0);
@@ -11003,6 +11011,7 @@ function MarkdownViewer({
   const pendingScrollSyncRef = useRef<{ sourcePane: MarkdownScrollPane; targetPane: MarkdownScrollPane } | null>(null);
   const programmaticScrollRef = useRef<{ pane: MarkdownScrollPane; top: number } | null>(null);
   const activeMarkdownScrollPaneRef = useRef<MarkdownScrollPane>('editor');
+  const editorBlockOffsetsRef = useRef<{ width: number; offsets: number[] } | null>(null);
   const previousModeRef = useRef<MarkdownViewerMode>('split');
   const saveInFlightRef = useRef(false);
   const pendingSaveAfterFlightRef = useRef<MarkdownSaveOptions | null>(null);
@@ -11119,6 +11128,7 @@ function MarkdownViewer({
           if (!saved) throw new Error('write failed');
           lastSavedTextRef.current = nextValue;
           bumpSavedRevision((n) => n + 1);
+          setSavedAt(Date.now());
           if (textRef.current === nextValue) setSaveState(showSaving ? 'saved' : 'idle');
           if (saveOptions.refreshFiles !== false && onFileSaved) {
             void Promise.resolve(onFileSaved()).catch(() => undefined);
@@ -11260,14 +11270,32 @@ function MarkdownViewer({
     void insertImageFiles(files);
   }
 
-  const saveLabel =
-    saveState === 'saving'
-      ? t('fileViewer.markdownSaving')
-      : saveState === 'error'
-        ? t('fileViewer.markdownSaveFailed')
-        : saveState === 'saved'
-          ? t('fileViewer.markdownSaved')
-          : '';
+  // The markdown doc auto-saves on a debounce, so the toolbar shows a passive
+  // status (when it last auto-saved) instead of a manual Save button that is
+  // disabled almost all the time. Typing stays quiet: the indicator keeps the
+  // last auto-saved time and only refreshes once the debounced save lands, so
+  // there is no per-keystroke "Saving…" flicker. `saving` is reserved for an
+  // explicit, foreground write (the error-retry path).
+  const autoSaveStatus: 'error' | 'saving' | 'saved' | 'idle' =
+    saveState === 'error'
+      ? 'error'
+      : saveState === 'saving'
+        ? 'saving'
+        : savedAt != null
+          ? 'saved'
+          : 'idle';
+  const autoSaveTime =
+    savedAt != null
+      ? new Date(savedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+      : null;
+  const autoSaveLabel =
+    autoSaveStatus === 'error'
+      ? t('fileViewer.markdownSaveFailed')
+      : autoSaveStatus === 'saving'
+        ? t('fileViewer.markdownSaving')
+        : autoSaveStatus === 'saved' && autoSaveTime
+          ? t('fileViewer.markdownAutoSaved', { time: autoSaveTime })
+          : t('fileViewer.markdownAutoSaveHint');
   const showEditor = mode === 'edit' || mode === 'split';
   const showPreview = mode === 'preview' || mode === 'split';
 
@@ -11279,6 +11307,13 @@ function MarkdownViewer({
   const html = highlightedHtml?.source === baseHtml && highlightedHtml.themeRevision === highlightThemeRevision
     ? highlightedHtml.html
     : baseHtml;
+  const markdownBlockLines = useMemo(() => extractMarkdownBlockLines(text ?? ''), [text]);
+
+  // The cached editor block offsets become stale whenever the source text
+  // changes (line positions move) — drop them so the next sync remeasures.
+  useEffect(() => {
+    editorBlockOffsetsRef.current = null;
+  }, [text]);
 
   useEffect(() => {
     if (!baseHtml) {
@@ -11309,18 +11344,59 @@ function MarkdownViewer({
     });
   }, []);
 
+  const getEditorBlockOffsets = useCallback((): number[] | null => {
+    const editor = editorRef.current;
+    if (!editor || markdownBlockLines.length === 0) return null;
+    const width = editor.clientWidth;
+    const cached = editorBlockOffsetsRef.current;
+    if (cached && cached.width === width && cached.offsets.length === markdownBlockLines.length) {
+      return cached.offsets;
+    }
+    const offsets = measureEditorBlockOffsets(editor, markdownBlockLines, textRef.current);
+    if (!offsets) return null;
+    editorBlockOffsetsRef.current = { width, offsets };
+    return offsets;
+  }, [markdownBlockLines]);
+
+  // Align the panes by matching each top-level markdown block's source line to
+  // its rendered element, then interpolating scroll position between those
+  // anchors. Falls back to proportional (ratio) sync when block anchors are
+  // unavailable (e.g. raw-HTML blocks change the rendered child count).
+  const computeMarkdownSyncTarget = useCallback(
+    (sourcePane: MarkdownScrollPane, source: HTMLElement, target: HTMLElement): number => {
+      const previewPane = markdownPreviewPaneRef.current;
+      if (markdownBlockLines.length > 0 && previewPane) {
+        const editorOffsets = getEditorBlockOffsets();
+        const previewOffsets = editorOffsets
+          ? measurePreviewBlockOffsets(previewPane, markdownBlockLines.length)
+          : null;
+        if (editorOffsets && previewOffsets) {
+          const isEditorSource = sourcePane === 'editor';
+          const sourceOffsets = isEditorSource ? editorOffsets : previewOffsets;
+          const targetOffsets = isEditorSource ? previewOffsets : editorOffsets;
+          const sourceAnchors = buildScrollAnchors(sourceOffsets, source.scrollHeight);
+          const targetAnchors = buildScrollAnchors(targetOffsets, target.scrollHeight);
+          const mapped = mapScrollPosition(source.scrollTop, sourceAnchors, targetAnchors);
+          return Math.max(0, Math.min(markdownScrollRange(target), mapped));
+        }
+      }
+      return markdownScrollTopForRatio(target, markdownScrollRatio(source));
+    },
+    [getEditorBlockOffsets, markdownBlockLines],
+  );
+
   const applyMarkdownScrollSync = useCallback(
     (sourcePane: MarkdownScrollPane, targetPane: MarkdownScrollPane) => {
       const source = sourcePane === 'editor' ? editorRef.current : markdownPreviewPaneRef.current;
       const target = targetPane === 'editor' ? editorRef.current : markdownPreviewPaneRef.current;
       if (mode !== 'split' || !source || !target) return;
-      const targetTop = markdownScrollTopForRatio(target, markdownScrollRatio(source));
+      const targetTop = computeMarkdownSyncTarget(sourcePane, source, target);
       if (Math.abs(target.scrollTop - targetTop) < 1) return;
       programmaticScrollRef.current = { pane: targetPane, top: targetTop };
       target.scrollTop = targetTop;
       clearProgrammaticScrollSoon();
     },
-    [clearProgrammaticScrollSoon, mode],
+    [clearProgrammaticScrollSoon, computeMarkdownSyncTarget, mode],
   );
 
   const scheduleMarkdownScrollSync = useCallback(
@@ -11453,7 +11529,6 @@ function MarkdownViewer({
               </button>
             ))}
           </div>
-          {saveLabel ? <span className={`viewer-meta markdown-save-state markdown-save-state-${saveState}`}>{saveLabel}</span> : null}
         </div>
         <div className="viewer-toolbar-actions">
           <button
@@ -11465,18 +11540,30 @@ function MarkdownViewer({
             <Icon name="reload" size={13} />
             <span>{t('fileViewer.reload')}</span>
           </button>
-          <button
-            type="button"
-            className="viewer-action"
-            disabled={text === null || text === lastSavedTextRef.current}
-            onClick={() => {
-              if (text !== null) saveMarkdownText(text);
-            }}
-            title={t('fileViewer.save')}
-          >
-            <Icon name={saveState === 'saving' ? 'spinner' : 'check'} size={13} className={saveState === 'saving' ? 'icon-spin' : undefined} />
-            <span>{t('fileViewer.save')}</span>
-          </button>
+          {autoSaveStatus === 'error' ? (
+            <button
+              type="button"
+              className="viewer-action markdown-autosave markdown-autosave-error"
+              onClick={() => {
+                if (text !== null) saveMarkdownText(text);
+              }}
+              title={t('fileViewer.save')}
+            >
+              <Icon name="alert-triangle" size={13} />
+              <span>{autoSaveLabel}</span>
+            </button>
+          ) : (
+            <span
+              className={`viewer-meta markdown-autosave markdown-autosave-${autoSaveStatus}`}
+            >
+              {autoSaveStatus === 'saving' ? (
+                <Icon name="spinner" size={13} className="icon-spin" />
+              ) : autoSaveStatus === 'saved' ? (
+                <Icon name="check" size={13} />
+              ) : null}
+              <span>{autoSaveLabel}</span>
+            </span>
+          )}
           <button
             type="button"
             className="viewer-action"
@@ -11525,6 +11612,10 @@ function MarkdownViewer({
           <>
             {showEditor ? (
               <section className="markdown-editor-pane" aria-label={t('fileViewer.markdownEditor')}>
+                <div className="markdown-pane-bar markdown-pane-bar-edit" aria-hidden="true">
+                  <Icon name="edit" size={12} />
+                  <span>{t('fileViewer.edit')}</span>
+                </div>
                 <textarea
                   ref={editorRef}
                   className="markdown-editor"
@@ -11542,27 +11633,36 @@ function MarkdownViewer({
               </section>
             ) : null}
             {showPreview ? (
-              <section
-                ref={markdownPreviewPaneRef}
-                className="markdown-preview-pane"
-                aria-label={t('fileViewer.markdownPreview')}
-                onPointerDown={() => activateMarkdownScrollPane('preview')}
-                onWheel={() => activateMarkdownScrollPane('preview')}
-                onTouchStart={() => activateMarkdownScrollPane('preview')}
-                onKeyDown={() => activateMarkdownScrollPane('preview')}
-                onFocus={() => activateMarkdownScrollPane('preview')}
-                onScroll={handleMarkdownPreviewScroll}
-              >
-                {isStreaming ? <div className="markdown-status">{t('fileViewer.markdownStreamingStatus')}</div> : null}
-                {isError ? <div className="markdown-status markdown-status-error">{t('fileViewer.markdownErrorStatus')}</div> : null}
-                {/* Safe by contract: renderMarkdownToSafeHtml escapes raw HTML and rejects unsafe link protocols. */}
-                <article
-                  ref={markdownArticleRef}
-                  className="markdown-rendered"
-                  onClick={(event) => void handleMarkdownBodyClick(event)}
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />
-              </section>
+              // The header bar stays OUTSIDE the scroll container so it never
+              // perturbs the preview pane's content geometry, which the
+              // block-anchor scroll-sync measures (`measurePreviewBlockOffsets`).
+              <div className="markdown-preview-pane-wrap">
+                <div className="markdown-pane-bar markdown-pane-bar-preview" aria-hidden="true">
+                  <Icon name="eye" size={12} />
+                  <span>{t('fileViewer.preview')}</span>
+                </div>
+                <section
+                  ref={markdownPreviewPaneRef}
+                  className="markdown-preview-pane"
+                  aria-label={t('fileViewer.markdownPreview')}
+                  onPointerDown={() => activateMarkdownScrollPane('preview')}
+                  onWheel={() => activateMarkdownScrollPane('preview')}
+                  onTouchStart={() => activateMarkdownScrollPane('preview')}
+                  onKeyDown={() => activateMarkdownScrollPane('preview')}
+                  onFocus={() => activateMarkdownScrollPane('preview')}
+                  onScroll={handleMarkdownPreviewScroll}
+                >
+                  {isStreaming ? <div className="markdown-status">{t('fileViewer.markdownStreamingStatus')}</div> : null}
+                  {isError ? <div className="markdown-status markdown-status-error">{t('fileViewer.markdownErrorStatus')}</div> : null}
+                  {/* Safe by contract: renderMarkdownToSafeHtml escapes raw HTML and rejects unsafe link protocols. */}
+                  <article
+                    ref={markdownArticleRef}
+                    className="markdown-rendered"
+                    onClick={(event) => void handleMarkdownBodyClick(event)}
+                    dangerouslySetInnerHTML={{ __html: html }}
+                  />
+                </section>
+              </div>
             ) : null}
           </>
         )}

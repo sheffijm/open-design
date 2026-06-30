@@ -32,17 +32,19 @@ describe('DISCOVERY_AND_PHILOSOPHY (contracts copy) — TodoWrite plan item coun
     expect(prompt).not.toMatch(/5[–\-]10\s+short\s+imperative/);
   });
 
-  it('uses a top-level Chat mode override for conversational sessions', () => {
+  it('uses a bare, self-contained Ask mode override that drops the discovery layer and charter', () => {
     const prompt = composeSystemPrompt({ sessionMode: 'chat' });
 
-    expect(prompt).toContain('# Chat mode — standard conversation');
+    expect(prompt).toContain('# Ask mode — bare conversation');
     expect(prompt).toContain('https://github.com/nexu-io/open-design');
     expect(prompt).toContain('https://open-design.ai/');
     expect(prompt).toContain('https://discord.gg/mHAjSMV6gz');
-    expect(prompt).toContain('do not emit a default discovery `<question-form>`');
-    expect(prompt.indexOf('# Chat mode — standard conversation')).toBeLessThan(
-      prompt.indexOf(DISCOVERY_AND_PHILOSOPHY),
-    );
+    expect(prompt).toContain('Do not emit a default discovery `<question-form>`');
+    // Ask mode is deliberately light: neither the ~3k-token discovery layer nor
+    // the full designer charter is composed in. That omission IS the feature —
+    // it is what makes Ask cheaper than Design/Plan.
+    expect(prompt).not.toContain(DISCOVERY_AND_PHILOSOPHY);
+    expect(prompt).not.toContain('# Identity and workflow charter (background)');
   });
 
   it('uses a top-level Plan mode override that suppresses artifact discovery forms', () => {

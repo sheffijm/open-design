@@ -108,6 +108,7 @@ import { LibraryPicker } from './LibraryPicker';
 import { QuestionsPanel } from './QuestionsPanel';
 import { QuickSwitcher } from './QuickSwitcher';
 import { SketchEditor } from './SketchEditor';
+import { SketchEnginePrewarm } from './SketchEnginePrewarm';
 import {
   emptySketchScene,
   isSketchJsonFileName,
@@ -2230,6 +2231,7 @@ export function FileWorkspace({
       ].filter(Boolean).join(' ')}
       data-testid="file-workspace"
     >
+      <SketchEnginePrewarm />
       <div className="ws-tabs-shell">
         {onFocusModeChange && focusMode ? (
           <button

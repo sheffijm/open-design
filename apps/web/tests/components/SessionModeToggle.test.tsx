@@ -19,7 +19,18 @@ describe('SessionModeToggle', () => {
 
     expect(screen.getByRole('menuitemradio', { name: /Design mode/i }).getAttribute('aria-checked')).toBe('true');
     expect(screen.getByRole('menuitemradio', { name: /Plan mode/i }).getAttribute('aria-checked')).toBe('false');
-    expect(screen.queryByRole('menuitemradio', { name: /Ask mode/i })).toBeNull();
+    expect(screen.getByRole('menuitemradio', { name: /Ask mode/i }).getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('switches into the lightweight Ask mode from the menu', () => {
+    const onChange = vi.fn();
+    render(<SessionModeToggle mode="design" onChange={onChange} />);
+
+    fireEvent.click(screen.getByTestId('session-mode-trigger'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Ask mode/i }));
+
+    expect(onChange).toHaveBeenCalledWith('chat');
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('switches mode from the menu', () => {
