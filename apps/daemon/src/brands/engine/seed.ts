@@ -284,13 +284,14 @@ export function isDarkNativeBrand(brand: Brand): boolean {
  * type so a dark component background can't masquerade as the page canvas.
  */
 function selectorTargetsRoot(selectorText: string): boolean {
-  for (const compound of selectorText.split(/[\s,>+~]+/)) {
-    if (!compound) continue;
-    if (/(?:^|[^\w-]):root(?![\w-])/i.test(compound)) return true;
-    const type = /^[a-z][\w-]*/i.exec(compound)?.[0]?.toLowerCase();
-    if (type === "html" || type === "body") return true;
-  }
-  return false;
+  // `:root` pseudo anywhere in the selector list.
+  if (/(?:^|[^\w-]):root(?![\w-])/i.test(selectorText)) return true;
+  // `html` / `body` as an element type — at the start of a compound, after a
+  // combinator/comma, or wrapped in a functional pseudo like `:where(body)` /
+  // `:is(html)` (modern reset/framework CSS). It must NOT be preceded by `.`,
+  // `#`, `-`, or a word char (which would make it a class/id/longer ident) and
+  // NOT be followed by a word char or `-` (e.g. `.body-copy-card`, `body-x`).
+  return /(?:^|[\s,>+~(])(?:html|body)(?![\w-])/i.test(selectorText);
 }
 
 function pickByEvidence(material: PrefetchResult, props: Set<string>): string | null {

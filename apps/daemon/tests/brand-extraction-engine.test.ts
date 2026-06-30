@@ -334,12 +334,24 @@ describe('agent-driven brand extraction engine', () => {
       ],
     } as unknown as PrefetchResult;
 
+    // Regression: modern reset/framework CSS declares the canvas on a functional
+    // root selector like `:where(body)` / `:is(html)`. It must still count as the
+    // page canvas even when a louder component rule has a higher count.
+    const darkViaWhereBody = {
+      colors: [
+        { hex: '#ffffff', count: 300, sources: ['prop:background selector:.card'] },
+        { hex: '#000000', count: 80, sources: ['prop:background selector::where(body)'] },
+        { hex: '#ffffff', count: 40, sources: ['prop:color'] },
+      ],
+    } as unknown as PrefetchResult;
+
     expect(isDarkNativeMaterial(darkSite)).toBe(true);
     expect(isDarkNativeMaterial(lightSite)).toBe(false);
     expect(isDarkNativeMaterial(lightWithDarkLogo)).toBe(false);
     expect(isDarkNativeMaterial(lightWithDarkHero)).toBe(false);
     expect(isDarkNativeMaterial(onlyDarkHero)).toBe(false);
     expect(isDarkNativeMaterial(lightWithDarkCard)).toBe(false);
+    expect(isDarkNativeMaterial(darkViaWhereBody)).toBe(true);
   });
 
   beforeEach(() => {
