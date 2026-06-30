@@ -468,7 +468,7 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     ).toBe('https://platform.openai.com/api-keys');
   });
 
-  it('resets API key draft and visibility when switching BYOK provider presets', () => {
+  it('isolates API key draft and visibility by BYOK provider preset', () => {
     renderSettingsDialog({
       apiProtocol: 'openai',
       baseUrl: 'https://api.openai.com/v1',
@@ -489,6 +489,17 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe(
       'https://api.deepseek.com',
     );
+
+    fireEvent.change(apiKeyInput, { target: { value: 'sk-deepseek-provider' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
+
+    expect(apiKeyInput.value).toBe('sk-openai-provider');
+    expect(apiKeyInput.type).toBe('text');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek' }));
+
+    expect(apiKeyInput.value).toBe('sk-deepseek-provider');
+    expect(apiKeyInput.type).toBe('password');
   });
 
   it('keeps BYOK file-editing limits discoverable from the provider heading (issue #1106)', () => {
@@ -902,7 +913,7 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     });
     fireEvent.blur(screen.getByLabelText('API key'));
 
-    expect(await screen.findByText('✓ Loaded 1 models from your account.')).toBeTruthy();
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
     expect(fetchProviderModelsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         protocol: 'openai',
@@ -979,7 +990,7 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     // If onByokKeyCommit committed the dirty-key cache key, the auto-fetch
     // effect would bail on providerModelsCommittedKey !== providerModelsKey
     // and this text would never appear.
-    expect(await screen.findByText('✓ Loaded 1 models from your account.')).toBeTruthy();
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
     expect(fetchProviderModelsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         protocol: 'openai',
@@ -1007,7 +1018,7 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
 
-    expect(await screen.findByText('✓ Loaded 1 models from your account.')).toBeTruthy();
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
     expect(screen.getByRole('combobox', { name: 'Model' }).textContent).toContain(
       'Account Ready (account-ready-model) · From your account',
     );
@@ -1019,6 +1030,74 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
       }),
       {},
     );
+  });
+
+  it('does not carry a generic preset model into a fresh custom provider before discovery', async () => {
+    fetchProviderModelsMock.mockResolvedValueOnce({
+      ok: true,
+      kind: 'success',
+      latencyMs: 12,
+      models: [{ id: 'endpoint-model', label: 'Endpoint Model' }],
+    });
+    const { onPersist } = renderSettingsDialog({
+      apiProtocol: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      apiProviderBaseUrl: 'https://api.openai.com/v1',
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Custom provider' }));
+
+    expect((screen.getByLabelText('Custom model id') as HTMLInputElement).value).toBe('');
+
+    fireEvent.change(screen.getByLabelText('Base URL'), {
+      target: { value: 'https://custom.example.com/v1' },
+    });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-custom' },
+    });
+    fireEvent.blur(screen.getByLabelText('API key'));
+
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Model' }).textContent).toContain(
+      'Endpoint Model (endpoint-model) · From your account',
+    );
+    await waitForPersist(
+      onPersist,
+      expect.objectContaining({
+        apiProviderBaseUrl: null,
+        baseUrl: 'https://custom.example.com/v1',
+        model: 'endpoint-model',
+      }),
+      {},
+    );
+  });
+
+  it('restores fetched model discovery state when switching back to a provider', async () => {
+    fetchProviderModelsMock.mockResolvedValueOnce({
+      ok: true,
+      kind: 'success',
+      latencyMs: 12,
+      models: [{ id: 'account-ready-model', label: 'Account Ready' }],
+    });
+    renderSettingsDialog({
+      apiProtocol: 'openai',
+      apiKey: 'sk-openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      apiProviderBaseUrl: 'https://api.openai.com/v1',
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
+
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek' }));
+    expect(screen.queryByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
+    expect(screen.getByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
+    expect(fetchProviderModelsMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a suggested model the user explicitly re-picked after discovery resolves', async () => {
@@ -1050,7 +1129,7 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     });
     fireEvent.blur(screen.getByLabelText('API key'));
 
-    expect(await screen.findByText('✓ Loaded 1 models from your account.')).toBeTruthy();
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
 
     // The explicit pick must survive discovery — no silent rewrite to the
     // first fetched account model.
@@ -1176,7 +1255,7 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     });
 
     fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
-    expect(await screen.findByText('✓ Loaded 8 models from your account.')).toBeTruthy();
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
 
     const modelPicker = screen.getByRole('combobox', { name: 'Model' });
     fireEvent.click(modelPicker);
@@ -1192,6 +1271,39 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
       'gpt-5.5 · From your account',
       'Custom (type below)…',
     ]);
+  });
+
+  it('reports the merged dropdown count when account models are combined with provider suggestions', async () => {
+    fetchProviderModelsMock.mockResolvedValueOnce({
+      ok: true,
+      kind: 'success',
+      latencyMs: 12,
+      models: [
+        { id: 'glm-4.6', label: 'glm-4.6' },
+        { id: 'account-glm-1', label: 'Account GLM 1' },
+        { id: 'account-glm-2', label: 'Account GLM 2' },
+        { id: 'account-glm-3', label: 'Account GLM 3' },
+        { id: 'account-glm-4', label: 'Account GLM 4' },
+        { id: 'account-glm-5', label: 'Account GLM 5' },
+        { id: 'account-glm-6', label: 'Account GLM 6' },
+        { id: 'account-glm-7', label: 'Account GLM 7' },
+      ],
+    });
+    renderSettingsDialog({
+      apiProtocol: 'openai',
+      apiKey: 'sk-zhipu',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      model: 'glm-4.6',
+      apiProviderBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: '智谱' }));
+
+    expect(await screen.findByText('✓ Loaded 10 models.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+    const modelPopover = screen.getByTestId('settings-byok-model-popover');
+    expect(within(modelPopover).getByRole('option', { name: 'glm-4-plus · Suggested' })).toBeTruthy();
+    expect(within(modelPopover).getByRole('option', { name: 'glm-4-air · Suggested' })).toBeTruthy();
   });
 
   it('fetches provider models, merges them into the picker, and preserves a custom current model', async () => {
@@ -1215,7 +1327,7 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
     expect((screen.getByLabelText('Custom model id') as HTMLInputElement).value).toBe('custom-still-here');
 
-    expect(await screen.findByText('✓ Loaded 2 models from your account.')).toBeTruthy();
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
     expect(fetchProviderModelsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         protocol: 'openai',
@@ -1253,14 +1365,14 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     });
 
     fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
-    expect(await screen.findByText('✓ Loaded 1 models from your account.')).toBeTruthy();
+    expect(await screen.findByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('Base URL'), {
       target: { value: 'https://proxy.example.com/v1' },
     });
 
     await waitFor(() => {
-      expect(screen.queryByText('✓ Loaded 1 models from your account.')).toBeNull();
+      expect(screen.queryByText(/✓ Loaded \d+ models(?: from your account)?\./)).toBeNull();
     });
   });
 

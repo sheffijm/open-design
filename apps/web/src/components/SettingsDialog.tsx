@@ -377,6 +377,17 @@ type ProviderModelsState =
   | { status: 'running'; cacheKey: string }
   | { status: 'done'; cacheKey: string; result: ProviderModelsResponse };
 
+interface ByokProviderFormDraft {
+  apiConfig: ApiProtocolConfig;
+  maxTokensInput: string;
+  maxTokens: AppConfig['maxTokens'];
+  providerModelsCommittedKey: string | null;
+  providerModelsState: ProviderModelsState;
+  showApiKey: boolean;
+  apiModelCustomEditing: boolean;
+  apiModelUserSelected: boolean;
+}
+
 type ByokRequiredField = ByokDraftField;
 type ByokPreconditionAction = 'test';
 type ByokFieldMissing = 'api_key' | 'base_url' | 'model' | 'multiple' | 'none';
@@ -791,6 +802,15 @@ function byokProviderDraftKey(
   baseUrl: string,
 ): string {
   return `${protocol}:${apiProviderBaseUrl ?? `custom:${baseUrl}`}`;
+}
+
+function byokProviderKeyForConfig(config: AppConfig): string {
+  const apiConfig = currentApiProtocolConfig(config);
+  return byokProviderDraftKey(
+    config.apiProtocol ?? 'anthropic',
+    apiConfig.apiProviderBaseUrl,
+    apiConfig.baseUrl,
+  );
 }
 
 function applyApiProtocolConfig(
@@ -1234,7 +1254,12 @@ export function SettingsDialog({
     };
   }, []);
   const [showApiKey, setShowApiKey] = useState(false);
-  const byokProviderApiKeyDraftsRef = useRef<Record<string, string>>({});
+  const byokProviderFormDraftsRef = useRef<Record<string, ByokProviderFormDraft>>({});
+  const lastCustomByokProviderDraftKeysRef = useRef<Partial<Record<ApiProtocol, string>>>(
+    (initial.apiProviderBaseUrl ?? null) === null
+      ? { [initial.apiProtocol ?? 'anthropic']: byokProviderKeyForConfig(initial) }
+      : {},
+  );
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(false);
   const [settingsFullscreen, setSettingsFullscreen] = useState(false);
@@ -1467,6 +1492,7 @@ export function SettingsDialog({
   const providerModelsRevisionRef = useRef(0);
   const providerTestFirstResetRef = useRef(true);
   const providerModelsFirstResetRef = useRef(true);
+  const providerModelsSkipNextResetRef = useRef(false);
   const deferAfterKeyCleanRef = useRef(false);
   const providerAutoTestKeyRef = useRef<string | null>(null);
   const byokLastUnsuccessfulTestKeyRef = useRef<string | null>(null);
@@ -1631,6 +1657,10 @@ export function SettingsDialog({
       providerModelsFirstResetRef.current = false;
       return;
     }
+    if (providerModelsSkipNextResetRef.current) {
+      providerModelsSkipNextResetRef.current = false;
+      return;
+    }
     providerModelsRevisionRef.current += 1;
     providerModelsAbortRef.current?.abort();
     providerModelsAbortRef.current = null;
@@ -1676,45 +1706,80 @@ export function SettingsDialog({
     });
   };
   const setByokProvider = (provider: ByokProviderPreset) => {
-    setApiModelCustomEditing(false);
-    setShowApiKey(false);
-    apiModelUserSelectedRef.current = false;
+    const currentDraftKey = byokProviderKeyForConfig(cfg);
+    if ((cfg.apiProviderBaseUrl ?? null) === null) {
+      lastCustomByokProviderDraftKeysRef.current[cfg.apiProtocol ?? 'anthropic'] =
+        currentDraftKey;
+    }
+    byokProviderFormDraftsRef.current[currentDraftKey] = {
+      apiConfig: currentApiProtocolConfig(cfg),
+      maxTokens: cfg.maxTokens,
+      maxTokensInput,
+      providerModelsCommittedKey,
+      providerModelsState,
+      showApiKey,
+      apiModelCustomEditing,
+      apiModelUserSelected: apiModelUserSelectedRef.current,
+    };
+    const nextProviderBaseUrlForCurrent = provider.custom ? null : provider.baseUrl;
+    const providerChangedBeforeSwitch = provider.custom
+      ? (cfg.apiProviderBaseUrl ?? null) !== null
+      : (cfg.apiProtocol ?? 'anthropic') !== provider.protocol ||
+        (cfg.apiProviderBaseUrl ?? null) !== nextProviderBaseUrlForCurrent;
     focusByokRequiredFieldAfterProtocolSwitchRef.current = !provider.custom;
+    providerModelsSkipNextResetRef.current = providerChangedBeforeSwitch;
     setCfg((current) => {
-      const currentApiConfig = currentApiProtocolConfig(current);
       const currentProtocol = current.apiProtocol ?? 'anthropic';
-      const currentProviderDraftKey = byokProviderDraftKey(
-        currentProtocol,
-        currentApiConfig.apiProviderBaseUrl,
-        currentApiConfig.baseUrl,
-      );
-      byokProviderApiKeyDraftsRef.current[currentProviderDraftKey] =
-        currentApiConfig.apiKey;
       const nextProviderBaseUrl = provider.custom ? null : provider.baseUrl;
       const providerChanged = provider.custom
-        ? currentApiConfig.apiProviderBaseUrl !== null
+        ? (current.apiProviderBaseUrl ?? null) !== null
         : currentProtocol !== provider.protocol ||
-          currentApiConfig.apiProviderBaseUrl !== nextProviderBaseUrl;
+          (current.apiProviderBaseUrl ?? null) !== nextProviderBaseUrl;
       const switched = switchApiProtocolConfig(current, provider.protocol);
-      const switchedApiConfig = currentApiProtocolConfig(switched);
-      const nextProviderDraftKey = byokProviderDraftKey(
+      const fallbackApiConfig = currentApiProtocolConfig(switched);
+      const customDraftKey = provider.custom
+        ? lastCustomByokProviderDraftKeysRef.current[provider.protocol]
+        : null;
+      const nextProviderDraftKey = customDraftKey ?? byokProviderDraftKey(
         provider.protocol,
         nextProviderBaseUrl,
-        provider.custom ? switchedApiConfig.baseUrl : provider.baseUrl,
+        provider.custom ? fallbackApiConfig.baseUrl : provider.baseUrl,
       );
-      const scopedApiKey =
-        byokProviderApiKeyDraftsRef.current[nextProviderDraftKey] ??
-        (switchedApiConfig.apiProviderBaseUrl === nextProviderBaseUrl
-          ? switchedApiConfig.apiKey
-          : '');
+      const savedDraft = nextProviderDraftKey
+        ? byokProviderFormDraftsRef.current[nextProviderDraftKey]
+        : undefined;
+      const applyDraftUiState = (draft: ByokProviderFormDraft | undefined) => {
+        setShowApiKey(draft?.showApiKey ?? false);
+        setApiModelCustomEditing(draft?.apiModelCustomEditing ?? false);
+        apiModelUserSelectedRef.current = draft?.apiModelUserSelected ?? false;
+        setMaxTokensInput(
+          draft
+            ? draft.maxTokensInput
+            : switched.maxTokens == null ? '' : String(switched.maxTokens),
+        );
+        setProviderModelsCommittedKey(draft?.providerModelsCommittedKey ?? null);
+        setProviderModelsState(draft?.providerModelsState ?? { status: 'idle' });
+      };
+      if (savedDraft) {
+        applyDraftUiState(savedDraft);
+        return applyApiProtocolConfig(
+          {
+            ...switched,
+            maxTokens: savedDraft.maxTokens,
+          },
+          provider.protocol,
+          savedDraft.apiConfig,
+        );
+      }
+      applyDraftUiState(undefined);
       if (provider.custom) {
         return updateCurrentApiProtocolConfig(switched, {
-          ...(providerChanged ? { apiKey: scopedApiKey } : {}),
           apiProviderBaseUrl: null,
+          ...(providerChanged ? { model: '' } : {}),
         });
       }
       return updateCurrentApiProtocolConfig(switched, {
-        ...(providerChanged ? { apiKey: scopedApiKey } : {}),
+        ...(providerChanged ? { apiKey: '' } : {}),
         baseUrl: provider.baseUrl,
         model: provider.model,
         apiProviderBaseUrl: provider.baseUrl,
@@ -3135,6 +3200,8 @@ export function SettingsDialog({
     ),
     [fetchedApiModelOptions, suggestedApiModelIds],
   );
+  const loadedModelDropdownCount =
+    loadedAccountModelCount > 0 ? apiModelOptions.length : 0;
   // Shared hook: live AIHubMix catalogue for aihubmix, static registry for
   // other providers (same list the chat composer's image picker uses).
   const byokImageModelOptions = useByokImageModelOptions(apiProtocol);
@@ -4849,10 +4916,16 @@ export function SettingsDialog({
                 modelsLoadedFromAccountMessage={
                   loadedAccountModelCount > 0
                     ? t(
-                        hidesAccountModelSourceLabel(apiProtocol)
+                        hidesAccountModelSourceLabel(apiProtocol) ||
+                          loadedModelDropdownCount > loadedAccountModelCount
                           ? 'settings.modelsLoadedCount'
                           : 'settings.modelsLoadedFromAccount',
-                        { count: loadedAccountModelCount },
+                        {
+                          count:
+                            loadedModelDropdownCount > loadedAccountModelCount
+                              ? loadedModelDropdownCount
+                              : loadedAccountModelCount,
+                        },
                       )
                     : null
                 }
