@@ -2,7 +2,7 @@
 title: "What Is Vibe Design? The 2026 Guide to Designing by Intent"
 date: 2026-06-17
 category: "Guides"
-readingTime: 9
+readingTime: 6
 summary: "Describe the feeling and direction of a UI and let AI generate it — but most tools stop at a pretty mockup. Here's what vibe design really is, vibe design vs vibe coding, and how to take it from prompt to shipped code."
 ctaKind: download-app
 author: mira-zhao
