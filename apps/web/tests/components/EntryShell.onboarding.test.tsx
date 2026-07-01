@@ -607,7 +607,7 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     expect(screen.getByRole('button', { name: /Cancel sign-in/i })).toBeTruthy();
   });
 
-  it('shows daemon startup errors when AMR sign-in fails immediately', async () => {
+  it('shows a friendly error (not the raw daemon message) when AMR sign-in fails immediately', async () => {
     const startupError = 'profile "prod" api URL: is not configured';
     const fetchMock = vi.fn(async (input, init) => {
       const url = String(input);
@@ -625,9 +625,12 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     await clickCloudSignIn();
 
     await waitFor(() => {
-      expect(screen.getByRole('alert').textContent).toBe(startupError);
+      expect(screen.getByRole('alert').textContent).toBe(
+        'Cloud sign-in is temporarily unavailable. Please try again later.',
+      );
     });
-    expect(screen.queryByText('Sign-in failed.')).toBeNull();
+    // The raw daemon error must never be surfaced to the user.
+    expect(screen.queryByText(startupError)).toBeNull();
     expect(screen.queryByText('Signing in…')).toBeNull();
   });
 
@@ -713,7 +716,7 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
       await vi.advanceTimersByTimeAsync(AMR_LOGIN_TIMEOUT_MS);
     });
     expect(fetchMock).toHaveBeenCalledWith('/api/integrations/vela/login/cancel', { method: 'POST' });
-    expect(screen.getByText('Sign-in failed.')).toBeTruthy();
+    expect(screen.getByText('Cloud sign-in is temporarily unavailable. Please try again later.')).toBeTruthy();
     expect(screen.queryByText('Signing in…')).toBeNull();
     expect(
       screen
