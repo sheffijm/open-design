@@ -194,7 +194,7 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
               >
                 -
               </button>
-              <strong>{teamSeats} seats</strong>
+              <strong>{teamSeats} 个席位</strong>
               <button type="button" onClick={openSeatPurchase} aria-label="增加席位">
                 +
               </button>

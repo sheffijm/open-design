@@ -51,6 +51,9 @@ export function UpgradeTeamDialog({
   const selectedTierName = selectedTier?.name ?? '标准版';
   const selectedTokens = selectedTier?.tokens ?? 80;
   const purchaseSeatsMode = mode === 'seats';
+  // Total the user will actually be charged — shown on the CTA so a payment
+  // action never hides its amount.
+  const monthlyTotal = selectedTokens * seatCount;
 
   function adjustSeatCount(delta: number) {
     setSeatCount((current) => Math.max(minSeatCount, current + delta));
@@ -99,7 +102,7 @@ export function UpgradeTeamDialog({
             >
               -
             </button>
-            <strong>{seatCount} seats</strong>
+            <strong>{seatCount} 个席位</strong>
             <button type="button" onClick={() => adjustSeatCount(1)} aria-label="增加席位">
               +
             </button>
@@ -156,7 +159,10 @@ export function UpgradeTeamDialog({
             {purchaseSeatsMode ? '暂不购买' : '暂不升级'}
           </button>
           <button type="button" className="entry-invite__btn is-primary" onClick={handleConfirm}>
-            <Icon name="sparkles" size={14} /> {purchaseSeatsMode ? `购买 ${seatCount} seats` : `升级 ${selectedTierName}`}
+            <Icon name="sparkles" size={14} />{' '}
+            {purchaseSeatsMode
+              ? `确认支付 · $${monthlyTotal}/月`
+              : `升级${selectedTierName} · $${monthlyTotal}/月`}
           </button>
         </div>
       </div>
