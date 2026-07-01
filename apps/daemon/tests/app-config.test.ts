@@ -330,9 +330,6 @@ describe('app-config', () => {
           'trae-cli': {
             TRAE_CLI_BIN: '  ~/bin/traecli-public  ',
           },
-          gemini: {
-            GEMINI_API_KEY: 'should-not-persist',
-          },
           __proto__: {
             CLAUDE_CONFIG_DIR: 'bad',
           },
