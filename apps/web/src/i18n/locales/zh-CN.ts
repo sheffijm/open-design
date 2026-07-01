@@ -327,7 +327,7 @@ export const zhCN: Dict = {
   'settings.amrActivationOpen': '打开登录页',
   'settings.amrCancelSignIn': '取消登录',
   'settings.amrAccountStatus': 'Open Design 账户状态',
-  'settings.amrConsole': '控制台',
+  'settings.amrConsole': '管理',
   'settings.amrBalance': '余额',
   'settings.amrPlan': '套餐',
   'settings.amrUpgrade': '升级',

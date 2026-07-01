@@ -327,7 +327,7 @@ export const zhTW: Dict = {
   'settings.amrActivationOpen': '開啟登入頁',
   'settings.amrCancelSignIn': '取消登入',
   'settings.amrAccountStatus': 'Open Design 帳戶狀態',
-  'settings.amrConsole': '控制台',
+  'settings.amrConsole': '管理',
   'settings.amrBalance': '餘額',
   'settings.amrPlan': '方案',
   'settings.amrUpgrade': '升級',
