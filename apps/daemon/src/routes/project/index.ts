@@ -10,6 +10,7 @@ import {
   type ProjectFileVersion,
   type ProjectFileVersionPromptSource,
   type ProjectFileVersionSource,
+  type ProjectFileVersionWarning,
 } from '@open-design/contracts';
 import { readMeta as readBrandMeta } from '../../brands/store.js';
 import { createProjectArtifactFile } from '../../artifacts/create.js';
@@ -2453,6 +2454,26 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     );
   }
 
+  function htmlVersionCaptureWarning(err: unknown): ProjectFileVersionWarning {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      code: 'PROJECT_FILE_VERSION_CAPTURE_FAILED',
+      message: `HTML version could not be saved: ${message}`,
+    };
+  }
+
+  async function tryEnsureHtmlCurrentVersion(
+    project: any,
+    fileName: string,
+    override?: Parameters<typeof ensureHtmlCurrentVersion>[2],
+  ): Promise<{ version: ProjectFileVersion | null; versionWarning?: ProjectFileVersionWarning }> {
+    try {
+      return { version: await ensureHtmlCurrentVersion(project, fileName, override) };
+    } catch (err) {
+      return { version: null, versionWarning: htmlVersionCaptureWarning(err) };
+    }
+  }
+
   function fileFromVersionHistory(fileName: string, versions: ProjectFileVersion[]): ProjectFile | null {
     const latest = versions.at(-1);
     if (!latest) return null;
@@ -3165,21 +3186,27 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
       const prompt = requestPrompt
         ?? restored.version.prompt
         ?? latestProjectPrompt(project).prompt;
-      const version = await createProjectFileVersion(
-        PROJECTS_DIR,
-        project.id,
-        file.name,
-        restored.content,
-        {
-          prompt,
-          promptSource: requestPrompt ? 'manual' : 'restore',
-          source: 'restore',
-          restoreFromVersionId: restored.version.id,
-        },
-        project.metadata,
-      );
+      let version: ProjectFileVersion | null = null;
+      let versionWarning: ProjectFileVersionWarning | undefined;
+      try {
+        version = await createProjectFileVersion(
+          PROJECTS_DIR,
+          project.id,
+          file.name,
+          restored.content,
+          {
+            prompt,
+            promptSource: requestPrompt ? 'manual' : 'restore',
+            source: 'restore',
+            restoreFromVersionId: restored.version.id,
+          },
+          project.metadata,
+        );
+      } catch (err) {
+        versionWarning = htmlVersionCaptureWarning(err);
+      }
       /** @type {import('@open-design/contracts').RestoreProjectFileVersionResponse} */
-      const body = { file, version };
+      const body = { file, version, ...(versionWarning ? { versionWarning } : {}) };
       res.json(body);
     } catch (err: any) {
       const status = err && err.code === 'ENOENT' ? 404 : 400;
@@ -3288,17 +3315,20 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
             {},
             uploadProject?.metadata,
           );
-          if (uploadProject && /\.html?$/i.test(meta.name)) {
-            await ensureHtmlCurrentVersion(uploadProject, meta.name, {
+          const versionCapture = uploadProject && /\.html?$/i.test(meta.name)
+            ? await tryEnsureHtmlCurrentVersion(uploadProject, meta.name, {
               prompt: typeof req.body?.versionPrompt === 'string' ? req.body.versionPrompt : null,
               promptSource: 'manual',
               source: normalizeProjectFileVersionSource(req.body?.versionSource ?? req.body?.source) ?? 'manual',
               label: typeof req.body?.versionLabel === 'string' ? req.body.versionLabel : null,
-            });
-          }
+            })
+            : null;
           fs.promises.unlink(req.file.path).catch(() => {});
           /** @type {import('@open-design/contracts').ProjectFileResponse} */
-          const body = { file: meta };
+          const body = {
+            file: meta,
+            ...(versionCapture?.versionWarning ? { versionWarning: versionCapture.versionWarning } : {}),
+          };
           return res.json(body);
         }
         const {
@@ -3358,7 +3388,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
               },
               uploadProject?.metadata,
             );
-        if (uploadProject && /\.html?$/i.test(meta.name)) {
+        const versionCapture = uploadProject && /\.html?$/i.test(meta.name) ? await (async () => {
           const requestedSource = normalizeProjectFileVersionSource(versionSource ?? req.body?.source) ?? 'manual';
           const versionOptions: {
             prompt?: string | null;
@@ -3377,10 +3407,13 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
           } else if (requestedSource === 'restore') {
             versionOptions.promptSource = 'restore';
           }
-          await ensureHtmlCurrentVersion(uploadProject, meta.name, versionOptions);
-        }
+          return await tryEnsureHtmlCurrentVersion(uploadProject, meta.name, versionOptions);
+        })() : null;
         /** @type {import('@open-design/contracts').ProjectFileResponse} */
-        const body = { file: meta };
+        const body = {
+          file: meta,
+          ...(versionCapture?.versionWarning ? { versionWarning: versionCapture.versionWarning } : {}),
+        };
         res.json(body);
       } catch (err: any) {
         if (err instanceof ArtifactRegressionError) {

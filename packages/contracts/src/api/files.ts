@@ -98,9 +98,15 @@ export interface RestoreProjectFileVersionRequest {
   prompt?: string | null;
 }
 
+export interface ProjectFileVersionWarning {
+  code: 'PROJECT_FILE_VERSION_CAPTURE_FAILED';
+  message: string;
+}
+
 export interface RestoreProjectFileVersionResponse {
   file: ProjectFile;
-  version: ProjectFileVersion;
+  version: ProjectFileVersion | null;
+  versionWarning?: ProjectFileVersionWarning;
 }
 
 export interface ProjectFoldersResponse {
@@ -154,6 +160,7 @@ export interface ProjectPreviewUrlResponse {
 
 export interface ProjectFileResponse {
   file: ProjectFile;
+  versionWarning?: ProjectFileVersionWarning;
 }
 
 export interface ProjectFolderResponse {

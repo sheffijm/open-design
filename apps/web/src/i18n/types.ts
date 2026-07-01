@@ -2992,8 +2992,11 @@ export interface Dict {
   'fileViewer.versions.currentHelp': string;
   'fileViewer.versions.restoreHelp': string;
   'fileViewer.versions.restore': string;
+  'fileViewer.versions.restoreConfirmTitle': string;
+  'fileViewer.versions.restoreConfirmCta': string;
   'fileViewer.versions.restoring': string;
   'fileViewer.versions.restoreFailed': string;
+  'fileViewer.versions.restoreSuccess': string;
   'manualEdit.layers': string;
   'manualEdit.editableCount': string;
   'manualEdit.hiddenBadge': string;

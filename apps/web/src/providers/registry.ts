@@ -2042,7 +2042,7 @@ export async function uploadProjectFiles(
       uploaded.push(
         ...responseFiles.map((f) => ({
           path: f.path,
-          name: f.originalName ?? f.name,
+          name: f.name,
           kind: looksLikeImage(f.name) ? ('image' as const) : ('file' as const),
           size: f.size,
         })),

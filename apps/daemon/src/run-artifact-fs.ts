@@ -195,7 +195,8 @@ export interface RunArtifactBaseline {
 
 // Registry of per-run baselines that flags same-cwd overlap. `remember` marks
 // both the incoming run and every still-open run sharing its cwd as contended;
-// `take` removes and returns a run's baseline at finish.
+// `peek` lets pre-finish hooks inspect without consuming the baseline, and
+// `take` removes and returns it for the final analytics pass.
 export function createRunArtifactBaselines(cap = 2000) {
   const baselines = new Map<string, RunArtifactBaseline>();
   return {
@@ -212,6 +213,9 @@ export function createRunArtifactBaselines(cap = 2000) {
         }
       }
       baselines.set(runId, { cwd, before, contended });
+    },
+    peek(runId: string): RunArtifactBaseline | undefined {
+      return baselines.get(runId);
     },
     take(runId: string): RunArtifactBaseline | undefined {
       const baseline = baselines.get(runId);

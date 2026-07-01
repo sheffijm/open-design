@@ -6424,6 +6424,7 @@ Common options:
       if (!resp.ok) return structuredHttpFailure(resp);
       const data = await resp.json();
       if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      if (data?.versionWarning?.message) console.error(`[files] warning: ${data.versionWarning.message}`);
       console.log(`[files] uploaded ${data?.file?.name ?? desiredName}`);
       return;
     }
@@ -6456,6 +6457,7 @@ Common options:
       if (!resp.ok) return structuredHttpFailure(resp);
       const data = await resp.json();
       if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      if (data?.versionWarning?.message) console.error(`[files] warning: ${data.versionWarning.message}`);
       console.log(`[files] wrote ${data?.file?.name ?? rel}`);
       return;
     }
@@ -6578,6 +6580,7 @@ Common options:
       if (!resp.ok) return structuredHttpFailure(resp, 'project-not-found');
       const data = await resp.json();
       if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      if (data?.versionWarning?.message) console.error(`[files] warning: ${data.versionWarning.message}`);
       console.log(`[files] restored ${rel} as version ${data?.version?.version ?? data?.version?.id ?? '-'}`);
       return;
     }
