@@ -128,19 +128,21 @@ export function UpgradeTeamDialog({
                 </span>
                 <span className="upgrade-team__plan-token">
                   <small className="upgrade-team__plan-currency">$</small>
-                  {tier.tokens * seatCount}
+                  {tier.tokens}
+                  <small> / 席位·月</small>
                 </span>
                 <span className="upgrade-team__plan-allowance-label">
-                  {seatCount} 席位 · 等值用量额度
-                </span>
-                <span className="upgrade-team__plan-price">
-                  ${tier.tokens} / 席位·月
+                  {seatCount} 席位共含 <strong>${tier.tokens * seatCount}</strong> 等值用量额度
                 </span>
                 <span className="upgrade-team__plan-hint">{tier.hint}</span>
               </button>
             );
           })}
         </div>
+
+        <p className="upgrade-team__note">
+          「等值用量额度」指该金额可消耗的 AI 用量，按实际 Token 计费。
+        </p>
 
         {/* The benefits are a first-time value-prop; skip them when an
             existing team is just buying more seats — they already know. */}

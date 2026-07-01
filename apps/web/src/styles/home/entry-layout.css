@@ -6538,20 +6538,23 @@
   font-size: 12px;
   color: var(--text-muted);
 }
-/* Sits right under the big total; label what the number is. */
+/* The team total, framed as value — secondary to the per-seat headline. */
 .upgrade-team__plan-allowance-label {
-  margin-top: -3px;
-  font-size: 11.5px;
+  line-height: 1.35;
 }
-/* Unit price — secondary to the headline total the user gets. */
-.upgrade-team__plan-price {
-  margin-top: 1px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
+.upgrade-team__plan-allowance-label strong {
+  color: var(--text-strong);
+  font-weight: 700;
 }
 .upgrade-team__plan-hint {
   margin-top: 2px;
+}
+/* One-line glossary so "等值用量额度" isn't read as an opaque charge. */
+.upgrade-team__note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
 }
 /* Shared across all three tiers, so this is secondary context — keep it
    compact and muted so it doesn't compete with the tier cards above. */
