@@ -2844,6 +2844,7 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
               email: 'signed-in@example.com',
               name: 'Signed In User',
             },
+            account: { plan: 'pro' },
             configPath: '/Users/test/.amr/config.json',
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
@@ -2862,12 +2863,13 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
 
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Open Design\b/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Plan pro/ })).toBeTruthy();
     expect(screen.getByText('signed-in@example.com')).toBeTruthy();
     expect(screen.queryByText(/AMR \(vela\)/i)).toBeNull();
     expect(screen.queryByText(/^vela$/i)).toBeNull();
   });
 
-  it('refreshes the Settings AMR wallet fallback balance for old Vela CLI status payloads', async () => {
+  it('loads the Settings AMR wallet fallback balance without a manual card refresh button', async () => {
     let walletCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -2920,9 +2922,9 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Local CLI.*1 installed/i }));
 
     expect(await screen.findByText('$1.00')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh AMR wallet balance' }));
-    expect(await screen.findByText('$2.00')).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledWith('/api/integrations/vela/wallet?refresh=1', {
+    expect(screen.queryByRole('button', { name: 'Refresh AMR wallet balance' })).toBeNull();
+    expect(walletCalls).toBe(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/integrations/vela/wallet', {
       cache: 'no-store',
     });
   });

@@ -4225,6 +4225,15 @@ export function SettingsDialog({
                                                 {benefit}
                                               </span>
                                             ))}
+                                            <PlanBadge
+                                              plan={amrCardPlanLabel}
+                                              size="sm"
+                                              title={
+                                                amrCardPlanLabel
+                                                  ? `${t('settings.amrPlan')} ${amrCardPlanLabel}`
+                                                  : undefined
+                                              }
+                                            />
                                           </span>
                                         ) : description ? (
                                           <>
@@ -4239,6 +4248,11 @@ export function SettingsDialog({
                                             </span>
                                           </>
                                         ) : null}
+                                        {isAmrAgent && amrCardPlanLabel ? (
+                                          <VisuallyHidden>
+                                            {`, ${t('settings.amrPlan')} ${amrCardPlanLabel}`}
+                                          </VisuallyHidden>
+                                        ) : null}
                                       </div>
                                       {metaLabel ? (
                                         <div className="agent-card-meta">
@@ -4252,15 +4266,6 @@ export function SettingsDialog({
                                           <span className="agent-card-amr-email-text" title={amrCardEmail}>
                                             {amrCardEmail}
                                           </span>
-                                          <PlanBadge
-                                            plan={amrCardPlanLabel}
-                                            size="sm"
-                                            title={
-                                              amrCardPlanLabel
-                                                ? `${t('settings.amrPlan')} ${amrCardPlanLabel}`
-                                                : undefined
-                                            }
-                                          />
                                           {amrCardProfileBadge ? (
                                             <span className="agent-card-amr-profile-badge">
                                               {amrCardProfileBadge}
@@ -4270,43 +4275,20 @@ export function SettingsDialog({
                                       ) : null}
                                       {amrWalletVisible ? (
                                         <div className="agent-card-amr-meta-row">
-                                          {amrWalletVisible ? (
-                                            <span className="agent-card-amr-balance">
-                                              <span className="agent-card-amr-balance-label">
-                                                {t('settings.amrBalance')}
-                                              </span>
-                                              <span className="agent-card-amr-balance-value">
-                                                {amrWalletValueLabel({
-                                                  balance: amrCardBalanceLabel,
-                                                  loadingLabel: t('common.loading'),
-                                                  ready: amrWalletReady || Boolean(amrCardBalanceLabel),
-                                                  snapshot: amrWalletSnapshot,
-                                                  unavailableLabel: t('settings.amrWalletUnavailable'),
-                                                })}
-                                              </span>
+                                          <span className="agent-card-amr-balance">
+                                            <span className="agent-card-amr-balance-label">
+                                              {t('settings.amrBalance')}
                                             </span>
-                                          ) : null}
-                                          <button
-                                            type="button"
-                                            className="agent-card-amr-wallet-refresh"
-                                            title={t('settings.amrWalletRefreshTitle')}
-                                            aria-label={t('settings.amrWalletRefreshTitle')}
-                                            disabled={!amrWalletReady && !amrCardBalanceLabel}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void refreshAmrWalletSnapshot({ refresh: true });
-                                            }}
-                                          >
-                                            <Icon
-                                              name={!amrWalletReady && !amrCardBalanceLabel ? 'spinner' : 'refresh'}
-                                              size={13}
-                                              className={
-                                                !amrWalletReady && !amrCardBalanceLabel
-                                                  ? 'icon-spin'
-                                                  : undefined
-                                              }
-                                            />
-                                          </button>
+                                            <span className="agent-card-amr-balance-value">
+                                              {amrWalletValueLabel({
+                                                balance: amrCardBalanceLabel,
+                                                loadingLabel: t('common.loading'),
+                                                ready: amrWalletReady || Boolean(amrCardBalanceLabel),
+                                                snapshot: amrWalletSnapshot,
+                                                unavailableLabel: t('settings.amrWalletUnavailable'),
+                                              })}
+                                            </span>
+                                          </span>
                                         </div>
                                       ) : null}
                                       {!active && modelSummary ? (
