@@ -1,6 +1,7 @@
 import { expect, test } from '@/playwright/suite';
 import { openNewProjectModal as openNewProjectModalFromProjects } from '@/playwright/rail';
 import { routeAgents } from '@/playwright/mock-factory';
+import { clickDeckNextSlide, clickDeckPreviousSlide, openAllProjectFiles } from '@/playwright/workspace';
 import type { Page } from '@playwright/test';
 import { T } from '@/timeouts';
 
@@ -461,7 +462,7 @@ test('[P0] manual edit mode keeps deck navigation available for deck-shaped HTML
 
   const frame = artifactPreviewFrame(page);
   await expect(frame.getByText('Slide One')).toBeVisible();
-  await page.getByLabel('Next slide').click();
+  await clickDeckNextSlide(page);
   await expect(frame.getByText('Slide Two')).toBeVisible();
 });
 
@@ -481,7 +482,7 @@ test('[P0] deck host navigation advances one slide when the deck also handles sl
 
   const frame = artifactPreviewFrame(page);
   await expect(frame.getByText('Slide One')).toBeVisible();
-  await page.getByLabel('Next slide').click();
+  await clickDeckNextSlide(page);
   await expect(frame.getByText('Slide Two')).toBeVisible();
   await expect(frame.getByText('Slide Three')).toBeHidden();
 });
@@ -525,7 +526,7 @@ test('[P0] deck host navigation works when deck content only mentions slide mess
   const frame = artifactPreviewFrame(page);
   await expect(frame.getByText('Slide One')).toBeVisible();
   await expect(frame.getByText('Protocol token: od:slide')).toBeVisible();
-  await page.getByLabel('Next slide').click();
+  await clickDeckNextSlide(page);
   await expect(frame.getByText('Slide Two')).toBeVisible();
   await expect(frame.getByText('Slide One')).toBeHidden();
 });
@@ -545,19 +546,19 @@ test('[P0] deck host counter stays synced when a self-handling deck stops slide 
   await openDesignFile(page, 'stopped-message-deck.html');
 
   const frame = artifactPreviewFrame(page);
-  const hostCounter = page.locator('.deck-nav-counter');
+  const hostCounter = page.locator('.deck-floating-count');
   await expect(frame.getByText('Slide One')).toBeVisible();
-  await expect(hostCounter).toHaveText('1 / 3');
+  await expect(hostCounter).toHaveText(/1\s*\/\s*3/);
   await expect(frame.locator('#deck-cur')).toHaveText('01');
 
-  await page.getByLabel('Next slide').click();
+  await clickDeckNextSlide(page);
   await expect(frame.getByText('Slide Two')).toBeVisible();
-  await expect(hostCounter).toHaveText('2 / 3');
+  await expect(hostCounter).toHaveText(/2\s*\/\s*3/);
   await expect(frame.locator('#deck-cur')).toHaveText('02');
 
-  await page.getByLabel('Previous slide').click();
+  await clickDeckPreviousSlide(page);
   await expect(frame.getByText('Slide One')).toBeVisible();
-  await expect(hostCounter).toHaveText('1 / 3');
+  await expect(hostCounter).toHaveText(/1\s*\/\s*3/);
   await expect(frame.locator('#deck-cur')).toHaveText('01');
 });
 
@@ -573,7 +574,7 @@ test('[P0] simple deck keeps the active slide stable across preview mode switche
   const viewModeTabs = page.getByRole('tablist', { name: 'View mode' });
 
   await expect(frame.getByText('Slide One')).toBeVisible();
-  await page.getByLabel('Next slide').click();
+  await clickDeckNextSlide(page);
   await expect(frame.getByText('Slide Two')).toBeVisible();
 
   await viewModeTabs.getByRole('tab', { name: 'Code' }).click();
@@ -581,7 +582,7 @@ test('[P0] simple deck keeps the active slide stable across preview mode switche
   await viewModeTabs.getByRole('tab', { name: 'Preview' }).click();
 
   await expect(frame.getByText('Slide Two')).toBeVisible();
-  await page.getByLabel('Next slide').click();
+  await clickDeckNextSlide(page);
   await expect(frame.getByText('Slide Three')).toBeVisible();
 });
 
@@ -631,10 +632,7 @@ test('[P0] @critical edited HTML file restores selected tab, source, and preview
   await openDesignFile(page, 'secondary-preview.html');
   await expect(tabBySuffix(page, 'secondary-preview.html')).toHaveAttribute('aria-selected', 'true');
 
-  await page
-    .getByRole('tablist', { name: 'Design Files' })
-    .getByRole('tab', { name: /^Design Files$/ })
-    .click();
+  await openAllProjectFiles(page);
   await openDesignFile(page, 'restore-edit.html');
 
   const restoreTab = tabBySuffix(page, 'restore-edit.html');

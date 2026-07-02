@@ -1,5 +1,6 @@
 import { expect, test } from '@/playwright/suite';
 import { ensureRailOpen, openNewProjectModal } from '@/playwright/rail';
+import { openAllProjectFiles } from '@/playwright/workspace';
 import { T } from '@/timeouts';
 import type { Locator, Page, Request, Route } from '@playwright/test';
 import { routeAgents } from '../lib/playwright/mock-factory.js';
@@ -995,7 +996,7 @@ test('[P1] canceling design file deletion keeps the file and open tab', async ({
     expect(dialog.message()).toContain('delete-cancel.png');
     await dialog.dismiss();
   });
-  await page.getByTestId('design-files-tab').click();
+  await openAllProjectFiles(page);
   await rowByFileName(page, uploadedName).hover();
   await menuByFileName(page, uploadedName).click();
   await page.getByTestId(`design-file-delete-${uploadedName}`).click();
@@ -2353,7 +2354,7 @@ async function uploadTinyPng(
 }
 
 async function openUploadedHtmlArtifactPreview(page: Page, uploadedName: string) {
-  await page.getByTestId('design-files-tab').click();
+  await openAllProjectFiles(page);
   const fileRow = rowByFileName(page, uploadedName);
   await expect(fileRow).toBeVisible();
   await fileRow.getByRole('button').first().click();

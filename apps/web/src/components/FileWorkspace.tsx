@@ -2223,7 +2223,7 @@ export function FileWorkspace({
     if (result.uploaded.length > 0) {
       await onRefreshFiles();
       const lastUploaded = result.uploaded[result.uploaded.length - 1];
-      if (lastUploaded?.path) openFile(lastUploaded.path);
+      if (lastUploaded?.path) openFile(lastUploaded.path, { forcePersist: true });
     }
 
     if (result.failed.length > 0) {
