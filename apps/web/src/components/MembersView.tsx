@@ -357,7 +357,13 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
       />
       <UpgradeTeamDialog
         open={upgradeOpen}
-        onClose={() => setUpgradeOpen(false)}
+        onClose={() => {
+          setUpgradeOpen(false);
+          // Dismissing the purchase abandons the invites that required it —
+          // otherwise a later unrelated seat purchase would silently send
+          // rows the user already canceled.
+          setQueuedInvites([]);
+        }}
         onConfirm={handleUpgradeConfirm}
         initialSeatCount={isSolo ? soloUpgradeMin : seatPurchaseMin}
         minSeatCount={isSolo ? soloUpgradeMin : seatPurchaseMin}
