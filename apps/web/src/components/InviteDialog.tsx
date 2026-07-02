@@ -24,7 +24,6 @@ interface Props {
   canAssignRoles?: boolean;
 }
 
-const TEAM_SIZE = 3;
 const DEFAULT_ROLE = '团队成员';
 
 export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAssignRoles = true }: Props) {
@@ -48,8 +47,11 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
     setRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
   }
 
+  const hasValidEmail = rows.some((r) => r.email.trim().length > 0);
+
   function handleConfirm() {
     const valid = rows.filter((r) => r.email.trim().length > 0);
+    if (valid.length === 0) return;
     onClose();
     onSubmit?.(valid);
     setRows([{ email: '', role: DEFAULT_ROLE }]);
@@ -71,12 +73,10 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
         <div className="entry-invite__form">
           <h2 className="entry-invite__title">邀请成员加入你的团队</h2>
           <p className="entry-invite__teamsize">
-            你的团队有 <span className="entry-invite__teamsize-link">{freePlan ? 1 : TEAM_SIZE}人</span>。
+            {freePlan
+              ? '免费版含 1 个席位，邀请同事后将引导你升级到团队版。'
+              : '邀请同事加入团队，一起共享项目、设计系统与插件。'}
           </p>
-
-          <div className="entry-invite__divider">
-            <span>或者</span>
-          </div>
 
           <div className="entry-invite__field-labels">
             <span className="entry-invite__label">通过电子邮件邀请成员</span>
@@ -138,7 +138,12 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
             </p>
           ) : null}
 
-          <button type="button" className="entry-invite__submit" onClick={handleConfirm}>
+          <button
+            type="button"
+            className="entry-invite__submit"
+            onClick={handleConfirm}
+            disabled={!hasValidEmail}
+          >
             确认并邀请
           </button>
         </div>

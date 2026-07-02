@@ -5872,26 +5872,6 @@
   font-size: 14px;
   color: var(--text);
 }
-.entry-invite__teamsize-link {
-  color: var(--accent);
-  text-decoration: underline;
-  cursor: pointer;
-}
-.entry-invite__divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  color: var(--text-faint);
-  font-size: 12.5px;
-}
-.entry-invite__divider::before,
-.entry-invite__divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border-soft);
-}
-.entry-invite__divider span { padding: 0 12px; }
 .entry-invite__fields {
   display: flex;
   gap: 12px;
@@ -5978,16 +5958,20 @@
   padding: 13px;
   border: 0;
   border-radius: var(--radius-sm, 8px);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 120ms, color 120ms;
+  transition: filter 120ms, background 120ms, color 120ms;
 }
-.entry-invite__submit:hover {
-  background: var(--accent);
-  color: #fff;
+.entry-invite__submit:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+.entry-invite__submit:disabled {
+  background: var(--bg-subtle);
+  color: var(--text-faint);
+  cursor: default;
 }
 .entry-invite__art {
   position: relative;
