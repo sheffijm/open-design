@@ -148,7 +148,10 @@ export function TeamDashboardView({ isAdmin = true, isTeamPlan = false, onAutoRe
             <div
               className="team-dashboard__token-row"
               key={person.name}
-              style={{ '--member-rank-color': index === 0 ? person.color : 'var(--text-secondary)' } as CSSProperties}
+              // Only #1 gets its member colour; the rest share one neutral so the
+              // list doesn't read as a rainbow. Must be a token that exists in
+              // tokens.css — an undefined var() kills the bar fill and rank tint.
+              style={{ '--member-rank-color': index === 0 ? person.color : 'var(--text-soft)' } as CSSProperties}
             >
               <span className="team-dashboard__token-rank">{index + 1}</span>
               <div className="team-dashboard__token-person">
