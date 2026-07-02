@@ -107,7 +107,6 @@ export function UpgradeTeamDialog({
               +
             </button>
           </span>
-          <em>每月总价 = 单席月费 × {seatCount}</em>
         </div>
 
         <div className="upgrade-team__plans" role="radiogroup" aria-label="团队版档位">
@@ -129,11 +128,13 @@ export function UpgradeTeamDialog({
                 </span>
                 <span className="upgrade-team__plan-token">
                   <small className="upgrade-team__plan-currency">$</small>
-                  {tier.tokens}
-                  <small> / 席位·月</small>
+                  {tier.tokens * seatCount}
                 </span>
-                <span className="upgrade-team__plan-total">
-                  ${tier.tokens * seatCount} / 团队·月
+                <span className="upgrade-team__plan-allowance-label">
+                  {seatCount} 席位 · 等值用量额度
+                </span>
+                <span className="upgrade-team__plan-price">
+                  ${tier.tokens} / 席位·月
                 </span>
                 <span className="upgrade-team__plan-hint">{tier.hint}</span>
               </button>
@@ -153,6 +154,13 @@ export function UpgradeTeamDialog({
             ))}
           </ul>
         )}
+
+        <div className="upgrade-team__confirm">
+          <span className="upgrade-team__confirm-summary">
+            {selectedTierName} · {seatCount} 席位 · 含{' '}
+            <strong>${monthlyTotal}</strong> 等值用量额度
+          </span>
+        </div>
 
         <div className="upgrade-team__foot">
           <button type="button" className="entry-invite__btn" onClick={onClose}>

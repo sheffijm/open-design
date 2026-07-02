@@ -295,7 +295,7 @@ export function MembersView({ solo = false }: { solo?: boolean }) {
                   </span>
                   <div className="members__person-text">
                     <span className="members__name">{invite.email}</span>
-                    <span className="members__email">角色：{invite.role} · 等待对方接受</span>
+                    <span className="members__email">角色：{invite.role}</span>
                   </div>
                 </div>
                 <div className="members__col members__col--role">
