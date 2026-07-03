@@ -2150,8 +2150,8 @@ function pinAssistantMessageOnRunCreate(db, run) {
                 WHEN run_status IN ('succeeded', 'failed', 'canceled') THEN run_status
                 ELSE ?
               END,
-              session_mode = COALESCE(session_mode, ?),
-              run_context_json = COALESCE(run_context_json, ?),
+              session_mode = ?,
+              run_context_json = ?,
               started_at = COALESCE(started_at, ?)
         WHERE id = ?`,
     ).run(

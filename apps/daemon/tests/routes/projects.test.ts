@@ -650,7 +650,7 @@ describe('GET /api/projects/:id resolvedDir', () => {
     expect(assistant?.runContext).toEqual(workspaceContext);
   });
 
-  it('adds run session mode and workspace context when pinning a preexisting assistant message', async () => {
+  it('overwrites stale run session mode and workspace context when pinning a preexisting assistant message', async () => {
     const projectId = `proj-run-context-existing-${Date.now()}`;
     const createResp = await fetch(`${baseUrl}/api/projects`, {
       method: 'POST',
@@ -663,6 +663,11 @@ describe('GET /api/projects/:id resolvedDir', () => {
     expect(createResp.status).toBe(200);
     const { conversationId } = (await createResp.json()) as { conversationId: string };
     const assistantMessageId = `assistant-existing-run-context-${Date.now()}`;
+    const staleWorkspaceContext = {
+      workspaceItems: [
+        { id: 'active-file:stale.html', label: 'stale.html', kind: 'file' },
+      ],
+    };
     const workspaceContext = {
       workspaceItems: [
         { id: 'active-file:existing.html', label: 'existing.html', kind: 'file' },
@@ -678,6 +683,8 @@ describe('GET /api/projects/:id resolvedDir', () => {
           id: assistantMessageId,
           role: 'assistant',
           content: 'placeholder',
+          sessionMode: 'design',
+          runContext: staleWorkspaceContext,
         }),
       },
     );

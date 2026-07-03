@@ -2408,6 +2408,9 @@ export function ChatPane({
                               showActivationDetails
                               hideSignedOutStatus
                               revealPendingCancelAction
+                              onSignInStarted={() => {
+                                amrAuthPrevLoggedInRef.current = false;
+                              }}
                               onStatusChange={(loginStatus) => {
                                 // Retry only on a real signed-out -> signed-in
                                 // transition (see amrAuthPrevLoggedInRef).
