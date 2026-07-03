@@ -2235,7 +2235,7 @@ export const tr: Dict = {
   'home.recommendation.eyebrow': 'Sizin için önerilen',
   'home.recommendation.primaryCta': "Studio'da başla",
   'home.recommendation.change': 'Başka bir tane dene',
-  'home.recommendation.browseAll': 'Tüm türlere göz at',
+  'home.recommendation.browseAll': 'Tüm türler',
   'home.recommendation.defaultProjectName': 'Yeni proje',
   'studio.firstArtifactHint.title': 'İlk tasarımınız hazır',
   'studio.firstArtifactHint.body': 'Önizlemeden görüntüleyebilir, düzenleyebilir ve dışa aktarabilirsiniz.',

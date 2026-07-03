@@ -2234,9 +2234,9 @@ export const en: Dict = {
   'chat.example3Prompt': 'Prototype four mobile screens for a meditation app: home, session player, progress and streaks, and sleep collection. Include onboarding states, bottom navigation, accessible controls, and gentle motion notes so the flow feels ready to test.',
 
   'home.recommendation.eyebrow': 'Recommended for you',
-  'home.recommendation.primaryCta': 'Start in Studio',
+  'home.recommendation.primaryCta': 'Start creating',
   'home.recommendation.change': 'Try another',
-  'home.recommendation.browseAll': 'Browse all types',
+  'home.recommendation.browseAll': 'All types',
   'home.recommendation.defaultProjectName': 'New project',
   'studio.firstArtifactHint.title': 'Your first design is ready',
   'studio.firstArtifactHint.body': 'You can view, edit, and export it from the preview.',
