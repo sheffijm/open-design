@@ -45,8 +45,8 @@
     },
     "useCase": {
       "query": {
-        "en": "Clone this website faithfully: https://resend.com. Use the web-clone workflow — recon the site, harvest its real fonts and images, match its exact colors and scroll feel, then build a local clone. Keep the original assets; record trademarks/copyright in NOTES.md for me to replace.",
-        "zh-CN": "忠实复刻这个网站：https://resend.com。走 web-clone 流程 —— 侦察站点、抓取真实字体与图片、照抄精确色值与滚动体感，再构建本地复刻。保留原始素材；把商标/版权项记进 NOTES.md 交我替换。"
+        "en": "Clone or visually recreate this website: {{targetUrl}}. Use the web-clone workflow: find real source first, recon the site, choose a fidelity path, build a local clone, remove tracking, and write NOTES.md plus clone/audit evidence.",
+        "zh-CN": "复刻这个网站：{{targetUrl}}。使用 web-clone 流程：先找真实源码，再侦察站点、选择保真路径、构建本地复刻、删除追踪脚本，并写好 NOTES.md 与复刻/审计证据。"
       }
     },
     "context": {
@@ -71,6 +71,16 @@
       "prompt:inject",
       "fs:write",
       "shell"
+    ],
+    "inputs": [
+      {
+        "name": "targetUrl",
+        "label": "Target URL",
+        "type": "string",
+        "required": false,
+        "default": "https://resend.com",
+        "placeholder": "https://example.com"
+      }
     ]
   }
 }
