@@ -36,7 +36,7 @@ exports[`composeSystemPrompt — scenario × section golden matrix > keeps the s
       "clarifying-questions",
       "role-marker-guard",
     ],
-    "totalChars": 17666,
+    "totalChars": 17896,
   },
   "codex-imagegen": {
     "sections": [
@@ -169,7 +169,7 @@ exports[`composeSystemPrompt — scenario × section golden matrix > keeps the s
       "clarifying-questions",
       "role-marker-guard",
     ],
-    "totalChars": 65435,
+    "totalChars": 65665,
   },
   "design-minimal": {
     "sections": [
@@ -273,7 +273,7 @@ exports[`composeSystemPrompt — scenario × section golden matrix > keeps the s
       "clarifying-questions",
       "role-marker-guard",
     ],
-    "totalChars": 76926,
+    "totalChars": 77156,
   },
   "plan-mode": {
     "sections": [
