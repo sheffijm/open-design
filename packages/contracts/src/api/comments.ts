@@ -34,6 +34,23 @@ export type PreviewCommentSelectionKind = 'element' | 'pod';
 export type PreviewVisualMarkKind = 'click' | 'stroke' | 'click+stroke';
 
 /**
+ * Team-collaboration comment anchor state (§D2 xpath self-anchor + drift ladder).
+ * Resolved each render from the live DOM — this is an anchor state, not a
+ * processing state. Ladder (strong → weak): exact selector/xpath hit →
+ * `anchored`; content changed but re-found via htmlHint → `reanchored`
+ * (shows a "based on older v{anchoredVersion}" badge); fuzzy match on
+ * selector + htmlHint + position → `stale` (dashed warning); nothing found →
+ * `lost` (ghost pin at `lastGoodPosition` + explicit "anchor lost" badge).
+ * The explicit `stale`/`lost` marking is load-bearing: with no injected id,
+ * drift must be surfaced, never silently mis-pointed.
+ */
+export type PreviewCommentAnchorState =
+  | 'anchored'
+  | 'reanchored'
+  | 'stale'
+  | 'lost';
+
+/**
  * An image attached to a preview comment. `path` is the project-relative file
  * path (uploaded via the normal file API) that the web app resolves to a raw
  * URL for display; `name` is the original filename for labels/alt text.
@@ -91,6 +108,22 @@ export interface PreviewComment {
   status: PreviewCommentStatus;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Team-collaboration anchor fields (all optional; single-user comments omit
+   * them). See {@link PreviewCommentAnchorState}. Resolved/updated at render or
+   * sync time by the drift ladder; persisted as the last-known values.
+   */
+  anchorState?: PreviewCommentAnchorState;
+  /** Content version the comment was anchored to; drives the "based on older vN" badge. */
+  anchoredVersion?: number;
+  /** Comment author's workspaceMemberId (for cross-member attribution/display). */
+  authorMemberId?: string;
+  /**
+   * Bbox written back on each successful anchor. The `lost` ghost pin renders
+   * here (last known-good position), NOT the creation-time `position`, which
+   * may point somewhere unrelated after the author restructures the HTML.
+   */
+  lastGoodPosition?: PreviewCommentPosition;
 }
 
 export interface PreviewCommentUpsertRequest {
