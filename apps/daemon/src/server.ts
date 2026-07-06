@@ -568,6 +568,8 @@ import { createTerminalService } from './terminals.js';
 import { registerSocialShareRoutes } from './routes/social-share.js';
 import { registerOpenDesignPublicMetadataRoutes } from './routes/open-design-public-metadata.js';
 import { registerMemoryRoutes } from './routes/memory.js';
+import { registerCollabPresenceRoutes } from './routes/collab-presence.js';
+import { createCollabRuntime } from './collab/runtime.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import {
   assembleExample,
@@ -3791,6 +3793,12 @@ export async function startServer({
 
   // ---- Projects (DB-backed) -------------------------------------------------
 
+
+  // Team-collab (C lane) subsystem: presence + author-side publish scheduler.
+  // The resource hub itself is E's; the scheduler talks to it through the
+  // stub adapter until E's client ships.
+  const collab = createCollabRuntime();
+  registerCollabPresenceRoutes(app, { collab });
 
   registerMemoryRoutes(app, {
     http: { createSseResponse, requireLocalDaemonRequest },
