@@ -2101,18 +2101,29 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
           <div className="home-hero__prompt-examples-title">
             {t('homeHero.promptExamples')}
           </div>
-          <div className="home-hero__prompt-examples-grid">
-            {activePromptExamples.map((example, index) => (
-              <button
-                key={example}
-                type="button"
-                className={`home-hero__prompt-example${guidePulseFirstPreset && index === 0 ? ' home-hero__attention-sheen' : ''}`}
-                data-testid="home-hero-prompt-example"
-                onClick={() => usePromptExample(example)}
-              >
-                <span>{example}</span>
-              </button>
-            ))}
+          <div
+            className={`home-hero__prompt-examples-grid${activeChipId === 'web-clone' ? ' home-hero__prompt-examples-grid--sites' : ''}`}
+          >
+            {activePromptExamples.map((example, index) =>
+              webCloneExampleSite(example) ? (
+                <WebClonePromptExampleCard
+                  key={example}
+                  example={example}
+                  pulse={guidePulseFirstPreset && index === 0}
+                  onPick={usePromptExample}
+                />
+              ) : (
+                <button
+                  key={example}
+                  type="button"
+                  className={`home-hero__prompt-example${guidePulseFirstPreset && index === 0 ? ' home-hero__attention-sheen' : ''}`}
+                  data-testid="home-hero-prompt-example"
+                  onClick={() => usePromptExample(example)}
+                >
+                  <span>{example}</span>
+                </button>
+              ),
+            )}
           </div>
         </div>
       ) : null}
@@ -2215,6 +2226,67 @@ function PluginPromptPresets({
         <EdgeScrollZones {...edgeScroll} />
       </div>
     </div>
+  );
+}
+
+// A Website-clone text example ("Website URL to clone: https://vercel.com") —
+// pull the site out so the card can show the site's own favicon + bare domain
+// instead of the raw prompt line. Returns null for non-URL examples so the
+// generic text card renders unchanged.
+function webCloneExampleSite(example: string): { domain: string; faviconUrl: string } | null {
+  const match = example.match(/https?:\/\/[^\s"'<>]+/i);
+  if (!match) return null;
+  let hostname: string;
+  try {
+    hostname = new URL(match[0]).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+  if (!hostname || !hostname.includes('.')) return null;
+  // The site's own favicon, resolved at render time via Google's public service
+  // — no third-party brand assets are bundled into the repo, and a broken/blocked
+  // fetch falls back to a lettered tile.
+  return {
+    domain: hostname,
+    faviconUrl: `https://www.google.com/s2/favicons?sz=128&domain=${encodeURIComponent(hostname)}`,
+  };
+}
+
+function WebClonePromptExampleCard({
+  example,
+  pulse,
+  onPick,
+}: {
+  example: string;
+  pulse: boolean;
+  onPick: (example: string) => void;
+}) {
+  const [iconFailed, setIconFailed] = useState(false);
+  const site = webCloneExampleSite(example);
+  const domain = site?.domain ?? example;
+  const monogram = (domain.replace(/[^a-z0-9]/i, '')[0] ?? '?').toUpperCase();
+  return (
+    <button
+      type="button"
+      className={`home-hero__prompt-example home-hero__prompt-example--site${pulse ? ' home-hero__attention-sheen' : ''}`}
+      data-testid="home-hero-prompt-example"
+      onClick={() => onPick(example)}
+      title={domain}
+    >
+      <span className="home-hero__site-badge" aria-hidden>
+        {site && !iconFailed ? (
+          <img
+            src={site.faviconUrl}
+            alt=""
+            loading="lazy"
+            onError={() => setIconFailed(true)}
+          />
+        ) : (
+          <span className="home-hero__site-monogram">{monogram}</span>
+        )}
+      </span>
+      <span className="home-hero__site-domain">{domain}</span>
+    </button>
   );
 }
 

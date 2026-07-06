@@ -110,14 +110,16 @@ describe('web-clone example-card tracking', () => {
     renderHome();
 
     fireEvent.click(await screen.findByTestId('home-hero-rail-web-clone'));
-    // Text prompt cards, not plugin-preset cards.
+    // Text prompt cards (site variant: logo tile + bare domain), not plugin cards.
     const textCards = await screen.findAllByTestId('home-hero-prompt-example');
     expect(textCards.length).toBeGreaterThan(0);
     expect(screen.queryByTestId('home-hero-plugin-presets')).toBeNull();
     // No remix/duplicate affordance on the web-clone rail.
     expect(document.querySelector('[data-testid^="home-hero-plugin-preset-duplicate"]')).toBeNull();
-    // The card fills the URL-clone prompt.
-    expect(textCards.some((c) => (c.textContent ?? '').includes('https://'))).toBe(true);
+    // Site cards show the bare domain (e.g. nexu.io), not the raw prompt line.
+    expect(textCards.some((c) => (c.textContent ?? '').includes('nexu.io'))).toBe(true);
+    expect(textCards.every((c) => !(c.textContent ?? '').includes('https://'))).toBe(true);
+    expect(document.querySelector('.home-hero__prompt-example--site')).not.toBeNull();
   });
 
   it('fires element=example_prompt with chip_id=web-clone when a text example is picked', async () => {
