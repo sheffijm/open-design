@@ -66,6 +66,23 @@ function migrate(db: SqliteDb): void {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS workspace_projects (
+      project_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      visibility TEXT NOT NULL CHECK (visibility IN ('personal', 'team')),
+      resource_state TEXT NOT NULL CHECK (resource_state IN ('active', 'frozen', 'deleted')),
+      created_by_workspace_member_id TEXT,
+      updated_by_workspace_member_id TEXT,
+      sync_state TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workspace_projects_workspace_visibility
+      ON workspace_projects(workspace_id, visibility, updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS templates (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -627,6 +644,114 @@ export function listProjects(db: SqliteDb) {
     )
     .all() as DbRow[];
   return rows.map(normalizeProject);
+}
+
+export function getWorkspaceProject(db: SqliteDb, projectId: string) {
+  return db
+    .prepare(
+      `SELECT project_id AS projectId,
+              workspace_id AS workspaceId,
+              visibility,
+              resource_state AS resourceState,
+              created_by_workspace_member_id AS createdByWorkspaceMemberId,
+              updated_by_workspace_member_id AS updatedByWorkspaceMemberId,
+              sync_state AS syncState,
+              version,
+              created_at AS createdAt,
+              updated_at AS updatedAt
+         FROM workspace_projects
+        WHERE project_id = ?`,
+    )
+    .get(projectId) as DbRow | undefined;
+}
+
+export function listWorkspaceProjects(db: SqliteDb, workspaceId: string) {
+  return db
+    .prepare(
+      `SELECT p.id,
+              p.name,
+              p.skill_id AS skillId,
+              p.design_system_id AS designSystemId,
+              p.pending_prompt AS pendingPrompt,
+              p.metadata_json AS metadataJson,
+              p.applied_plugin_snapshot_id AS appliedPluginSnapshotId,
+              p.custom_instructions AS customInstructions,
+              p.created_at AS createdAt,
+              p.updated_at AS updatedAt,
+              wp.project_id AS workspaceProjectId,
+              wp.workspace_id AS workspaceId,
+              wp.visibility AS workspaceVisibility,
+              wp.resource_state AS resourceState,
+              wp.created_by_workspace_member_id AS createdByWorkspaceMemberId,
+              wp.updated_by_workspace_member_id AS updatedByWorkspaceMemberId,
+              wp.sync_state AS syncState,
+              wp.version AS workspaceVersion,
+              wp.created_at AS workspaceCreatedAt,
+              wp.updated_at AS workspaceUpdatedAt
+         FROM workspace_projects wp
+         JOIN projects p ON p.id = wp.project_id
+        WHERE wp.workspace_id = ?
+        ORDER BY p.updated_at DESC`,
+    )
+    .all(workspaceId) as DbRow[];
+}
+
+export function ensureWorkspaceProject(db: SqliteDb, input: DbRow) {
+  const now = Date.now();
+  const existing = getWorkspaceProject(db, input.projectId);
+  if (existing) return existing;
+  db.prepare(
+    `INSERT INTO workspace_projects
+       (project_id, workspace_id, visibility, resource_state,
+        created_by_workspace_member_id, updated_by_workspace_member_id,
+        sync_state, version, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.projectId,
+    input.workspaceId,
+    input.visibility ?? 'personal',
+    input.resourceState ?? 'active',
+    input.createdByWorkspaceMemberId ?? null,
+    input.updatedByWorkspaceMemberId ?? input.createdByWorkspaceMemberId ?? null,
+    input.syncState ?? 'local_only',
+    input.version ?? 1,
+    input.createdAt ?? now,
+    input.updatedAt ?? now,
+  );
+  return getWorkspaceProject(db, input.projectId);
+}
+
+export function updateWorkspaceProject(db: SqliteDb, projectId: string, patch: DbRow) {
+  const existing = getWorkspaceProject(db, projectId);
+  if (!existing) return null;
+  const next: DbRow = {
+    ...existing,
+    ...patch,
+    updatedAt: typeof patch.updatedAt === 'number' ? patch.updatedAt : Date.now(),
+  };
+  db.prepare(
+    `UPDATE workspace_projects
+        SET workspace_id = ?,
+            visibility = ?,
+            resource_state = ?,
+            created_by_workspace_member_id = ?,
+            updated_by_workspace_member_id = ?,
+            sync_state = ?,
+            version = ?,
+            updated_at = ?
+      WHERE project_id = ?`,
+  ).run(
+    next.workspaceId,
+    next.visibility,
+    next.resourceState,
+    next.createdByWorkspaceMemberId ?? null,
+    next.updatedByWorkspaceMemberId ?? null,
+    next.syncState ?? null,
+    next.version ?? 1,
+    next.updatedAt,
+    projectId,
+  );
+  return getWorkspaceProject(db, projectId);
 }
 
 export function listLatestProjectRunStatuses(db: SqliteDb) {

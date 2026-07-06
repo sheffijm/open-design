@@ -1128,7 +1128,18 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   const { sendApiError, createSseResponse } = ctx.http;
   const { DESIGN_SYSTEMS_DIR, PROJECTS_DIR, SKILLS_DIR, BRANDS_DIR, USER_DESIGN_SYSTEMS_DIR } = ctx.paths;
   const { readAppConfig, writeAppConfig } = ctx.appConfig;
-  const { insertProject, validateLinkedDirs, getProject, updateProject, dbDeleteProject, removeProjectDir } = ctx.projectStore;
+  const {
+    insertProject,
+    validateLinkedDirs,
+    getProject,
+    updateProject,
+    dbDeleteProject,
+    removeProjectDir,
+    ensureWorkspaceProject,
+    getWorkspaceProject,
+    listWorkspaceProjects,
+    updateWorkspaceProject,
+  } = ctx.projectStore;
   const { writeProjectFile, readProjectFile, ensureProject, listFiles, listTabs, setTabs, resolveProjectDir } = ctx.projectFiles;
   const { insertConversation } = ctx.conversations;
   const { getTemplate, listTemplates, deleteTemplate, insertTemplate, findTemplateByNameAndProject, updateTemplate } = ctx.templates;
@@ -1136,6 +1147,126 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   const { subscribeFileEvents, activeProjectEventSinks } = ctx.events;
   const { randomId } = ctx.ids;
   const { validateProjectDesignSystemId, validateProjectSkillId } = ctx.validation;
+  type WorkspaceProjectContext = {
+    workspaceId: string;
+    appUserId: string;
+    workspaceMemberId: string;
+    role: 'owner' | 'admin' | 'member';
+    memberStatus: 'active' | 'removed';
+    lifecycleState: 'active' | 'billing_past_due' | 'locked' | 'deleting' | 'deleted';
+    writeEnabled: boolean;
+  };
+  function headerValue(req: any, name: string): string | null {
+    const value = req.get(name);
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+  function workspaceProjectContext(req: any, workspaceId: string): WorkspaceProjectContext {
+    const lifecycleState = headerValue(req, 'x-od-workspace-lifecycle-state') ?? 'active';
+    const role = headerValue(req, 'x-od-workspace-role') ?? 'owner';
+    return {
+      workspaceId,
+      appUserId: headerValue(req, 'x-od-app-user-id') ?? 'local-user',
+      workspaceMemberId: headerValue(req, 'x-od-workspace-member-id') ?? 'local-member',
+      role: role === 'admin' || role === 'member' ? role : 'owner',
+      memberStatus: headerValue(req, 'x-od-workspace-member-status') === 'removed' ? 'removed' : 'active',
+      lifecycleState: lifecycleState === 'billing_past_due' || lifecycleState === 'locked' || lifecycleState === 'deleting' || lifecycleState === 'deleted'
+        ? lifecycleState
+        : 'active',
+      writeEnabled: headerValue(req, 'x-od-workspace-write-enabled') !== 'false',
+    };
+  }
+  function isWorkspaceLocked(ctx: WorkspaceProjectContext): boolean {
+    return ctx.lifecycleState === 'locked' || ctx.lifecycleState === 'deleted' || !ctx.writeEnabled;
+  }
+  function projectAccess(wp: any, ctx: WorkspaceProjectContext) {
+    const frozen = wp.resourceState === 'frozen' || wp.resourceState === 'deleted' || isWorkspaceLocked(ctx);
+    const selfCreated = wp.createdByWorkspaceMemberId != null && wp.createdByWorkspaceMemberId === ctx.workspaceMemberId;
+    const privileged = ctx.role === 'owner' || ctx.role === 'admin';
+    const canMutate = !frozen && ctx.memberStatus === 'active' && (privileged || selfCreated);
+    const disabledReason = frozen
+      ? ctx.lifecycleState === 'deleted' || wp.resourceState === 'deleted'
+        ? 'workspace_deleted'
+        : 'workspace_locked'
+      : canMutate
+        ? undefined
+        : 'permission_denied';
+    return {
+      canOpen: !frozen && ctx.memberStatus === 'active',
+      canRename: canMutate,
+      canDelete: canMutate,
+      canDuplicate: canMutate,
+      canMoveToTeam: canMutate && wp.visibility === 'personal',
+      canMoveToPersonal: canMutate && wp.visibility === 'team',
+      canExport: !frozen && ctx.memberStatus === 'active',
+      canSendTo: !frozen && ctx.memberStatus === 'active',
+      canRestoreVersion: canMutate,
+      ...(disabledReason ? { disabledReason } : {}),
+    };
+  }
+  function normalizeWorkspaceProjectRow(row: any, ctx: WorkspaceProjectContext) {
+    let metadata: unknown;
+    try {
+      metadata = row.metadataJson ? JSON.parse(row.metadataJson) : undefined;
+    } catch {
+      metadata = undefined;
+    }
+    const project = {
+      id: row.id,
+      name: row.name,
+      skillId: row.skillId,
+      designSystemId: row.designSystemId,
+      pendingPrompt: row.pendingPrompt ?? undefined,
+      metadata,
+      appliedPluginSnapshotId: row.appliedPluginSnapshotId ?? undefined,
+      customInstructions: row.customInstructions ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+    const resourceState = isWorkspaceLocked(ctx) && row.workspaceVisibility === 'team'
+      ? 'frozen'
+      : row.resourceState;
+    const wp = {
+      visibility: row.workspaceVisibility,
+      resourceState,
+      createdByWorkspaceMemberId: row.createdByWorkspaceMemberId ?? null,
+    };
+    return {
+      id: project.id,
+      name: project.name,
+      workspaceId: row.workspaceId,
+      visibility: row.workspaceVisibility,
+      resourceState,
+      createdByWorkspaceMemberId: row.createdByWorkspaceMemberId ?? null,
+      updatedByWorkspaceMemberId: row.updatedByWorkspaceMemberId ?? null,
+      currentUserAccess: projectAccess(wp, ctx),
+      syncState: row.syncState ?? 'local_only',
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      metadata,
+      project,
+    };
+  }
+  function ensureWorkspaceProjection(project: any, ctx: WorkspaceProjectContext, visibility = 'personal') {
+    const existing = getWorkspaceProject(db, project.id);
+    return existing ?? ensureWorkspaceProject(db, {
+      projectId: project.id,
+      workspaceId: ctx.workspaceId,
+      visibility,
+      resourceState: 'active',
+      createdByWorkspaceMemberId: ctx.workspaceMemberId,
+      updatedByWorkspaceMemberId: ctx.workspaceMemberId,
+      syncState: 'local_only',
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+    });
+  }
+  function workspaceProjectRowsForIds(projectIds: string[], ctx: WorkspaceProjectContext) {
+    for (const id of projectIds) {
+      const project = getProject(db, id);
+      if (project) ensureWorkspaceProjection(project, ctx, 'personal');
+    }
+    return listWorkspaceProjects(db, ctx.workspaceId);
+  }
   async function loadPluginRegistryView() {
     const [skills, designSystems] = await Promise.all([
       listSkills(SKILLS_DIR),
@@ -1416,6 +1547,142 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       res.json(body);
     } catch (err: any) {
       sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
+    }
+  });
+
+  app.get('/api/workspaces/:workspaceId/projects', async (req, res) => {
+    try {
+      const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      if (ctx.memberStatus === 'removed') {
+        /** @type {import('@open-design/contracts').WorkspaceProjectsResponse} */
+        const body = { projects: [] };
+        return res.json(body);
+      }
+      for (const project of listProjects(db)) {
+        ensureWorkspaceProjection(project, ctx, 'personal');
+      }
+      const view = typeof req.query.view === 'string' ? req.query.view : 'all';
+      const owner = typeof req.query.owner === 'string' ? req.query.owner : 'all';
+      const visibility = typeof req.query.visibility === 'string' ? req.query.visibility : 'all';
+      const rows = listWorkspaceProjects(db, ctx.workspaceId);
+      const projects = rows
+        .map((row: any) => normalizeWorkspaceProjectRow(row, ctx))
+        .filter((project: any) => {
+          if (view === 'drafts') {
+            return project.visibility === 'personal' && project.createdByWorkspaceMemberId === ctx.workspaceMemberId;
+          }
+          if (view === 'team') return project.visibility === 'team';
+          if (visibility === 'personal' || visibility === 'team') return project.visibility === visibility;
+          if (owner === 'mine') return project.createdByWorkspaceMemberId === ctx.workspaceMemberId;
+          if (owner === 'others') return project.createdByWorkspaceMemberId !== ctx.workspaceMemberId;
+          return true;
+        });
+      /** @type {import('@open-design/contracts').WorkspaceProjectsResponse} */
+      const body = { projects };
+      res.json(body);
+    } catch (err: any) {
+      sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
+    }
+  });
+
+  function validVisibility(value: unknown): value is 'personal' | 'team' {
+    return value === 'personal' || value === 'team';
+  }
+
+  function workspaceMoveAllowed(summary: any, targetVisibility: 'personal' | 'team'): boolean {
+    if (targetVisibility === 'team') return summary.currentUserAccess.canMoveToTeam;
+    return summary.currentUserAccess.canMoveToPersonal;
+  }
+
+  app.post('/api/workspaces/:workspaceId/projects/:projectId/move', async (req, res) => {
+    try {
+      const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      const project = getProject(db, req.params.projectId);
+      if (!project) return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
+      const visibility = req.body?.visibility;
+      if (!validVisibility(visibility)) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'visibility must be personal or team');
+      }
+      const wp = ensureWorkspaceProjection(project, ctx, 'personal');
+      const row = listWorkspaceProjects(db, ctx.workspaceId).find((item: any) => item.id === project.id);
+      if (!row || !wp) return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
+      const summary = normalizeWorkspaceProjectRow(row, ctx);
+      if (!workspaceMoveAllowed(summary, visibility)) {
+        return sendApiError(res, 403, 'PROJECT_DELETE_FORBIDDEN', 'project move forbidden');
+      }
+      updateWorkspaceProject(db, project.id, {
+        workspaceId: ctx.workspaceId,
+        visibility,
+        updatedByWorkspaceMemberId: ctx.workspaceMemberId,
+        syncState: visibility === 'team' ? 'pending_upload' : 'local_only',
+      });
+      const updatedRow = listWorkspaceProjects(db, ctx.workspaceId).find((item: any) => item.id === project.id);
+      res.json({ project: normalizeWorkspaceProjectRow(updatedRow, ctx) });
+    } catch (err: any) {
+      sendApiError(res, 400, 'BAD_REQUEST', String(err));
+    }
+  });
+
+  app.post('/api/workspaces/:workspaceId/projects/batch-move', async (req, res) => {
+    try {
+      const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      const visibility = req.body?.visibility;
+      const projectIds = Array.isArray(req.body?.projectIds) ? req.body.projectIds.filter((id: unknown) => typeof id === 'string') : [];
+      if (!validVisibility(visibility) || projectIds.length === 0) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'projectIds and visibility are required');
+      }
+      const rows = workspaceProjectRowsForIds(projectIds, ctx);
+      const summaries = projectIds.map((id: string) => {
+        const row = rows.find((item: any) => item.id === id);
+        return row ? normalizeWorkspaceProjectRow(row, ctx) : null;
+      });
+      if (summaries.some((item: any) => !item)) return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
+      const forbidden = summaries.filter((item: any) => !workspaceMoveAllowed(item, visibility));
+      if (forbidden.length > 0) {
+        return sendApiError(res, 403, 'PROJECT_BATCH_CONTAINS_FORBIDDEN_ITEMS', 'batch contains forbidden projects');
+      }
+      const moveMany = db.transaction((ids: string[]) => {
+        for (const id of ids) {
+          updateWorkspaceProject(db, id, {
+            workspaceId: ctx.workspaceId,
+            visibility,
+            updatedByWorkspaceMemberId: ctx.workspaceMemberId,
+            syncState: visibility === 'team' ? 'pending_upload' : 'local_only',
+          });
+        }
+      });
+      moveMany(projectIds);
+      const updatedRows = listWorkspaceProjects(db, ctx.workspaceId);
+      const projects = projectIds.map((id: string) => normalizeWorkspaceProjectRow(updatedRows.find((row: any) => row.id === id), ctx));
+      res.json({ ok: true, projects });
+    } catch (err: any) {
+      sendApiError(res, 400, 'BAD_REQUEST', String(err));
+    }
+  });
+
+  app.post('/api/workspaces/:workspaceId/projects/batch-delete', async (req, res) => {
+    try {
+      const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      const projectIds = Array.isArray(req.body?.projectIds) ? req.body.projectIds.filter((id: unknown) => typeof id === 'string') : [];
+      if (projectIds.length === 0) return sendApiError(res, 400, 'BAD_REQUEST', 'projectIds are required');
+      const rows = workspaceProjectRowsForIds(projectIds, ctx);
+      const summaries = projectIds.map((id: string) => {
+        const row = rows.find((item: any) => item.id === id);
+        return row ? normalizeWorkspaceProjectRow(row, ctx) : null;
+      });
+      if (summaries.some((item: any) => !item)) return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
+      const forbidden = summaries.filter((item: any) => !item.currentUserAccess.canDelete);
+      if (forbidden.length > 0) {
+        return sendApiError(res, 403, 'PROJECT_BATCH_CONTAINS_FORBIDDEN_ITEMS', 'batch contains forbidden projects');
+      }
+      const deleteMany = db.transaction((ids: string[]) => {
+        for (const id of ids) dbDeleteProject(db, id);
+      });
+      deleteMany(projectIds);
+      for (const id of projectIds) await removeProjectDir(PROJECTS_DIR, id).catch(() => {});
+      res.json({ ok: true, deletedProjectIds: projectIds });
+    } catch (err: any) {
+      sendApiError(res, 400, 'BAD_REQUEST', String(err));
     }
   });
 

@@ -206,6 +206,10 @@ const PROJECT_STRING_FLAGS = new Set([
   'source',
 ]);
 const PROJECT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'follow']);
+const WORKSPACE_STRING_FLAGS = new Set([
+  'daemon-url', 'workspace', 'view', 'visibility', 'owner', 'project',
+]);
+const WORKSPACE_BOOLEAN_FLAGS = new Set(['help', 'h', 'json']);
 // `od templates …` mirrors NewProjectPanel / ExamplesTab. Same surface,
 // same /api/templates store. The CLI form is the embeddability contract:
 // external agents (hermes-agent, openclaw, ...) can snapshot, list, or
@@ -322,6 +326,7 @@ const SUBCOMMAND_MAP = {
   brand: runBrand,
   brands: runBrand,
   project: runProject,
+  workspace: runWorkspace,
   automation: runAutomation,
   automations: runAutomation,
   memory: runMemory,
@@ -1336,6 +1341,26 @@ function positionalArgs(argv, stringFlags = new Set()) {
     if (eq < 0 && stringFlags.has(key)) i++;
   }
   return out;
+}
+
+function repeatableFlagValues(argv, name) {
+  const values = [];
+  const prefix = `--${name}=`;
+  for (let i = 0; i < argv.length; i++) {
+    const item = argv[i];
+    if (typeof item !== 'string') continue;
+    if (item.startsWith(prefix)) {
+      const value = item.slice(prefix.length).trim();
+      if (value) values.push(value);
+      continue;
+    }
+    if (item === `--${name}`) {
+      const value = typeof argv[i + 1] === 'string' ? argv[i + 1].trim() : '';
+      if (value && !value.startsWith('--')) values.push(value);
+      i++;
+    }
+  }
+  return values;
 }
 
 async function cliDaemonUrl(flags) {
@@ -6215,6 +6240,113 @@ Common options:
     }
     default:
       console.error(`unknown subcommand: od project ${sub}`);
+      process.exit(2);
+  }
+}
+
+async function runWorkspace(args) {
+  if (args.length === 0 || args[0] === 'help' || args.includes('--help') || args.includes('-h')) {
+    console.log(`Usage:
+  od workspace projects list --workspace <id> [--view recent|drafts|team|all] [--json]
+  od workspace projects move <projectId> --workspace <id> --visibility personal|team [--json]
+  od workspace projects batch-delete --workspace <id> --project <id> [--project <id> ...] [--json]
+  od workspace projects batch-move --workspace <id> --visibility personal|team --project <id> [--project <id> ...] [--json]
+
+Common options:
+  --daemon-url <url>   Open Design daemon HTTP base.
+  --json               Emit raw JSON.`);
+    process.exit(args.length === 0 ? 2 : 0);
+  }
+  const area = args[0];
+  if (area !== 'projects') {
+    console.error(`unknown subcommand: od workspace ${area}`);
+    process.exit(2);
+  }
+  const sub = args[1] ?? 'list';
+  const rest = args.slice(2);
+  const flags = parseFlags(rest, { string: WORKSPACE_STRING_FLAGS, boolean: WORKSPACE_BOOLEAN_FLAGS });
+  const workspaceId = typeof flags.workspace === 'string' && flags.workspace.trim() ? flags.workspace.trim() : '';
+  if (!workspaceId) {
+    console.error('--workspace <id> is required');
+    process.exit(2);
+  }
+  const base = (await projectDaemonUrl(flags)).replace(/\/$/, '');
+  const projectIds = repeatableFlagValues(rest, 'project');
+  async function request(path, init) {
+    const resp = await fetch(`${base}${path}`, init);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      console.error(`${init?.method ?? 'GET'} ${path} failed: ${resp.status} ${JSON.stringify(data)}`);
+      process.exit(1);
+    }
+    return data;
+  }
+  switch (sub) {
+    case 'list': {
+      const params = new URLSearchParams();
+      if (flags.view) params.set('view', String(flags.view));
+      if (flags.visibility) params.set('visibility', String(flags.visibility));
+      if (flags.owner) params.set('owner', String(flags.owner));
+      const suffix = params.toString() ? `?${params}` : '';
+      const data = await request(`/api/workspaces/${encodeURIComponent(workspaceId)}/projects${suffix}`);
+      if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      const projects = data?.projects ?? [];
+      if (projects.length === 0) {
+        console.log('No workspace projects.');
+        return;
+      }
+      for (const p of projects) {
+        console.log(`${p.id}\t${p.visibility}\t${p.resourceState}\t${p.name}`);
+      }
+      return;
+    }
+    case 'move': {
+      const projectId = positionalArgs(rest, WORKSPACE_STRING_FLAGS)[0];
+      const visibility = String(flags.visibility ?? '');
+      if (!projectId || !['personal', 'team'].includes(visibility)) {
+        console.error('Usage: od workspace projects move <projectId> --workspace <id> --visibility personal|team [--json]');
+        process.exit(2);
+      }
+      const data = await request(`/api/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/move`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ visibility }),
+      });
+      if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      console.log(`[workspace] moved ${projectId} to ${visibility}`);
+      return;
+    }
+    case 'batch-delete': {
+      if (projectIds.length === 0) {
+        console.error('Usage: od workspace projects batch-delete --workspace <id> --project <id> [--project <id> ...] [--json]');
+        process.exit(2);
+      }
+      const data = await request(`/api/workspaces/${encodeURIComponent(workspaceId)}/projects/batch-delete`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectIds }),
+      });
+      if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      console.log(`[workspace] deleted ${projectIds.length} project(s)`);
+      return;
+    }
+    case 'batch-move': {
+      const visibility = String(flags.visibility ?? '');
+      if (projectIds.length === 0 || !['personal', 'team'].includes(visibility)) {
+        console.error('Usage: od workspace projects batch-move --workspace <id> --visibility personal|team --project <id> [--project <id> ...] [--json]');
+        process.exit(2);
+      }
+      const data = await request(`/api/workspaces/${encodeURIComponent(workspaceId)}/projects/batch-move`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectIds, visibility }),
+      });
+      if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      console.log(`[workspace] moved ${projectIds.length} project(s) to ${visibility}`);
+      return;
+    }
+    default:
+      console.error(`unknown subcommand: od workspace projects ${sub}`);
       process.exit(2);
   }
 }

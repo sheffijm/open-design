@@ -69,6 +69,20 @@ async function startProjectStubServer(): Promise<StubServer> {
         }));
         return;
       }
+      if (captured.method === 'GET' && captured.url === '/api/workspaces/ws-1/projects?view=team') {
+        res.statusCode = 200;
+        res.end(JSON.stringify({
+          projects: [
+            { id: 'project-1', name: 'Project One', visibility: 'team', resourceState: 'active' },
+          ],
+        }));
+        return;
+      }
+      if (captured.method === 'POST' && captured.url === '/api/workspaces/ws-1/projects/batch-delete') {
+        res.statusCode = 200;
+        res.end(JSON.stringify({ ok: true, deletedProjectIds: ['project-1', 'project-2'] }));
+        return;
+      }
 
       res.statusCode = 404;
       res.end(JSON.stringify({ error: { code: 'unexpected-request', message: captured.url } }));
@@ -171,5 +185,62 @@ describe('od project CLI', () => {
       url: '/api/projects/source-project/duplicate',
     });
     expect(JSON.parse(stub.requests[0]!.body)).toEqual({ name: 'Duplicate Copy' });
+  });
+
+  it('lists workspace projects through the workspace-scoped API', async () => {
+    stub = await startProjectStubServer();
+
+    const result = await runCli([
+      'workspace',
+      'projects',
+      'list',
+      '--workspace',
+      'ws-1',
+      '--view',
+      'team',
+      '--json',
+      '--daemon-url',
+      stub.baseUrl,
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      projects: [{ id: 'project-1', visibility: 'team' }],
+    });
+    expect(stub.requests).toHaveLength(1);
+    expect(stub.requests[0]).toMatchObject({
+      method: 'GET',
+      url: '/api/workspaces/ws-1/projects?view=team',
+    });
+  });
+
+  it('sends repeatable project ids for workspace batch delete', async () => {
+    stub = await startProjectStubServer();
+
+    const result = await runCli([
+      'workspace',
+      'projects',
+      'batch-delete',
+      '--workspace',
+      'ws-1',
+      '--project',
+      'project-1',
+      '--project',
+      'project-2',
+      '--json',
+      '--daemon-url',
+      stub.baseUrl,
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toEqual({ ok: true, deletedProjectIds: ['project-1', 'project-2'] });
+    expect(stub.requests).toHaveLength(1);
+    expect(stub.requests[0]).toMatchObject({
+      method: 'POST',
+      url: '/api/workspaces/ws-1/projects/batch-delete',
+      body: JSON.stringify({ projectIds: ['project-1', 'project-2'] }),
+    });
   });
 });

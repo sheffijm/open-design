@@ -309,6 +309,69 @@ export interface ProjectDetailResponse extends ProjectResponse {
   resolvedDir: string;
 }
 
+export type ProjectVisibility = 'personal' | 'team';
+
+export type TeamResourceState = 'active' | 'frozen' | 'deleted';
+
+export type WorkspaceProjectRole = 'owner' | 'admin' | 'member';
+
+export type WorkspaceLifecycleState = 'active' | 'billing_past_due' | 'locked' | 'deleting' | 'deleted';
+
+export type ProjectSyncState = 'local_only' | 'pending_upload' | 'synced' | 'sync_failed';
+
+export type ProjectDisabledReason =
+  | 'workspace_locked'
+  | 'workspace_deleted'
+  | 'permission_denied'
+  | 'sync_pending'
+  | 'resource_frozen';
+
+export interface ProjectAccessFlags {
+  canOpen: boolean;
+  canRename: boolean;
+  canDelete: boolean;
+  canDuplicate: boolean;
+  canMoveToTeam: boolean;
+  canMoveToPersonal: boolean;
+  canExport: boolean;
+  canSendTo: boolean;
+  canRestoreVersion: boolean;
+  disabledReason?: ProjectDisabledReason;
+}
+
+export interface WorkspaceProjectSummary {
+  id: string;
+  name: string;
+  workspaceId: string;
+  visibility: ProjectVisibility;
+  resourceState: TeamResourceState;
+  createdByWorkspaceMemberId: string | null;
+  updatedByWorkspaceMemberId?: string | null;
+  currentUserAccess: ProjectAccessFlags;
+  syncState?: ProjectSyncState;
+  createdAt: number;
+  updatedAt: number;
+  metadata?: ProjectMetadata;
+  project: Project;
+}
+
+export interface WorkspaceProjectsResponse {
+  projects: WorkspaceProjectSummary[];
+}
+
+export interface MoveWorkspaceProjectRequest {
+  visibility: ProjectVisibility;
+}
+
+export interface BatchDeleteWorkspaceProjectsRequest {
+  projectIds: string[];
+}
+
+export interface BatchMoveWorkspaceProjectsRequest {
+  projectIds: string[];
+  visibility: ProjectVisibility;
+}
+
 export interface CreateProjectResponse extends ProjectResponse {
   conversationId?: string;
   appliedPluginSnapshotId?: string;
