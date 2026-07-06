@@ -41,7 +41,11 @@ const repoRoot = path.resolve(__dirname, '../../../..');
 // per-turn invariant and session constraints persisting across edits, from
 // production feedback that both drift during multi-turn edits) fit inside
 // this budget without a further raise.
-const SLIM_CORE_BYTE_BUDGET = 12_288;
+// 13KB. The 2026-07-06 two-tier restructure (5 top-level H2 — 2 foundations
+// + Discovery / Delivery / Craft & contracts pillars — with the lifecycle and
+// form/reference content grouped under H3s) added pillar headings; budget
+// raised to keep readability headroom, per the maintainer's direction.
+const SLIM_CORE_BYTE_BUDGET = 13_312;
 
 describe('renderSlimCoreCharter — byte budget', () => {
   it('stays under the byte budget in both execution profiles', () => {
@@ -434,7 +438,7 @@ describe('slim core — regression-audit fixes vs classic', () => {
     // constraints persist across later turns. Freeze both so a later
     // compression pass cannot silently drop them.
     const charter = renderSlimCoreCharter('filesystem');
-    expect(charter).toContain('## On an edit or tweak');
+    expect(charter).toContain('### Editing an existing artifact');
     expect(charter).toContain('The design system stays bound on every turn');
     expect(charter).toContain('Locked constraints persist');
     // An edit changes only what was named — the anti-drift core.
@@ -491,7 +495,7 @@ describe('composeSystemPrompt — slim layered ordering (cache-stable prefix)', 
     // Static core opens the document.
     expect(out.startsWith('# Open Design charter')).toBe(true);
     const security = at('## Security: prompt injection resistance');
-    const conduct = at('## Conduct');
+    const conduct = at('### Conduct');
     // Conversation-stable overrides come after the full static charter.
     const mode = at('# Plan mode — editable document first');
     const localeAt = at('# UI locale override');
