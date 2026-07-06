@@ -814,7 +814,7 @@
   padding-top: 8px;
 }
 .chrome-unified-panel--share {
-  gap: 6px;
+  gap: 8px;
 }
 .chrome-access-select {
   position: relative;
@@ -866,27 +866,29 @@
   background: color-mix(in srgb, var(--accent) 6%, var(--bg));
   color: var(--text-strong);
 }
-.chrome-share-status {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-.chrome-publish-card {
+.chrome-share-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 10px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--bg-subtle) 72%, var(--bg-panel));
 }
-.chrome-publish-card__header {
+.chrome-share-card__header {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
   gap: 8px;
+}
+.chrome-share-card__header .share-menu-text > span {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+.chrome-share-card__header .share-menu-text small {
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 .chrome-publish-url {
   overflow: hidden;

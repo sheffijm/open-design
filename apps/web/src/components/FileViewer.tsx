@@ -9057,11 +9057,11 @@ function HtmlViewer({
                 </button>
                 {deployMenuOpen && (canShare || canDownload) ? (
                   <div className="share-menu-popover chrome-unified-popover" role="menu">
-                    <div className="chrome-unified-tabs" role="tablist" aria-label="Share and export actions">
+                    <div className="chrome-unified-tabs" role="tablist" aria-label="分享和导出操作">
                       {([
-                        ['share', 'Share link'],
-                        ['export', 'Export'],
-                        ['send', 'Send to...'],
+                        ['share', '分享'],
+                        ['export', '导出'],
+                        ['send', '发送到...'],
                       ] as const).map(([tab, label]) => (
                         <button
                           key={tab}
@@ -9116,70 +9116,75 @@ function HtmlViewer({
                           </>
                         ) : (
                           <>
-                            <div className="share-menu-section-label" role="presentation">
-                              Share project in Workspace
-                            </div>
-                            <p className="chrome-share-status">
-                              {shareAccess === 'private'
-                                ? 'Only you can access this project. Choose Workspace members to share it with your team.'
-                                : 'Team members in this Workspace can access this project.'}
-                            </p>
-                            <div className="chrome-access-select">
-                              <button
-                                type="button"
-                                className="chrome-access-trigger"
-                                aria-haspopup="listbox"
-                                aria-expanded={shareAccessMenuOpen}
-                                onClick={() => setShareAccessMenuOpen((v) => !v)}
-                              >
-                                <span className="share-menu-icon">
-                                  <RemixIcon
-                                    name={
-                                      shareAccess === 'private'
-                                        ? 'lock-line'
-                                        : 'team-line'
-                                    }
-                                    size={16}
-                                  />
+                            <div className="chrome-share-card">
+                              <div className="chrome-share-card__header">
+                                <span className="share-menu-icon"><RemixIcon name="team-line" size={16} /></span>
+                                <span className="share-menu-text">
+                                  <span>在工作空间中分享项目</span>
+                                  <small>
+                                    {shareAccess === 'private'
+                                      ? '仅你可以访问此项目。选择工作空间成员后，即可分享给团队。'
+                                      : '此工作空间的成员可以访问此项目。'}
+                                  </small>
                                 </span>
-                                <span>
-                                  {shareAccess === 'private'
-                                    ? 'Only you'
-                                    : 'Workspace members'}
-                                </span>
-                                <RemixIcon name="arrow-down-s-line" size={16} />
-                              </button>
-                              {shareAccessMenuOpen ? (
-                                <div className="chrome-access-options" role="listbox">
-                                  {([
-                                    ['private', 'lock-line', 'Only you'],
-                                    ['workspace', 'team-line', 'Workspace members'],
-                                  ] as const).map(([value, icon, label]) => (
-                                    <button
-                                      key={value}
-                                      type="button"
-                                      role="option"
-                                      aria-selected={shareAccess === value}
-                                      className={shareAccess === value ? 'is-active' : undefined}
-                                      onClick={() => {
-                                        setShareAccess(value);
-                                        setShareAccessMenuOpen(false);
-                                      }}
-                                    >
-                                      <span className="share-menu-icon"><RemixIcon name={icon} size={16} /></span>
-                                      <span>{label}</span>
-                                      {shareAccess === value ? <RemixIcon name="check-line" size={15} /> : null}
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null}
+                              </div>
+                              <div className="chrome-access-select">
+                                <button
+                                  type="button"
+                                  className="chrome-access-trigger"
+                                  aria-haspopup="listbox"
+                                  aria-expanded={shareAccessMenuOpen}
+                                  onClick={() => setShareAccessMenuOpen((v) => !v)}
+                                >
+                                  <span className="share-menu-icon">
+                                    <RemixIcon
+                                      name={
+                                        shareAccess === 'private'
+                                          ? 'lock-line'
+                                          : 'team-line'
+                                      }
+                                      size={16}
+                                    />
+                                  </span>
+                                  <span>
+                                    {shareAccess === 'private'
+                                      ? '仅自己'
+                                      : '工作空间成员'}
+                                  </span>
+                                  <RemixIcon name="arrow-down-s-line" size={16} />
+                                </button>
+                                {shareAccessMenuOpen ? (
+                                  <div className="chrome-access-options" role="listbox">
+                                    {([
+                                      ['private', 'lock-line', '仅自己'],
+                                      ['workspace', 'team-line', '工作空间成员'],
+                                    ] as const).map(([value, icon, label]) => (
+                                      <button
+                                        key={value}
+                                        type="button"
+                                        role="option"
+                                        aria-selected={shareAccess === value}
+                                        className={shareAccess === value ? 'is-active' : undefined}
+                                        onClick={() => {
+                                          setShareAccess(value);
+                                          setShareAccessMenuOpen(false);
+                                        }}
+                                      >
+                                        <span className="share-menu-icon"><RemixIcon name={icon} size={16} /></span>
+                                        <span>{label}</span>
+                                        {shareAccess === value ? <RemixIcon name="check-line" size={15} /> : null}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
-                            <div className="chrome-publish-card">
-                              <div className="chrome-publish-card__header">
+                            <div className="chrome-share-card">
+                              <div className="chrome-share-card__header">
                                 <span className="share-menu-icon"><RemixIcon name="broadcast-line" size={16} /></span>
                                 <span className="share-menu-text">
-                                  <span>Publish file for everyone</span>
-                                  <small>Make this single file externally visible. Anyone with the published link can view it online.</small>
+                                  <span>发布单个文件给所有人</span>
+                                  <small>将当前单个文件设为外部可见。任何获得发布链接的人都可以在线查看。</small>
                                 </span>
                               </div>
                               {filePublished ? (
@@ -9200,14 +9205,14 @@ function HtmlViewer({
                                         ? t('fileViewer.copied')
                                         : publishLinkFeedback === 'failed'
                                           ? t('useEverywhere.copyFailed')
-                                          : 'Copy link'}
+                                          : '复制链接'}
                                     </button>
                                     <button
                                       type="button"
                                       className="chrome-publish-button chrome-publish-button--ghost"
                                       onClick={() => setFilePublished(false)}
                                     >
-                                      Unpublish
+                                      取消发布
                                     </button>
                                   </div>
                                 </>
@@ -9218,7 +9223,7 @@ function HtmlViewer({
                                   onClick={() => setFilePublished(true)}
                                 >
                                   <RemixIcon name="upload-cloud-2-line" size={15} />
-                                  Publish file
+                                  发布文件
                                 </button>
                               )}
                             </div>
