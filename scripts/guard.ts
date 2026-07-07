@@ -129,6 +129,8 @@ const residualAllowedExactPaths = new Set([
   "tools/pack/resources/mac/notarize.cjs",
   // electron-builder hook path; CJS compatibility entry used by tools-pack desktop builds.
   "tools/pack/resources/web-standalone-after-pack.cjs",
+  // electron-builder hook path; places the Go launcher in the mac bundle exec slot.
+  "tools/pack/resources/launcher-after-pack.cjs",
 ]);
 
 const residualAllowedPathPrefixes = [
