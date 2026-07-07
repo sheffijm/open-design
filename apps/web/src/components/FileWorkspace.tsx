@@ -2807,6 +2807,7 @@ export function FileWorkspace({
           <DesignFilesPanel
             key={projectId}
             projectId={projectId}
+            viewerOnly={viewerOnly}
             rootDirName={rootDirName}
             reloading={reloading}
             running={Boolean(streaming)}
