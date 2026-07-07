@@ -105,6 +105,7 @@ const HOME_PLUGINS = [
       od: {
         kind: 'scenario',
         taskKind: 'new-generation',
+        preview: { entry: './example.html' },
         useCase: {
           query:
             'Build a {{fidelity}} {{artifactKind}} for {{audience}} using {{designSystem}} from {{template}}.',
@@ -1203,6 +1204,10 @@ test('[P1] home Brand Kit chip opens design-system creation and starts brand ext
     .poll(() => brandRequests.at(-1)?.url)
     .toBe('https://acme.example.com');
   await expect(page).toHaveURL(/\/projects\/brand-project-acme$/);
+  await expect(page.getByTestId('file-workspace')).toBeVisible();
+  await expect(page.getByTestId('design-system-project-tab')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('design-system-project-tab-panel')).toBeVisible();
+  await expect(page.getByTestId('design-system-extraction-status')).toContainText(/Extracting design system|正在提取|正在擷取/i);
 });
 
 test('[P1] brand-backed design system previews as a Brand Kit and carries into project creation', async ({ page }) => {
@@ -1615,6 +1620,72 @@ test('[P1] home hero example preset Copy failure keeps Home retryable', async ({
   await expect(duplicateButton).toBeEnabled();
 });
 
+test('[P1] home hero preset inline Use and Duplicate actions work from the template card', async ({ page }) => {
+  const duplicateRequests: Array<{ name?: string }> = [];
+  await page.route('**/api/plugins/example-web-prototype/duplicate-project', async (route) => {
+    duplicateRequests.push(route.request().postDataJSON() as { name?: string });
+    await route.fulfill({
+      json: {
+        ok: true,
+        sourcePluginId: 'example-web-prototype',
+        projectId: 'web-prototype-template-project',
+        conversationId: 'web-prototype-template-conversation',
+        relPath: 'index.html',
+      },
+    });
+  });
+  await page.route('**/api/projects/web-prototype-template-project', async (route) => {
+    await route.fulfill({
+      json: {
+        project: {
+          id: 'web-prototype-template-project',
+          name: 'Web Prototype',
+          path: '/tmp/open-design/web-prototype-template-project',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          metadata: { kind: 'prototype', duplicatedFromPluginId: 'example-web-prototype' },
+        },
+      },
+    });
+  });
+  await page.route('**/api/projects/web-prototype-template-project/conversations', async (route) => {
+    await route.fulfill({
+      json: {
+        conversations: [
+          {
+            id: 'web-prototype-template-conversation',
+            title: 'Web Prototype',
+            projectId: 'web-prototype-template-project',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            sessionMode: 'design',
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/projects/web-prototype-template-project/conversations/*/messages**', async (route) => {
+    await route.fulfill({ json: { messages: [] } });
+  });
+
+  await gotoEntryHome(page);
+  await page.getByTestId('home-hero-rail-prototype').click();
+  const card = page.locator('[data-testid="home-hero-plugin-preset"][data-plugin-id="example-web-prototype"]');
+  await card.hover();
+
+  await page.getByTestId('home-hero-plugin-preset-use-example-web-prototype').click();
+  await expect(page.getByTestId('home-hero-input')).toHaveText(
+    'Build a high-fidelity web prototype for product evaluators using the active project design system from the bundled web prototype seed.',
+  );
+
+  await card.hover();
+  await page.getByTestId('home-hero-plugin-preset-duplicate-example-web-prototype').click();
+  await expect
+    .poll(() => duplicateRequests.at(-1)?.name)
+    .toBe('Web Prototype');
+  await expect(page).toHaveURL(/\/projects\/web-prototype-template-project/);
+});
+
 test('[P1] home hero deck example preset updates the composer input', async ({ page }) => {
   await gotoEntryHome(page);
 
@@ -1938,15 +2009,17 @@ async function routeBrandExtraction(
   page: Page,
   requests: Array<{ url?: string; locale?: string }>,
 ) {
+  let started = false;
   await page.route('**/api/brands', async (route) => {
     const request = route.request();
     if (request.method() === 'GET') {
-      await route.fulfill({ json: { brands: [] } });
+      await route.fulfill({ json: { brands: started ? [{ ...ACME_BRAND, meta: { ...ACME_BRAND.meta, status: 'extracting' } }] : [] } });
       return;
     }
     if (request.method() === 'POST') {
       const body = request.postDataJSON() as { url?: string; locale?: string };
       requests.push(body);
+      started = true;
       await route.fulfill({
         json: {
           id: 'brand-acme',
@@ -1975,11 +2048,35 @@ async function routeBrandExtraction(
           metadata: {
             kind: 'brand',
             importedFrom: 'brand-extraction',
+            brandId: 'brand-acme',
+            brandSourceUrl: 'https://acme.example.com',
             brandDesignSystemId: BRAND_DESIGN_SYSTEM.id,
           },
         },
       },
     });
+  });
+  await page.route('**/api/projects/brand-project-acme/conversations', async (route) => {
+    const conversation = {
+      id: 'conv-brand-acme',
+      title: 'Acme Brand Kit',
+      projectId: 'brand-project-acme',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      sessionMode: 'design',
+    };
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ json: { conversation } });
+      return;
+    }
+    await route.fulfill({ json: { conversations: [conversation] } });
+  });
+  await page.route('**/api/projects/brand-project-acme/conversations/*/messages**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { messages: [] } });
+      return;
+    }
+    await route.fulfill({ json: { ok: true } });
   });
 }
 

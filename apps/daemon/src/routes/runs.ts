@@ -31,7 +31,14 @@ import {
   readCodexRolloutFirstCall,
 } from '../codex-rollout-usage.js';
 import type { ConnectorService } from '../connectors/service.js';
-import { getProject, listConversations, updateProject, upsertMessage } from '../db.js';
+import {
+  getConversation,
+  getProject,
+  listConversations,
+  normalizeConversationSessionMode,
+  updateProject,
+  upsertMessage,
+} from '../db.js';
 import { readVelaLoginStatus } from '../integrations/vela.js';
 import {
   deriveLangfuseDeliveryState,
@@ -140,6 +147,8 @@ interface ChatRun {
   appliedPluginSnapshotId?: string | null;
   pluginId?: string | null;
   clientType?: 'desktop' | 'web';
+  sessionMode?: string | null;
+  context?: Record<string, unknown> | null;
   events: RunEventRecord[];
   clients: Set<SseClient>;
   analyticsContext?: AnalyticsContext;
@@ -283,7 +292,7 @@ export interface RegisterRunRoutesDeps {
   };
   telemetry: {
     reportRunCompletionTelemetryFallback: (input: RunCreatedFallbackInput) => void;
-    resolveRunProjectKindForAnalytics: (input: RunProjectKindInput) => string;
+    resolveRunProjectKindForAnalytics: (input: RunProjectKindInput) => string | null;
     runArtifactBaselines: RunArtifactBaselines;
     runRetryEventsForAnalytics: (events: RunEventRecord[]) => RunRetryAnalyticsEvent[];
   };
@@ -595,6 +604,14 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
     if (runProject?.metadata) {
       meta.projectMetadata = runProject.metadata;
     }
+    const conversationSession =
+      typeof meta.conversationId === 'string' && meta.conversationId
+        ? getConversation(db, meta.conversationId)
+        : null;
+    meta.sessionMode =
+      meta.sessionMode === 'chat' || meta.sessionMode === 'design' || meta.sessionMode === 'plan'
+        ? normalizeConversationSessionMode(meta.sessionMode)
+        : normalizeConversationSessionMode(conversationSession?.sessionMode);
     if (
       typeof meta.projectId === 'string' &&
       meta.projectId &&
@@ -778,9 +795,15 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
       const hintHasExistingArtifact = typeof analyticsHints.hasExistingArtifact === 'boolean'
         ? analyticsHints.hasExistingArtifact
         : undefined;
+      const hintProjectTurnIndex = typeof analyticsHints.projectTurnIndex === 'number'
+        ? analyticsHints.projectTurnIndex
+        : undefined;
       const sessionDimensionProps = {
         ...(hintTurnIndex !== undefined ? { turn_index: hintTurnIndex } : {}),
         ...(hintIsFirstRun !== undefined ? { is_first_run: hintIsFirstRun } : {}),
+        ...(hintProjectTurnIndex !== undefined
+          ? { project_turn_index: hintProjectTurnIndex }
+          : {}),
         ...(hintHasExistingArtifact !== undefined
           ? { has_existing_artifact: hintHasExistingArtifact }
           : {}),
