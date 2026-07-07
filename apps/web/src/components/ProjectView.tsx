@@ -4736,7 +4736,7 @@ export function ProjectView({
           // (and re-popping a dialog) on every unrelated state change; any
           // later send that passes the gate lifts it, and a manual "run now"
           // on a queued item bypasses it deliberately.
-          const parkBlockedSend = () => {
+          const queueGateSend = () => {
             if (!retryTarget && !meta?.queueDrain) {
               queueChatSendForCurrentConversation({
                 conversationId: gateConversationId,
@@ -4746,12 +4746,20 @@ export function ProjectView({
                 meta: { ...(meta ?? {}), sessionMode: runSessionMode },
               });
             }
+          };
+          const parkBlockedSend = () => {
+            queueGateSend();
             amrGatePausedQueueConversationsRef.current.add(gateConversationId);
           };
           // The await may have raced a conversation switch; re-run the entry
           // guard before touching any state so this stale closure can't write
-          // the old conversation's messages into the now-visible view.
-          if (messagesConversationIdRef.current !== activeConversationId) return false;
+          // the old conversation's messages into the now-visible view. The
+          // composer has already cleared, so keep the full payload queued for
+          // the original conversation instead of dropping it.
+          if (messagesConversationIdRef.current !== activeConversationId) {
+            queueGateSend();
+            return false;
+          }
           if (gate.kind === 'hard') {
             setAmrBalanceGateBlock({
               reason: gate.reason,
