@@ -66,6 +66,19 @@ export interface ManifestEntryInput {
   symlinkTarget?: string | null;
 }
 
+export interface ManifestEntry {
+  path: string;
+  type: 'file' | 'dir' | 'symlink';
+  executable: boolean;
+  blobDigest: string | null;
+  symlinkTarget: string | null;
+}
+
+export interface Manifest {
+  digest: string;
+  entries: ManifestEntry[];
+}
+
 export interface PublishVersionInput {
   manifestDigest: string;
   entries: ManifestEntryInput[];
@@ -226,7 +239,7 @@ export function createResourceHubClient(options: ResourceHubClientOptions = {}) 
 
     async createResource(
       principal: ResourceHubPrincipal,
-      input: { kind: ResourceKind; resourceId?: string },
+      input: { kind: string; resourceId?: string },
     ): Promise<ResourceRecord> {
       return request<ResourceRecord>(
         principal,
@@ -259,6 +272,29 @@ export function createResourceHubClient(options: ResourceHubClientOptions = {}) 
         'POST',
         `/api/v1/resources/${encodeURIComponent(resourceId)}/versions`,
         input,
+      );
+    },
+
+    async listVersions(
+      principal: ResourceHubPrincipal,
+      resourceId: string,
+    ): Promise<VersionRecord[]> {
+      const body = await request<{ versions: VersionRecord[] }>(
+        principal,
+        'GET',
+        `/api/v1/resources/${encodeURIComponent(resourceId)}/versions`,
+      );
+      return body.versions ?? [];
+    },
+
+    async getManifest(
+      principal: ResourceHubPrincipal,
+      digest: string,
+    ): Promise<Manifest> {
+      return request<Manifest>(
+        principal,
+        'GET',
+        `/api/v1/resources/manifests/${encodeURIComponent(digest)}`,
       );
     },
 
