@@ -1,6 +1,6 @@
 import { expect, test } from '@/playwright/suite';
 import { ensureRailOpen } from '@/playwright/rail';
-import type { Page, Request } from '@playwright/test';
+import type { Locator, Page, Request } from '@playwright/test';
 import { applyStandardMocks, fulfillAgentsRoute, STORAGE_KEY } from '@/playwright/mock-factory';
 import { T } from '@/timeouts';
 const LOCAL_CLI_LABEL = /Local CLI|本机 CLI|本地 CLI/i;
@@ -910,7 +910,8 @@ test('[P1] home starters category tabs and subcategory tabs switch the gallery s
   for (const [category, visibleId, hiddenId] of categoryCases) {
     const pill = home.getByTestId(`plugins-home-pill-category-${category}`);
     await pill.scrollIntoViewIfNeeded();
-    await pill.evaluate((element) => (element as HTMLButtonElement).click());
+    await expect(pill).toBeVisible();
+    await pill.click();
     await expect(pill).toHaveAttribute('aria-selected', 'true');
     await expect(home.locator(`[data-plugin-id="${visibleId}"]`)).toBeVisible();
     await expect(home.locator(`[data-plugin-id="${hiddenId}"]`)).toHaveCount(0);
@@ -1041,7 +1042,7 @@ test('[P1] home starters gallery card click opens the large preview detail modal
   await expect(card).toHaveAttribute('data-preview-kind', 'html');
   await expect(card.locator('.plugins-home__gallery-frame')).toBeVisible();
 
-  await card.dispatchEvent('click');
+  await clickCardAtActionablePoint(page, card);
   const dialog = page.getByRole('dialog', { name: /Community Gallery Plugin preview/i });
   await expect(dialog).toBeVisible();
   await expect(dialog.locator('.ds-modal-stage')).toBeVisible();
@@ -1110,14 +1111,7 @@ test('[P1] home starters gallery duplicate creates a project and exposes the ret
 
   await gotoEntryHome(page);
   const home = await revealHomeTemplates(page);
-  const card = home.locator('article.plugins-home__card[data-plugin-id="duplicate-gallery-plugin"]');
-  await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute('data-preview-kind', 'html');
-
-  await card
-    .getByTestId('plugins-home-duplicate-duplicate-gallery-plugin')
-    .first()
-    .dispatchEvent('click');
+  await duplicatePluginFromDetails(page, 'duplicate-gallery-plugin', /Duplicate Gallery Plugin/i, home);
 
   await expect
     .poll(() => duplicateRequests.at(-1)?.name)
@@ -1157,19 +1151,15 @@ test('[P1] home starters gallery duplicate failure recovers without leaving Home
 
   await gotoEntryHome(page);
   const home = await revealHomeTemplates(page);
-  const card = home.locator('article.plugins-home__card[data-plugin-id="duplicate-failure-plugin"]');
-  await expect(card).toBeVisible();
-
-  const duplicateButton = card.getByTestId('plugins-home-duplicate-duplicate-failure-plugin').first();
-  await duplicateButton.dispatchEvent('click');
+  await duplicatePluginFromDetails(page, 'duplicate-failure-plugin', /Duplicate Failure Plugin/i, home);
 
   await expect
     .poll(() => duplicateRequests.at(-1)?.name)
     .toBe('Duplicate Failure Plugin');
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.home-hero__error')).toContainText('Could not remix this template.');
-  await expect(duplicateButton).not.toHaveAttribute('aria-busy', 'true');
-  await expect(duplicateButton).toBeEnabled();
+  await expect(page.getByTestId('home-hero-input')).toBeVisible();
+  await expect(page.getByTestId('home-hero-submit')).toBeEnabled();
 });
 
 test('[P2] home starters html details modal exposes header actions and closes from the close button', async ({ page }) => {
@@ -2002,17 +1992,19 @@ async function gotoEntryHome(page: Page) {
 
 async function revealHomeTemplates(page: Page) {
   const home = page.locator('[data-testid="entry-view-home"][data-active="true"]');
+  const section = home.getByTestId('plugins-home-section');
   const hint = home.getByTestId('home-templates-hint');
   if (await hint.count()) {
     await page.mouse.wheel(0, 900);
     if (!(await home.locator('.home-templates-reveal').evaluate((node) => node.classList.contains('is-revealed')).catch(() => false))) {
-      await hint.click();
+      await page.evaluate(() => {
+        window.dispatchEvent(new WheelEvent('wheel', { deltaY: 900 }));
+      });
     }
     await expect(home.locator('.home-templates-reveal')).toHaveClass(/is-revealed/);
     await expect(home.locator('.home-templates-reveal__body')).not.toHaveAttribute('inert', '');
     await page.waitForTimeout(450);
   }
-  const section = home.getByTestId('plugins-home-section');
   await expect(section).toBeVisible();
   await page.locator('.entry-main--scroll').evaluate((node) => {
     node.scrollTop = node.scrollHeight;
@@ -2033,10 +2025,74 @@ async function openHomePluginDetails(
     card = home.locator(`article.plugins-home__card[data-plugin-id="${pluginId}"]`).first();
   }
   await expect(card).toBeVisible();
-  await card.dispatchEvent('click');
+  await clickCardAtActionablePoint(page, card);
   const dialog = page.getByRole('dialog').filter({ hasText: name });
   await expect(dialog).toBeVisible();
   return dialog;
+}
+
+async function duplicatePluginFromDetails(
+  page: Page,
+  pluginId: string,
+  name: RegExp,
+  scopedHome = page.locator('[data-testid="entry-view-home"][data-active="true"]'),
+) {
+  const dialog = await openHomePluginDetails(page, pluginId, name, scopedHome);
+  await dialog.getByTestId(`plugin-details-use-${pluginId}-menu`).click();
+  await page.getByTestId(`plugin-details-duplicate-${pluginId}`).click();
+}
+
+async function clickCardAtActionablePoint(page: Page, card: Locator) {
+  await scrollCardIntoActionableView(card);
+  let point: { x: number; y: number } | null = null;
+  await expect
+    .poll(async () => {
+      point = await getCardActionablePoint(card);
+      return point !== null;
+    }, { timeout: 5_000 })
+    .toBe(true);
+  if (!point) {
+    throw new Error('Plugin card did not expose an actionable click point.');
+  }
+  await page.mouse.click(point.x, point.y);
+}
+
+async function getCardActionablePoint(card: Locator) {
+  return card.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const points = [
+      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      { x: rect.left + 24, y: rect.top + 24 },
+      { x: rect.right - 24, y: rect.bottom - 24 },
+    ];
+    for (const point of points) {
+      if (
+        point.x < 0 ||
+        point.y < 0 ||
+        point.x > window.innerWidth ||
+        point.y > window.innerHeight
+      ) {
+        continue;
+      }
+      const hit = document.elementFromPoint(point.x, point.y);
+      if (hit && element.contains(hit)) {
+        return point;
+      }
+    }
+    return null;
+  });
+}
+
+async function scrollCardIntoActionableView(card: Locator) {
+  await card.evaluate((element) => {
+    const scroller = element.closest('.entry-main--scroll');
+    if (!(scroller instanceof HTMLElement)) {
+      element.scrollIntoView({ block: 'end', inline: 'center' });
+      return;
+    }
+    scroller.scrollTop = scroller.scrollHeight;
+    element.scrollIntoView({ block: 'nearest', inline: 'center' });
+  });
 }
 
 async function createProject(page: Page, name: string) {

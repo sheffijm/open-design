@@ -582,6 +582,18 @@ describe('GET /api/projects/:id resolvedDir', () => {
     const chatBody = (await chatResp.json()) as { conversation: { id: string; sessionMode: string } };
     expect(chatBody.conversation.sessionMode).toBe('chat');
 
+    const patchResp = await fetch(
+      `${baseUrl}/api/projects/${projectId}/conversations/${chatBody.conversation.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'plan' }),
+      },
+    );
+    expect(patchResp.status).toBe(200);
+    const patched = (await patchResp.json()) as { conversation: { sessionMode: string } };
+    expect(patched.conversation.sessionMode).toBe('plan');
+
     const invalidPatchResp = await fetch(
       `${baseUrl}/api/projects/${projectId}/conversations/${chatBody.conversation.id}`,
       {
@@ -590,9 +602,10 @@ describe('GET /api/projects/:id resolvedDir', () => {
         body: JSON.stringify({ sessionMode: 'review' }),
       },
     );
-    expect(invalidPatchResp.status).toBe(200);
-    const patched = (await invalidPatchResp.json()) as { conversation: { sessionMode: string } };
-    expect(patched.conversation.sessionMode).toBe('design');
+    expect(invalidPatchResp.status).toBe(400);
+    const invalidBody = (await invalidPatchResp.json()) as { error?: { code?: string; message?: string } };
+    expect(invalidBody.error?.code).toBe('BAD_REQUEST');
+    expect(invalidBody.error?.message).toMatch(/sessionMode/i);
   });
 
   it('persists run session mode and workspace context on the pinned assistant message', async () => {

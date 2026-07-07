@@ -89,7 +89,6 @@
    docked rail can be dismissed Manus-style without a separate chrome control. */
 .entry-nav-rail__brand {
   position: relative;
-  isolation: isolate;
   width: 36px;
   height: 36px;
   flex-shrink: 0;
@@ -109,7 +108,6 @@
   background: var(--bg-panel);
   color: var(--text);
   cursor: pointer;
-  z-index: 2;
   opacity: 0;
   pointer-events: none;
   transition:
@@ -127,13 +125,7 @@
    rail would strand open. Keep the collapse control permanently visible and
    tappable there so touch users can always fold the rail back. */
 @media (hover: none) {
-  .entry--rail-open .entry-nav-rail__logo {
-    pointer-events: none;
-  }
-
   .entry--rail-open .entry-nav-rail__collapse {
-    left: calc(100% + 8px);
-    transform: translateY(-50%);
     opacity: 1;
     pointer-events: auto;
   }
@@ -590,7 +582,6 @@
 .entry-nav-rail__logo {
   appearance: none;
   position: relative;
-  z-index: 0;
   width: 36px;
   height: 36px;
   padding: 0;

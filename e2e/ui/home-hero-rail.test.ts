@@ -1,8 +1,9 @@
 import { expect, test } from '@/playwright/suite';
 import type { Page } from '@playwright/test';
 import { routeAgents } from '@/playwright/mock-factory';
+import { T } from '@/timeouts';
 
-test.describe.configure({ timeout: 30_000 });
+test.describe.configure({ timeout: T.xlong });
 
 const STORAGE_KEY = 'open-design:config';
 const LOCALE_KEY = 'open-design:locale';
@@ -326,7 +327,7 @@ const PROMPT_TEMPLATES = [
 ];
 
 async function waitForLoadingToClear(page: Page) {
-  await expect(page.getByText('Loading Open Design…')).toHaveCount(0, { timeout: 15_000 });
+  await page.getByText('Loading Open Design…').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 async function seedBrowserConfig(page: Page, config: Record<string, unknown>) {
@@ -473,7 +474,9 @@ test('[P1] home left rail expands and collapses from the shell controls', async 
   await expect(page.getByTestId('entry-nav-home')).toBeVisible();
   await expect(page.getByTestId('entry-nav-projects')).toBeVisible();
 
-  await page.getByTestId('entry-nav-collapse').dispatchEvent('click');
+  const collapse = page.getByTestId('entry-nav-collapse');
+  await expect(collapse).toBeVisible();
+  await collapse.click();
   await expect(shell).not.toHaveClass(/entry--rail-open/);
   await expect(rail).toHaveAttribute('aria-hidden', 'true');
   await expect(expand).toHaveAttribute('aria-expanded', 'false');
@@ -1561,7 +1564,11 @@ test('[P1] home hero example preset Copy creates a project from the template pre
   await gotoEntryHome(page);
   await page.getByTestId('home-hero-rail-prototype').click();
   await expect(page.locator('[data-testid="home-hero-plugin-preset"][data-plugin-id="example-web-prototype"]')).toBeVisible();
-  await page.getByTestId('home-hero-plugin-preset-duplicate-example-web-prototype').dispatchEvent('click');
+  const preset = page.locator('[data-testid="home-hero-plugin-preset"][data-plugin-id="example-web-prototype"]');
+  await preset.hover();
+  const duplicateButton = page.getByTestId('home-hero-plugin-preset-duplicate-example-web-prototype');
+  await expect(duplicateButton).toBeVisible();
+  await duplicateButton.click();
 
   await expect
     .poll(() => duplicateRequests.at(-1)?.name)
@@ -1595,8 +1602,9 @@ test('[P1] home hero example preset Copy failure keeps Home retryable', async ({
   await gotoEntryHome(page);
   await page.getByTestId('home-hero-rail-prototype').click();
   const duplicateButton = page.getByTestId('home-hero-plugin-preset-duplicate-example-web-prototype');
+  await page.locator('[data-testid="home-hero-plugin-preset"][data-plugin-id="example-web-prototype"]').hover();
   await expect(duplicateButton).toBeVisible();
-  await duplicateButton.dispatchEvent('click');
+  await duplicateButton.click();
 
   await expect
     .poll(() => duplicateRequests.at(-1)?.name)
