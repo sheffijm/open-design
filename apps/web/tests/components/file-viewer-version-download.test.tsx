@@ -12,6 +12,7 @@ const {
   exportAsPdfMock,
   exportAsZipMock,
   exportSnapshotAsPdfMock,
+  requestPreviewSnapshotMock,
 } = vi.hoisted(() => ({
   captureHostIframeSnapshotMock: vi.fn(),
   exportArtifactAsPdfMock: vi.fn(),
@@ -19,6 +20,7 @@ const {
   exportAsPdfMock: vi.fn(),
   exportAsZipMock: vi.fn(),
   exportSnapshotAsPdfMock: vi.fn(),
+  requestPreviewSnapshotMock: vi.fn(),
 }));
 
 vi.mock('../../src/runtime/exports', async () => {
@@ -33,6 +35,7 @@ vi.mock('../../src/runtime/exports', async () => {
     exportAsPdf: exportAsPdfMock,
     exportAsZip: exportAsZipMock,
     exportSnapshotAsPdf: exportSnapshotAsPdfMock,
+    requestPreviewSnapshot: requestPreviewSnapshotMock,
   };
 });
 
@@ -165,7 +168,7 @@ describe('FileViewer version download actions', () => {
   it('falls back to the rendered version preview when artifact PDF capture stalls', async () => {
     const snapshot = { dataUrl: 'data:image/png;base64,c25hcHNob3Q=', w: 400, h: 800 };
     exportArtifactAsPdfMock.mockRejectedValueOnce(new Error('export capture timed out'));
-    captureHostIframeSnapshotMock.mockResolvedValueOnce(snapshot);
+    requestPreviewSnapshotMock.mockResolvedValueOnce(snapshot);
     exportSnapshotAsPdfMock.mockResolvedValueOnce(undefined);
     const { file } = setupVersionFetch();
     const versionDialog = await renderVersionDialog(file);
@@ -176,6 +179,10 @@ describe('FileViewer version download actions', () => {
     await waitFor(() => {
       expect(exportSnapshotAsPdfMock).toHaveBeenCalledWith(snapshot, 'index-v1');
     });
+    expect(requestPreviewSnapshotMock).toHaveBeenCalledWith(expect.any(HTMLIFrameElement), expect.any(Number), {
+      full: true,
+    });
+    expect(captureHostIframeSnapshotMock).not.toHaveBeenCalled();
     expect(exportAsPdfMock).not.toHaveBeenCalled();
   });
 

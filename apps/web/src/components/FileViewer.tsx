@@ -1145,10 +1145,13 @@ function temporarilyExposeIframeForSnapshot(iframe: HTMLIFrameElement): () => vo
   };
 }
 
-async function requestPreviewSnapshotWithRetry(iframe: HTMLIFrameElement): Promise<Awaited<ReturnType<typeof requestPreviewSnapshot>>> {
+async function requestPreviewSnapshotWithRetry(
+  iframe: HTMLIFrameElement,
+  options?: { full?: boolean },
+): Promise<Awaited<ReturnType<typeof requestPreviewSnapshot>>> {
   const timeouts = [1500, 3000, 6000];
   for (const timeout of timeouts) {
-    const snapshot = await requestPreviewSnapshot(iframe, timeout);
+    const snapshot = await requestPreviewSnapshot(iframe, timeout, options);
     if (snapshot) return snapshot;
     await waitForAnimationFrame();
   }
@@ -3001,15 +3004,16 @@ function FileVersionManagerModal({
     }
   }
 
-  async function captureVersionPreviewSnapshot() {
+  async function captureVersionPreviewSnapshot(options?: { full?: boolean }) {
     const iframe = versionPreviewIframeRef.current;
     if (!iframe) return null;
     await waitForIframeLoadOrTimeout(iframe, 250);
     await waitForAnimationFrame();
     await waitForAnimationFrame();
+    if (options?.full) return requestPreviewSnapshotWithRetry(iframe, options);
     const hostSnapshot = await captureHostIframeSnapshot(iframe);
     if (hostSnapshot) return hostSnapshot;
-    return requestPreviewSnapshotWithRetry(iframe);
+    return requestPreviewSnapshotWithRetry(iframe, options);
   }
 
   async function exportVersionPdf(version: ProjectFileVersion) {
@@ -3023,7 +3027,7 @@ function FileVersionManagerModal({
         });
       } catch (err) {
         console.warn('[version-export] artifact PDF capture failed, falling back to preview snapshot:', err);
-        const snapshot = await captureVersionPreviewSnapshot();
+        const snapshot = await captureVersionPreviewSnapshot({ full: true });
         if (!snapshot) throw err;
         await exportSnapshotAsPdf(snapshot, title);
       }
@@ -3042,7 +3046,7 @@ function FileVersionManagerModal({
         });
       } catch (err) {
         console.warn('[version-export] artifact image capture failed, falling back to preview snapshot:', err);
-        snapshot = await captureVersionPreviewSnapshot();
+        snapshot = await captureVersionPreviewSnapshot({ full: true });
         if (!snapshot) throw err;
       }
       const blob = await imageDataUrlToBlob(snapshot.dataUrl, format);
