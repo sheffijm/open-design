@@ -1256,6 +1256,25 @@ describe('requestPreviewSnapshot', () => {
     expect(result).toEqual({ dataUrl: 'data:image/png;base64,abc', w: 100, h: 50 });
   });
 
+  it('can request a full-document snapshot from the bridge', async () => {
+    const postMessageMock = vi.fn();
+    const contentWindow = { postMessage: postMessageMock };
+    const iframe = { contentWindow } as unknown as HTMLIFrameElement;
+
+    const promise = requestPreviewSnapshot(iframe, 100, { full: true });
+
+    expect(postMessageMock).toHaveBeenCalledOnce();
+    const message = postMessageMock.mock.calls[0]![0] as { type: string; id: string; full?: boolean };
+    expect(message).toMatchObject({ type: 'od:snapshot', full: true });
+
+    window.dispatchEvent(
+      { type: 'message', source: contentWindow, data: { type: 'od:snapshot:result', id: message.id, dataUrl: 'data:image/png;base64,abc', w: 100, h: 200 } } as unknown as Event,
+    );
+
+    const result = await promise;
+    expect(result).toEqual({ dataUrl: 'data:image/png;base64,abc', w: 100, h: 200 });
+  });
+
   it('resolves null when the bridge responds with an error', async () => {
     const postMessageMock = vi.fn();
     const contentWindow = { postMessage: postMessageMock };
