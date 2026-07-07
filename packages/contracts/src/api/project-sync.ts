@@ -24,10 +24,14 @@ export type ProjectSyncState = 'local_only' | 'pending_upload' | 'synced' | 'syn
  */
 export type ProjectSyncIntentEvent = 'project_visibility_changed' | 'project_team_share_requested';
 
-/** Payload for a project sync-intent event. */
+/**
+ * Payload for a project sync-intent event. `workspaceId` is required: a
+ * team-share transition must carry the workspace so the sync trigger can route
+ * the publish to the correct team store — an intent without it is incomplete.
+ */
 export interface ProjectSyncIntent {
   event: ProjectSyncIntentEvent;
   projectId: string;
   /** The team workspace the visibility transition happened in. */
-  workspaceId?: string;
+  workspaceId: string;
 }
