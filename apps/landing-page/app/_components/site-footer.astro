@@ -126,26 +126,31 @@ const l = L[locale as keyof typeof L] ?? L.en;
         </ul>
       </div>
 
-      <div class='sub-footer-col'>
-        <h5><a href={href('/community/')}>{menu.community}</a></h5>
-        <ul>
-          <li><a href={href('/community/contributors/')}>{menu.communityItems.contributors}</a></li>
-          <li><a href={href('/community/ambassadors/')}>{menu.communityItems.ambassadors}</a></li>
-          <li><a href={href('/community/moderators/')}>{menu.communityItems.moderators}</a></li>
-        </ul>
-      </div>
+      {/* Community + Company share one grid column, stacked vertically. Eight
+          nav sections into a 7-track grid used to orphan Company onto a second
+          row; pairing the two shortest sections keeps everything on one row. */}
+      <div class='sub-footer-col-stack'>
+        <div class='sub-footer-col'>
+          <h5><a href={href('/community/')}>{menu.community}</a></h5>
+          <ul>
+            <li><a href={href('/community/contributors/')}>{menu.communityItems.contributors}</a></li>
+            <li><a href={href('/community/ambassadors/')}>{menu.communityItems.ambassadors}</a></li>
+            <li><a href={href('/community/moderators/')}>{menu.communityItems.moderators}</a></li>
+          </ul>
+        </div>
 
-      <div class='sub-footer-col'>
-        <h5>{l.company}</h5>
-        <ul>
-          <li><a href={href('/about/')}>{l.about}</a></li>
-          <li><a href={href('/careers/')}>{l.careers}</a></li>
-          <li><a href={href('/faq/')}>{l.faq}</a></li>
-          <li><a href={href('/privacy/')}>{l.privacy}</a></li>
-          <li><a href={href('/terms/')}>{l.terms}</a></li>
-          <li><a href={REPO} target='_blank' rel='noopener'>{ui.footer.github}</a></li>
-          <li><a href={DISCORD} target='_blank' rel='noopener'>{ui.footer.discord}</a></li>
-        </ul>
+        <div class='sub-footer-col'>
+          <h5>{l.company}</h5>
+          <ul>
+            <li><a href={href('/about/')}>{l.about}</a></li>
+            <li><a href={href('/careers/')}>{l.careers}</a></li>
+            <li><a href={href('/faq/')}>{l.faq}</a></li>
+            <li><a href={href('/privacy/')}>{l.privacy}</a></li>
+            <li><a href={href('/terms/')}>{l.terms}</a></li>
+            <li><a href={REPO} target='_blank' rel='noopener'>{ui.footer.github}</a></li>
+            <li><a href={DISCORD} target='_blank' rel='noopener'>{ui.footer.discord}</a></li>
+          </ul>
+        </div>
       </div>
     </div>
 
