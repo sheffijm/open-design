@@ -6335,6 +6335,7 @@ function HtmlViewer({
   const manualEditTextSessionIdRef = useRef<string | null>(null);
   const manualEditTextFinishRef = useRef<(() => void) | null>(null);
   const manualEditTextCommitInFlightRef = useRef<Promise<unknown> | null>(null);
+  const manualEditTextCommitSequenceRef = useRef(0);
   const [manualEditDraft, setManualEditDraft] = useState<ManualEditDraft>(() => emptyManualEditDraft());
   const [manualEditHistory, setManualEditHistory] = useState<ManualEditHistoryEntry[]>([]);
   const [manualEditUndone, setManualEditUndone] = useState<ManualEditHistoryEntry[]>([]);
@@ -7811,6 +7812,7 @@ function HtmlViewer({
         // iframe-initiated) can await it and honor a failed save before tearing
         // down. It self-clears once resolved, keyed to identity so a newer
         // commit is never clobbered.
+        manualEditTextCommitSequenceRef.current += 1;
         const commit = applyManualEdit({
           id: String(data.id),
           kind: 'set-text',
@@ -8012,9 +8014,9 @@ function HtmlViewer({
   // otherwise an in-flight commit left by an iframe-driven finish (Enter /
   // click-another-target). Returns false on a failed commit so callers keep
   // edit mode open with the error rather than tearing down through it (#4291).
-  async function settlePendingManualEditCommit(): Promise<boolean> {
+  async function settlePendingManualEditCommit(commitActiveSession = true): Promise<boolean> {
     if (manualEditTextSessionIdRef.current) {
-      return finishManualEditTextSession(true);
+      return finishManualEditTextSession(commitActiveSession);
     }
     const commitInFlight = manualEditTextCommitInFlightRef.current;
     if (!commitInFlight) return true;
@@ -8147,11 +8149,20 @@ function HtmlViewer({
   }
 
   async function saveManualEditPanelDraft() {
-    const hadTextSession = Boolean(manualEditTextSessionIdRef.current || manualEditTextCommitInFlightRef.current);
-    if (!(await settlePendingManualEditCommit())) return;
-    if (selectedManualEditTarget && !hadTextSession) {
+    const selectedTarget = selectedManualEditTarget;
+    const contentPatchBeforeText = selectedTarget
+      ? manualEditContentPatchForDraft(selectedTarget, manualEditDraft, sourceRef.current ?? '')
+      : null;
+    const panelContentChanged = contentPatchBeforeText !== null;
+    const textCommitSequenceBeforeSave = manualEditTextCommitSequenceRef.current;
+    const hadTextCommitInFlight = Boolean(manualEditTextCommitInFlightRef.current);
+    if (!(await settlePendingManualEditCommit(!panelContentChanged))) return;
+    const inlineTextCommitted =
+      hadTextCommitInFlight ||
+      manualEditTextCommitSequenceRef.current !== textCommitSequenceBeforeSave;
+    if (selectedTarget && (panelContentChanged || !inlineTextCommitted)) {
       const base = sourceRef.current ?? '';
-      const contentPatch = manualEditContentPatchForDraft(selectedManualEditTarget, manualEditDraft, base);
+      const contentPatch = manualEditContentPatchForDraft(selectedTarget, manualEditDraft, base);
       if (contentPatch && !(await applyManualEdit(contentPatch.patch, contentPatch.label))) return;
     }
     const ok = await flushManualEditStyleSave();
