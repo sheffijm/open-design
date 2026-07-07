@@ -361,9 +361,11 @@ export interface WorkspaceProjectSummary {
   createdByWorkspaceMemberId: string | null;
   updatedByWorkspaceMemberId?: string | null;
   /**
-   * E resource-hub mapping seam. Personal projects are local-only and normally
-   * keep this null; team-visible projects receive a cloud resource through C's
-   * orchestration of E's upload/version/mirror mechanism.
+   * E resource-hub mapping seam. When present, this is Spec E's
+   * ResourceRecord.id for a `kind: 'project'` cloud resource. Personal projects
+   * are local-only and normally keep this null; team-visible projects receive
+   * the cloud resource through C's orchestration of E's upload/version/mirror
+   * mechanism.
    */
   resourceHubResourceId?: string | null;
   /** Set when a previously shared cloud resource should be tombstoned. */
