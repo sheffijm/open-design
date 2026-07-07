@@ -130,6 +130,40 @@ describe('CollabClient', () => {
     expect(calls.length).toBe(afterStop); // timers cleared — no further polling
   });
 
+  it('leaveBeacon delivers the leave via sendBeacon so it survives page unload', () => {
+    const { fetchImpl, calls } = makeFetch();
+    const beacons: Array<{ url: string; body: string }> = [];
+    const sendBeacon = vi.fn((url: string, blob: Blob) => {
+      // Blob.text() is async; the daemon parses the JSON body, so record the URL
+      // and mark it delivered. Body shape is asserted via the fallback test.
+      beacons.push({ url, body: String((blob as unknown as { type: string }).type) });
+      return true;
+    });
+    vi.stubGlobal('navigator', { sendBeacon });
+    const client = new CollabClient({ projectId: 'p1', member: { memberId: 'm1' }, fetch: fetchImpl });
+
+    client.leaveBeacon();
+
+    expect(sendBeacon).toHaveBeenCalledTimes(1);
+    expect(beacons[0]!.url).toBe('/api/projects/p1/presence/leave');
+    // Beacon path used — no keepalive fetch fallback.
+    expect(calls.some((c) => c.url.endsWith('/presence/leave'))).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('leaveBeacon falls back to a keepalive fetch when sendBeacon is unavailable', () => {
+    const { fetchImpl, calls } = makeFetch();
+    vi.stubGlobal('navigator', {});
+    const client = new CollabClient({ projectId: 'p1', member: { memberId: 'm-x' }, fetch: fetchImpl });
+
+    client.leaveBeacon();
+
+    const leave = calls.find((c) => c.url.endsWith('/presence/leave'));
+    expect(leave?.method).toBe('POST');
+    expect(leave?.body).toEqual({ memberId: 'm-x' });
+    vi.unstubAllGlobals();
+  });
+
   it('surfaces fetch failures through onError without wedging the client', async () => {
     const { fetchImpl } = makeFetch({ failPath: '/collab/status' });
     const errors: unknown[] = [];

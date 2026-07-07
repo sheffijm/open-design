@@ -114,6 +114,32 @@ export class CollabClient {
     }
   }
 
+  /**
+   * Best-effort leave that survives page unload. A normal fetch is aborted when
+   * the tab closes, so a hard close would otherwise leave the member lingering
+   * until the daemon's presence TTL sweeps it (~30s). sendBeacon (with a
+   * keepalive-fetch fallback) hands the request to the browser to deliver after
+   * the page is gone, so the present set drops promptly.
+   */
+  leaveBeacon(): void {
+    const url = this.url('/presence/leave');
+    const body = JSON.stringify({ memberId: this.member.memberId });
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([body], { type: 'application/json' });
+        if (navigator.sendBeacon(url, blob)) return;
+      }
+    } catch {
+      // fall through to the keepalive fetch
+    }
+    void this.fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  }
+
   private update(patch: Partial<CollabSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
     this.onUpdate?.(this.snapshot);

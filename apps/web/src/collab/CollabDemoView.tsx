@@ -20,6 +20,22 @@ function makeDemoMemberId(): string {
   return `demo-${uuid.slice(0, 8)}`;
 }
 
+// Reuse one id per tab (sessionStorage survives reload but not a tab close), so
+// reloading the demo doesn't pile up a fresh "Demo member" each time while two
+// distinct tabs still get distinct identities.
+const DEMO_MEMBER_ID_KEY = 'od-collab-demo-member-id';
+function demoMemberId(): string {
+  try {
+    const existing = sessionStorage.getItem(DEMO_MEMBER_ID_KEY);
+    if (existing) return existing;
+    const id = makeDemoMemberId();
+    sessionStorage.setItem(DEMO_MEMBER_ID_KEY, id);
+    return id;
+  } catch {
+    return makeDemoMemberId();
+  }
+}
+
 /**
  * Team-collab (C lane) demo surface. Drives the live presence + sync loop
  * against the real daemon routes so the flow can be seen end-to-end: open this
@@ -35,7 +51,7 @@ export function CollabDemoView({ projectId }: { projectId: string | null }) {
   const [name, setName] = useState('Demo member');
   const [role, setRole] = useState<CollabMemberRole>('member');
   const memberIdRef = useRef<string>('');
-  if (!memberIdRef.current) memberIdRef.current = makeDemoMemberId();
+  if (!memberIdRef.current) memberIdRef.current = demoMemberId();
 
   const activeProjectId = projectId?.trim() || null;
   const member = useMemo(
