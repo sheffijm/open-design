@@ -3683,6 +3683,8 @@ export const esES: Dict = {
   'dsManager.templateSourceAria': 'Origen de la plantilla',
   'dsManager.yourSystems': 'Tus sistemas',
   'dsManager.officialPresets': 'Ajustes preestablecidos oficiales',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Empresa',
   'dsManager.yourTemplates': 'Tus plantillas',
   'dsManager.yourSystemsAria': 'Tus sistemas de diseño',

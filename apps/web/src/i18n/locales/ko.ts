@@ -3683,6 +3683,8 @@ export const ko: Dict = {
   'dsManager.templateSourceAria': '템플릿 소스',
   'dsManager.yourSystems': '내 시스템',
   'dsManager.officialPresets': '공식 프리셋',
+  'dsManager.shareToTeam': '팀에 공유',
+  'dsManager.shareToTeamFailed': '팀 공유에 실패했습니다',
   'dsManager.enterprise': '엔터프라이즈',
   'dsManager.yourTemplates': '내 템플릿',
   'dsManager.yourSystemsAria': '내 디자인 시스템',

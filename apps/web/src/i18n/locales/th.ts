@@ -3683,6 +3683,8 @@ export const th: Dict = {
   'dsManager.templateSourceAria': 'แหล่งที่มาของเทมเพลต',
   'dsManager.yourSystems': 'ระบบของคุณ',
   'dsManager.officialPresets': 'พรีเซ็ตอย่างเป็นทางการ',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'องค์กร',
   'dsManager.yourTemplates': 'เทมเพลตของคุณ',
   'dsManager.yourSystemsAria': 'design systems ของคุณ',

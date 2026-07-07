@@ -3683,6 +3683,8 @@ export const fr: Dict = {
   'dsManager.templateSourceAria': 'Source du modèle',
   'dsManager.yourSystems': 'Vos systèmes',
   'dsManager.officialPresets': 'Préréglages officiels',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Entreprise',
   'dsManager.yourTemplates': 'Vos modèles',
   'dsManager.yourSystemsAria': 'Vos systèmes de design',

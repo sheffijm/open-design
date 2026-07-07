@@ -3683,6 +3683,8 @@ export const tr: Dict = {
   'dsManager.templateSourceAria': 'Şablon kaynağı',
   'dsManager.yourSystems': 'Sistemleriniz',
   'dsManager.officialPresets': 'Resmi hazır ayarlar',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Kurumsal',
   'dsManager.yourTemplates': 'Şablonlarınız',
   'dsManager.yourSystemsAria': 'Tasarım sistemleriniz',

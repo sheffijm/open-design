@@ -3683,6 +3683,8 @@ export const hu: Dict = {
   'dsManager.templateSourceAria': 'Sablon forrása',
   'dsManager.yourSystems': 'Rendszereid',
   'dsManager.officialPresets': 'Hivatalos előbeállítások',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Vállalati',
   'dsManager.yourTemplates': 'Sablonjaid',
   'dsManager.yourSystemsAria': 'Design rendszereid',

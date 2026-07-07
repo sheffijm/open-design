@@ -3683,6 +3683,8 @@ export const ptBR: Dict = {
   'dsManager.templateSourceAria': 'Origem do modelo',
   'dsManager.yourSystems': 'Seus sistemas',
   'dsManager.officialPresets': 'Presets oficiais',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Enterprise',
   'dsManager.yourTemplates': 'Seus modelos',
   'dsManager.yourSystemsAria': 'Seus design systems',

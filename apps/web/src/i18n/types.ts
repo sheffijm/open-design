@@ -1729,6 +1729,8 @@ export interface Dict {
   'dsManager.templateSourceAria': string;
   'dsManager.yourSystems': string;
   'dsManager.officialPresets': string;
+  'dsManager.shareToTeam': string;
+  'dsManager.shareToTeamFailed': string;
   'dsManager.enterprise': string;
   'dsManager.yourTemplates': string;
   'dsManager.yourSystemsAria': string;

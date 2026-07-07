@@ -3683,6 +3683,8 @@ export const id: Dict = {
   'dsManager.templateSourceAria': 'Sumber templat',
   'dsManager.yourSystems': 'Sistem Anda',
   'dsManager.officialPresets': 'Preset resmi',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Perusahaan',
   'dsManager.yourTemplates': 'Templat Anda',
   'dsManager.yourSystemsAria': 'Design system Anda',

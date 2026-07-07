@@ -3683,6 +3683,8 @@ export const ar: Dict = {
   'dsManager.templateSourceAria': 'مصدر القالب',
   'dsManager.yourSystems': 'أنظمتك',
   'dsManager.officialPresets': 'الإعدادات المسبقة الرسمية',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'المؤسسات',
   'dsManager.yourTemplates': 'قوالبك',
   'dsManager.yourSystemsAria': 'أنظمة التصميم الخاصة بك',

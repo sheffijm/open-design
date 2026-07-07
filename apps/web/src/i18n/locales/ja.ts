@@ -3683,6 +3683,8 @@ export const ja: Dict = {
   'dsManager.templateSourceAria': 'テンプレートのソース',
   'dsManager.yourSystems': 'あなたのシステム',
   'dsManager.officialPresets': '公式プリセット',
+  'dsManager.shareToTeam': 'チームに共有',
+  'dsManager.shareToTeamFailed': 'チームへの共有に失敗しました',
   'dsManager.enterprise': 'エンタープライズ',
   'dsManager.yourTemplates': 'あなたのテンプレート',
   'dsManager.yourSystemsAria': 'あなたのデザインシステム',

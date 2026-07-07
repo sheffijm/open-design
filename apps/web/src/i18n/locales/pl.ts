@@ -3683,6 +3683,8 @@ export const pl: Dict = {
   'dsManager.templateSourceAria': 'Źródło szablonu',
   'dsManager.yourSystems': 'Twoje systemy',
   'dsManager.officialPresets': 'Oficjalne ustawienia wstępne',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Enterprise',
   'dsManager.yourTemplates': 'Twoje szablony',
   'dsManager.yourSystemsAria': 'Twoje systemy projektowe',

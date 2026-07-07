@@ -4098,6 +4098,8 @@ export const zhCN: Dict = {
   "dsManager.templateSourceAria": "模板来源",
   "dsManager.yourSystems": "你的体系",
   "dsManager.officialPresets": "官方预设",
+  "dsManager.shareToTeam": "分享到团队",
+  "dsManager.shareToTeamFailed": "分享到团队失败",
   "dsManager.enterprise": "企业版",
   "dsManager.yourTemplates": "你的模板",
   "dsManager.yourSystemsAria": "你的设计体系",

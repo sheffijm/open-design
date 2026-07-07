@@ -3683,6 +3683,8 @@ export const ru: Dict = {
   'dsManager.templateSourceAria': 'Источник шаблона',
   'dsManager.yourSystems': 'Ваши системы',
   'dsManager.officialPresets': 'Официальные пресеты',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'Корпоративные',
   'dsManager.yourTemplates': 'Ваши шаблоны',
   'dsManager.yourSystemsAria': 'Ваши дизайн-системы',

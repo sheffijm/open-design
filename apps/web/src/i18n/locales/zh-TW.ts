@@ -4106,6 +4106,8 @@ export const zhTW: Dict = {
   "dsManager.templateSourceAria": "範本來源",
   "dsManager.yourSystems": "你的體系",
   "dsManager.officialPresets": "官方預設",
+  "dsManager.shareToTeam": "分享到團隊",
+  "dsManager.shareToTeamFailed": "分享到團隊失敗",
   "dsManager.enterprise": "企業版",
   "dsManager.yourTemplates": "你的範本",
   "dsManager.yourSystemsAria": "你的設計體系",

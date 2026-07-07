@@ -3678,6 +3678,8 @@ export const fa: Dict = {
   'dsManager.templateSourceAria': 'منبع قالب',
   'dsManager.yourSystems': 'سیستم‌های شما',
   'dsManager.officialPresets': 'پیش‌تنظیم‌های رسمی',
+  'dsManager.shareToTeam': 'Share to team',
+  'dsManager.shareToTeamFailed': 'Couldn\'t share to team',
   'dsManager.enterprise': 'سازمانی',
   'dsManager.yourTemplates': 'قالب‌های شما',
   'dsManager.yourSystemsAria': 'سیستم‌های طراحی شما',
