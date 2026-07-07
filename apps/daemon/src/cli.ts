@@ -704,6 +704,8 @@ function printCollabHelp() {
   od collab publish <projectId> [--json]
   od collab share <projectId> [--json]
   od collab pull <projectId> [--json]
+  od collab share-resource <design-systems|plugins|skills> <id> [--json]
+  od collab team-resources <design-systems|plugins|skills> [--json]
   od collab share-design-system <designSystemId> [--json]
   od collab team-design-systems [--json]
 
@@ -713,9 +715,10 @@ the trigger; the daemon coalesces author edits and flushes at a run boundary,
 advancing the published head version members poll to learn when to pull.
 \`share\` is the team-share intent: it requests the project be published so
 members can pull it, and reports the sync state (local_only / pending_upload /
-synced / sync_failed). \`share-design-system\` promotes a personal design system
-into the team scope through the resource hub, and \`team-design-systems\` lists
-the ones already shared.
+synced / sync_failed). \`share-resource <kind> <id>\` promotes a personal design
+system, plugin, or skill into the team scope through the resource hub, and
+\`team-resources <kind>\` lists the ones already shared (the \`*-design-system\`
+forms are kept as aliases).
 
 Options:
   --project <id>          Project id (alternative to the positional argument).
@@ -730,8 +733,9 @@ Examples:
   od collab presence p1 --json
   od collab heartbeat p1 --member m-42 --name "Ma Shu" --role member
   od collab publish p1
+  od collab share-resource plugins my-plugin --json
+  od collab team-resources skills --json
   od collab share-design-system user:palette-x --json
-  od collab team-design-systems --json
   od collab status p1 --json`);
 }
 
@@ -749,9 +753,17 @@ async function runCollab(args) {
     console.error(err.message);
     process.exit(2);
   }
-  // Design-system team sharing is workspace-scoped (it takes a design-system id,
-  // not a project id), so it runs before the project-id requirement below.
-  if (sub === 'share-design-system' || sub === 'team-design-systems') {
+  // Team resource sharing (design systems / plugins / skills) is workspace-scoped
+  // — it takes a resource id, not a project id — so it runs before the project-id
+  // requirement below. `share-resource <kind> <id>` / `team-resources <kind>` are
+  // the generic forms; the design-system aliases are kept for compatibility.
+  const RESOURCE_BASE_PATHS = new Set(['design-systems', 'plugins', 'skills']);
+  if (
+    sub === 'share-resource' ||
+    sub === 'team-resources' ||
+    sub === 'share-design-system' ||
+    sub === 'team-design-systems'
+  ) {
     const base = await cliDaemonBaseUrl(flags);
     const emit = (payload, plain) =>
       flags.json ? process.stdout.write(JSON.stringify(payload, null, 2) + '\n') : plain();
@@ -771,23 +783,45 @@ async function runCollab(args) {
       if (!resp.ok) return structuredHttpFailure(resp);
       return resp.json();
     };
+
+    // Resolve the resource kind (URL base path), whether this lists or shares,
+    // and the target id — from either the aliases or the generic <kind> <id>.
+    const positionals = positionalArgs(rest, COLLAB_STRING_FLAGS);
+    let basePath;
+    let isList;
+    let resourceId;
     if (sub === 'team-design-systems') {
-      const body = await wsRequest('GET', '/api/workspace/design-systems/team');
+      basePath = 'design-systems';
+      isList = true;
+    } else if (sub === 'share-design-system') {
+      basePath = 'design-systems';
+      isList = false;
+      resourceId = flags['design-system'] || positionals[0];
+    } else {
+      basePath = positionals[0];
+      if (!RESOURCE_BASE_PATHS.has(basePath)) {
+        console.error('kind must be one of: design-systems | plugins | skills');
+        process.exit(2);
+      }
+      isList = sub === 'team-resources';
+      resourceId = positionals[1];
+    }
+
+    if (isList) {
+      const body = await wsRequest('GET', `/api/workspace/${basePath}/team`);
       return emit(body, () => {
         const ids = Array.isArray(body?.ids) ? body.ids : [];
-        if (ids.length === 0) return console.log('no shared design systems');
+        if (ids.length === 0) return console.log(`no shared ${basePath}`);
         for (const id of ids) console.log(id);
       });
     }
-    const designSystemId =
-      flags['design-system'] || positionalArgs(rest, COLLAB_STRING_FLAGS)[0];
-    if (!designSystemId) {
-      console.error('missing <designSystemId> (positional or --design-system)');
+    if (!resourceId) {
+      console.error('missing <id>');
       process.exit(2);
     }
     const body = await wsRequest(
       'POST',
-      `/api/workspace/design-systems/${encodeURIComponent(designSystemId)}/share`,
+      `/api/workspace/${basePath}/${encodeURIComponent(resourceId)}/share`,
     );
     return emit(body, () =>
       console.log(`shared=${body?.shared ?? false}\tversion=${body?.version ?? '-'}`),
