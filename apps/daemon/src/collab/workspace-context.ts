@@ -59,6 +59,9 @@ export function parseWorkspaceCollabContext(input: unknown): WorkspaceCollabCont
     memberStatus: raw.memberStatus as WorkspaceMemberStatus,
     lifecycleState: raw.lifecycleState as WorkspaceLifecycleState,
   };
+  if (typeof raw.teamId === 'string' && raw.teamId.trim()) {
+    context.teamId = raw.teamId.trim();
+  }
   if (typeof raw.displayName === 'string' && raw.displayName.trim()) {
     context.displayName = raw.displayName.trim();
   }

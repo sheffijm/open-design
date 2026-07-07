@@ -14,7 +14,10 @@ import {
   type ResourcePublishAdapter,
 } from './publish-scheduler.js';
 import { createStubResourcePublishAdapter } from './stub-resource-adapter.js';
-import { createResourceHubPublishAdapterFromEnv } from './resource-hub-publish-adapter.js';
+import {
+  contextToResourceHubPrincipal,
+  createResourceHubPublishAdapterFromEnv,
+} from './resource-hub-publish-adapter.js';
 import {
   createDevWorkspaceContextProvider,
   type WorkspaceContextProvider,
@@ -72,10 +75,15 @@ export interface CreateCollabRuntimeOptions {
 }
 
 export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): CollabRuntime {
+  const workspaceContext = options.workspaceContext ?? createDevWorkspaceContextProvider();
+  // Single identity source: the resource-hub principal derives from the same
+  // workspace context the web gate reads, so one signed-in identity drives both.
   const adapter =
     options.adapter ??
     (options.resolveProjectDir
-      ? createResourceHubPublishAdapterFromEnv(options.resolveProjectDir)
+      ? createResourceHubPublishAdapterFromEnv(options.resolveProjectDir, async () =>
+          contextToResourceHubPrincipal(await workspaceContext.current({})),
+        )
       : null) ??
     createStubResourcePublishAdapter();
   const published = new Map<string, number>();
@@ -102,7 +110,6 @@ export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): C
   const presenceOptions: CollabPresenceTrackerOptions = {};
   if (options.onPresenceChange) presenceOptions.onChange = options.onPresenceChange;
   const presence = new CollabPresenceTracker(presenceOptions);
-  const workspaceContext = options.workspaceContext ?? createDevWorkspaceContextProvider();
   const teamResources = options.teamResources ?? createDevTeamResourceStateProvider();
   return {
     presence,

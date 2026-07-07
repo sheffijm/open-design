@@ -71,6 +71,9 @@ export interface WorkspaceCollabContext {
   role: CollabMemberRole;
   memberStatus: WorkspaceMemberStatus;
   lifecycleState: WorkspaceLifecycleState;
+  /** Team id — present for a team workspace, absent for a personal one. Lets the
+   *  resource-hub principal derive from this one context (single identity source). */
+  teamId?: string;
   /** Display name for the presence overlay (optional; falls back to the id). */
   displayName?: string;
 }
