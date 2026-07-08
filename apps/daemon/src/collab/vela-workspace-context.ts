@@ -16,6 +16,7 @@ import type {
 import { readVelaControlApiContext } from '../integrations/vela.js';
 import {
   createDevWorkspaceContextProvider,
+  resolveWorkspaceSettingsUrl,
   type WorkspaceContextProvider,
   type WorkspaceContextRequest,
 } from './workspace-context.js';
@@ -110,7 +111,17 @@ export function mapVelaWorkspaceContext(input: unknown): WorkspaceCollabContext 
   if (lastActive) context.lastActiveWorkspaceId = lastActive;
   // The team workspace IS the team scope; carry its id as teamId so the resource
   // hub principal derives from this one context.
-  if (workspaceType === 'team') context.teamId = workspaceId;
+  if (workspaceType === 'team') {
+    context.teamId = workspaceId;
+    // Team management (members/billing/dashboard) is in the cloud console; carry
+    // its URL (B's field when present, else built from OD_VELA_WEB_URL) so the
+    // client's one settings entry links out to it.
+    const settingsUrl = resolveWorkspaceSettingsUrl(
+      workspaceId,
+      (raw as { workspaceSettingsUrl?: unknown }).workspaceSettingsUrl,
+    );
+    if (settingsUrl) context.workspaceSettingsUrl = settingsUrl;
+  }
   const displayName = str((raw as { displayName?: unknown }).displayName);
   if (displayName) context.displayName = displayName;
   return context;

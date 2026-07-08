@@ -77,6 +77,24 @@ function nonNegativeInt(value: unknown, fallback: number): number {
 }
 
 /**
+ * The URL of the team's settings/management console on the cloud web app. Team
+ * management (members, billing, dashboard) lives there — the local client only
+ * links out to it. Prefers an explicit value the upstream context carries;
+ * otherwise builds one from `OD_VELA_WEB_URL` when configured. Undefined when
+ * neither is available (the client then hides the settings entry).
+ */
+export function resolveWorkspaceSettingsUrl(
+  workspaceId: string,
+  explicit: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
+  const base = env.OD_VELA_WEB_URL?.trim();
+  if (!base) return undefined;
+  return `${base.replace(/\/$/, '')}/workspaces/${encodeURIComponent(workspaceId)}/settings`;
+}
+
+/**
  * Validate an untrusted workspace-context payload (dev PUT body / env). Returns
  * the typed context or null if any required enum field is missing or out of enum.
  * Permissions and the seat summary are DERIVED through the contract helpers
@@ -127,6 +145,10 @@ export function parseWorkspaceCollabContext(input: unknown): WorkspaceCollabCont
     permissions: buildWorkspacePermissions({ role, lifecycleState, memberStatus }),
   };
   if (teamId) context.teamId = teamId;
+  if (workspaceType === 'team') {
+    const settingsUrl = resolveWorkspaceSettingsUrl(workspaceId, raw.workspaceSettingsUrl);
+    if (settingsUrl) context.workspaceSettingsUrl = settingsUrl;
+  }
   if (typeof raw.teamName === 'string' && raw.teamName.trim()) {
     context.teamName = raw.teamName.trim();
   }

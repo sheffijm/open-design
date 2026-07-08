@@ -104,13 +104,14 @@ export function EntryNavRail({
   const writable = context ? isWorkspaceLifecycleWritable(context.lifecycleState) : true;
   const locked = context?.lifecycleState === 'locked';
   const billingRecovery = context?.billingRecovery;
-  // Members management is a write-gated action; workspace settings viewing is a
-  // read action (stays visible when locked). Never re-derive from role — the
-  // contract's permission bits already fold role + lifecycle in.
-  const canSeeMembers = Boolean(permissions?.canManageMembers || permissions?.canInviteMembers);
-  const canSeeBoard = Boolean(permissions?.canManageMembers);
+  // Team management (members, dashboard, billing) lives in the cloud web console,
+  // not the local client — the rail links out to it through the one workspace
+  // settings entry. `canViewWorkspaceSettings` gates that link (a read action, so
+  // it stays visible when locked); never re-derive from role — the permission
+  // bits already fold role + lifecycle in.
   const canSeeWorkspaceSettings = Boolean(permissions?.canViewWorkspaceSettings);
   const canManageBilling = Boolean(permissions?.canManageBilling);
+  const workspaceSettingsUrl = context?.workspaceSettingsUrl?.trim() || null;
   const planLabel = context?.planId?.trim() || null;
 
   const selectView = (next: EntryView) => {
@@ -172,17 +173,23 @@ export function EntryNavRail({
               <WorkspaceSwitcher context={context} onInvite={onInvite} />
             </div>
             {planLabel ? (
+              // Billing/upgrade is managed in the cloud console — the chip links
+              // out there rather than opening an in-client settings view.
               <button
                 type="button"
-                className={`${styles.planChip}${canManageBilling ? ` ${styles.clickable}` : ''}`}
-                onClick={canManageBilling ? () => selectView('workspace-settings') : undefined}
-                disabled={!canManageBilling}
+                className={`${styles.planChip}${canManageBilling && workspaceSettingsUrl ? ` ${styles.clickable}` : ''}`}
+                onClick={
+                  canManageBilling && workspaceSettingsUrl
+                    ? () => window.open(workspaceSettingsUrl, '_blank', 'noopener,noreferrer')
+                    : undefined
+                }
+                disabled={!(canManageBilling && workspaceSettingsUrl)}
                 aria-label={t('entry.workspaceTeamsLabel')}
                 data-testid="entry-nav-plan-chip"
               >
                 <Icon name="sparkles" size={12} />
                 {planLabel}
-                {canManageBilling ? <span aria-hidden>· {t('settings.amrUpgrade')}</span> : null}
+                {canManageBilling && workspaceSettingsUrl ? <span aria-hidden>· {t('settings.amrUpgrade')}</span> : null}
               </button>
             ) : null}
           </div>
@@ -278,38 +285,23 @@ export function EntryNavRail({
             >
               <Icon name="grid" size={18} />
             </NavButton>
-            {canSeeMembers ? (
-              <NavButton
-                active={view === 'members'}
-                ariaLabel={t('entry.navMembers')}
-                tooltip={t('entry.navMembers')}
-                onClick={() => selectView('members')}
-                testId="entry-nav-members"
+            {/* Members and the team dashboard live in the cloud web console, not
+                the local client. The rail keeps a single Workspace settings entry
+                that opens that console in the browser. */}
+            {canSeeWorkspaceSettings && workspaceSettingsUrl ? (
+              <a
+                className="entry-nav-rail__btn"
+                href={workspaceSettingsUrl}
+                {...externalLinkProps}
+                aria-label={t('entry.navWorkspaceSettings')}
+                data-tooltip={t('entry.navWorkspaceSettings')}
+                data-testid="entry-nav-workspace-settings"
               >
-                <Icon name="users" size={18} />
-              </NavButton>
-            ) : null}
-            {canSeeBoard ? (
-              <NavButton
-                active={view === 'board'}
-                ariaLabel={t('entry.navBoard')}
-                tooltip={t('entry.navBoard')}
-                onClick={() => selectView('board')}
-                testId="entry-nav-board"
-              >
-                <Icon name="kanban" size={18} />
-              </NavButton>
-            ) : null}
-            {canSeeWorkspaceSettings ? (
-              <NavButton
-                active={view === 'workspace-settings'}
-                ariaLabel={t('entry.navWorkspaceSettings')}
-                tooltip={t('entry.navWorkspaceSettings')}
-                onClick={() => selectView('workspace-settings')}
-                testId="entry-nav-workspace-settings"
-              >
-                <Icon name="settings" size={18} />
-              </NavButton>
+                <span className="entry-nav-rail__btn-icon" aria-hidden>
+                  <Icon name="settings" size={18} />
+                </span>
+                <span className="entry-nav-rail__btn-label">{t('entry.navWorkspaceSettings')}</span>
+              </a>
             ) : null}
           </>
         ) : (

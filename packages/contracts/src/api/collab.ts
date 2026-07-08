@@ -135,6 +135,13 @@ export interface WorkspaceCollabContext {
   seatSummary: WorkspaceSeatSummary;
   permissions: WorkspacePermissions;
   billingRecovery?: WorkspaceBillingRecovery;
+  /**
+   * URL of the team's settings/management console on the cloud web app. Team
+   * management (members, billing, dashboard) lives there — the local client only
+   * links out to it; it does not embed those views. Absent for a personal
+   * workspace or when the console URL is not resolvable.
+   */
+  workspaceSettingsUrl?: string;
   lastActiveWorkspaceId?: string;
   /** Team id — present for a team workspace, absent for a personal one. Lets the
    *  resource-hub principal derive from this one context (single identity source). */
