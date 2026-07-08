@@ -9,6 +9,7 @@ import { AgentIcon } from './AgentIcon';
 import { PlanBadge } from './PlanBadge';
 import { RemixIcon } from './RemixIcon';
 import { orderAgentsWithOpenDesignFirst } from './agentOrdering';
+import { defaultAgentModelId, effectiveAgentModelChoice } from './agentModelSelection';
 import { SearchableModelSelect } from './modelOptions';
 import type { AgentInfo, AppConfig, ExecMode, ProviderModelOption } from '../types';
 import { SUGGESTED_MODELS_BY_PROTOCOL } from '../state/apiProtocols';
@@ -246,8 +247,9 @@ export function AvatarMenu({
   // hasn't touched the picker yet so the labels don't read as empty.
   const currentChoice =
     (config.agentId && config.agentModels?.[config.agentId]) || {};
+  const normalizedCurrentChoice = effectiveAgentModelChoice(currentAgent, currentChoice) ?? currentChoice;
   const currentModelId =
-    currentChoice.model ?? currentAgent?.models?.[0]?.id ?? null;
+    normalizedCurrentChoice.model ?? defaultAgentModelId(currentAgent);
   const currentReasoningId =
     currentChoice.reasoning ?? currentAgent?.reasoningOptions?.[0]?.id ?? null;
   const currentModelLabel = currentAgent?.models?.find(
@@ -533,6 +535,14 @@ export function AvatarMenu({
                         searchInputTestId="avatar-model-search"
                         popoverTestId="avatar-model-popover"
                         minSearchableOptions={5}
+                        disabledOptionHint={
+                          currentAgent.id === 'amr'
+                            ? (option) =>
+                                option.enabled === false
+                                  ? '请升级后使用高级模型'
+                                  : null
+                            : undefined
+                        }
                       />
                     </label>
                   ) : null}

@@ -164,9 +164,13 @@ function withVelaModelPriceFields(
   model: RuntimeModelOption,
   item: unknown,
 ): RuntimeModelOption {
+  const enabled = extractOptionalBoolean(item, ['enabled']);
+  const isDefault = extractOptionalBoolean(item, ['default']);
   const inputPriceUsdPerMillion = extractInputPriceUsdPerMillion(item);
   const outputPriceUsdPerMillion = extractOutputPriceUsdPerMillion(item);
   if (
+    enabled === undefined &&
+    isDefault === undefined &&
     inputPriceUsdPerMillion === undefined &&
     outputPriceUsdPerMillion === undefined
   ) {
@@ -174,9 +178,23 @@ function withVelaModelPriceFields(
   }
   return {
     ...model,
+    ...(enabled === undefined ? {} : { enabled }),
+    ...(isDefault === undefined ? {} : { default: isDefault }),
     ...(inputPriceUsdPerMillion === undefined ? {} : { inputPriceUsdPerMillion }),
     ...(outputPriceUsdPerMillion === undefined ? {} : { outputPriceUsdPerMillion }),
   };
+}
+
+function extractOptionalBoolean(
+  item: unknown,
+  keys: string[],
+): boolean | undefined {
+  if (!isRecord(item)) return undefined;
+  for (const key of keys) {
+    const value = item[key];
+    if (typeof value === 'boolean') return value;
+  }
+  return undefined;
 }
 
 function extractInputPriceUsdPerMillion(item: unknown): number | undefined {
@@ -480,7 +498,7 @@ export async function fetchVelaRemoteModelsWithRetry(
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= AMR_MODELS_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      const { stdout } = await execAgentFile(resolvedBin, ['model', 'list', '--format', 'json'], {
+      const { stdout } = await execAgentFile(resolvedBin, ['model', 'list', '--all', '--format', 'json'], {
         env,
         timeout: AMR_MODELS_TIMEOUT_MS,
         maxBuffer: 1024 * 1024,

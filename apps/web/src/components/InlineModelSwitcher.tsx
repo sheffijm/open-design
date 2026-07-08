@@ -65,7 +65,11 @@ import {
   notifyAmrLoginStatusChanged,
 } from './amrLoginPolling';
 import { orderAgentsWithOpenDesignFirst } from './agentOrdering';
-import { normalizeAgentModelChoice } from './agentModelSelection';
+import {
+  defaultAgentModelId,
+  effectiveAgentModelChoice,
+  normalizeAgentModelChoice,
+} from './agentModelSelection';
 import { SearchableModelSelect } from './modelOptions';
 import {
   mergeProviderModelOptions,
@@ -401,24 +405,22 @@ export function InlineModelSwitcher({
 
   const currentChoice =
     (config.agentId && config.agentModels?.[config.agentId]) || {};
-  const normalizedCurrentChoice = normalizeAgentModelChoice(
-    currentAgent,
-    currentChoice,
-  );
+  const normalizedCurrentChoice = normalizeAgentModelChoice(currentAgent, currentChoice);
+  const effectiveCurrentChoice = effectiveAgentModelChoice(currentAgent, currentChoice) ?? currentChoice;
   const currentAgentId = currentAgent?.id ?? null;
   const normalizedCurrentModelId = normalizedCurrentChoice?.model ?? null;
   const normalizedCurrentReasoning = normalizedCurrentChoice?.reasoning;
   const currentAgentModelIds = currentAgent?.models?.map((m) => m.id) ?? [];
   const configuredModelId =
-    typeof currentChoice.model === 'string' && currentChoice.model
-      ? currentChoice.model
+    typeof effectiveCurrentChoice.model === 'string' && effectiveCurrentChoice.model
+      ? effectiveCurrentChoice.model
       : null;
   const currentModelId =
     currentAgent?.id === 'amr' &&
     configuredModelId &&
     !currentAgentModelIds.includes(configuredModelId)
-      ? currentAgent?.models?.[0]?.id ?? null
-      : configuredModelId ?? currentAgent?.models?.[0]?.id ?? null;
+      ? defaultAgentModelId(currentAgent)
+      : configuredModelId ?? defaultAgentModelId(currentAgent);
 
   useEffect(() => {
     if (!currentAgentId || !normalizedCurrentModelId) return;
@@ -986,6 +988,14 @@ export function InlineModelSwitcher({
                               label: `${currentModelId} ${t('inlineSwitcher.customSuffix')}`,
                             },
                           ]
+                        : undefined
+                    }
+                    disabledOptionHint={
+                      currentAgent?.id === 'amr'
+                        ? (option) =>
+                            option.enabled === false
+                              ? '请升级后使用高级模型'
+                              : null
                         : undefined
                     }
                   />

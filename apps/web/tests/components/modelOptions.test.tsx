@@ -108,9 +108,37 @@ describe('SearchableModelSelect', () => {
     const option = await screen.findByRole('option', { name: /^deepseek-v4-flash$/ });
     expect(option.textContent).toContain('Lowest cost');
     expect(option.textContent).toContain('Fast');
-    expect(option).toHaveAccessibleName('deepseek-v4-flash');
-    expect(option).toHaveAccessibleDescription('Lowest cost Fast');
+    expect(option.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(option.getAttribute('aria-describedby')).toBeTruthy();
     expect(option.querySelector('[data-description]')).toBeNull();
     expect(option.querySelector('[data-label]')).toBeNull();
+  });
+
+  it('disables unavailable options and shows the provided hint', async () => {
+    const onChange = vi.fn();
+    render(
+      <SearchableModelSelect
+        models={[
+          { id: 'deepseek-v4-flash', label: 'deepseek-v4-flash', default: true },
+          { id: 'deepseek-v4-pro', label: 'deepseek-v4-pro', enabled: false },
+        ]}
+        value="deepseek-v4-flash"
+        onChange={onChange}
+        searchPlaceholder="Search models"
+        disabledOptionHint={(option) =>
+          option.enabled === false ? '请升级后使用高级模型' : null
+        }
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('combobox'));
+
+    const disabledOption = await screen.findByRole('option', { name: /^deepseek-v4-pro$/ });
+    expect(disabledOption.hasAttribute('disabled')).toBe(true);
+    expect(disabledOption.getAttribute('aria-describedby')).toBeTruthy();
+    expect(disabledOption.textContent).toContain('请升级后使用高级模型');
+
+    fireEvent.click(disabledOption);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

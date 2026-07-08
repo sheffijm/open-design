@@ -72,6 +72,7 @@ interface SearchableModelSelectProps
   popoverTestId?: string;
   popoverClassName?: string;
   additionalOptions?: Array<{ value: string; label: string }>;
+  disabledOptionHint?: (option: AgentModelOption) => string | null | undefined;
   minSearchableOptions?: number;
   popoverMinWidth?: number;
 }
@@ -89,6 +90,7 @@ export const SearchableModelSelect = forwardRef<
     popoverTestId,
     popoverClassName,
     additionalOptions,
+    disabledOptionHint,
     minSearchableOptions = 8,
     popoverMinWidth,
     className,
@@ -215,7 +217,7 @@ export const SearchableModelSelect = forwardRef<
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [open]);
+  }, [open, popoverMinWidth]);
 
   useEffect(() => {
     if (!open || !shouldShowSearch) return;
@@ -305,6 +307,8 @@ export const SearchableModelSelect = forwardRef<
               >
                 {filteredOptions.map((option, index) => {
                   const active = option.id === value;
+                  const disabled = option.enabled === false;
+                  const disabledHint = disabled ? disabledOptionHint?.(option) : null;
                   const tag = getModelCapabilityTag(option);
                   const tagLabel = tag
                     ? t(MODEL_CAPABILITY_TAG_LABEL_KEYS[tag])
@@ -317,7 +321,8 @@ export const SearchableModelSelect = forwardRef<
                   const optionLabelId = `${optionId}-label`;
                   const optionCostId = costLabel ? `${optionId}-cost` : undefined;
                   const optionTagId = tagLabel ? `${optionId}-tag` : undefined;
-                  const optionDescriptionIds = [optionCostId, optionTagId]
+                  const optionDisabledId = disabledHint ? `${optionId}-disabled` : undefined;
+                  const optionDescriptionIds = [optionCostId, optionTagId, optionDisabledId]
                     .filter(Boolean)
                     .join(' ') || undefined;
                   return (
@@ -326,11 +331,14 @@ export const SearchableModelSelect = forwardRef<
                       type="button"
                       role="option"
                       aria-selected={active}
+                      aria-disabled={disabled}
                       aria-labelledby={optionLabelId}
                       aria-describedby={optionDescriptionIds}
-                      className={`model-select-searchable__option${active ? ' is-active' : ''}`}
+                      className={`model-select-searchable__option${active ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}`}
                       data-selected={active ? 'true' : undefined}
+                      disabled={disabled}
                       onClick={() => {
+                        if (disabled) return;
                         onChange(option.id);
                         setOpen(false);
                       }}
@@ -346,6 +354,14 @@ export const SearchableModelSelect = forwardRef<
                               id={optionCostId}
                             >
                               {costLabel}
+                            </span>
+                          ) : null}
+                          {disabledHint ? (
+                            <span
+                              className="model-select-searchable__option-meta"
+                              id={optionDisabledId}
+                            >
+                              {disabledHint}
                             </span>
                           ) : null}
                         </span>

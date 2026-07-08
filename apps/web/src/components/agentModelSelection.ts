@@ -1,6 +1,22 @@
 import type { AgentInfo, AgentModelChoice } from '../types';
 
-type AgentModelSource = Pick<AgentInfo, 'id' | 'models'> | null | undefined;
+type AgentModelSource =
+  | {
+      id: AgentInfo['id'];
+      models?: Array<{ id: string; enabled?: boolean; default?: boolean }>;
+    }
+  | null
+  | undefined;
+
+export function defaultAgentModelId(agent: AgentModelSource): string | null {
+  const models = agent?.models ?? [];
+  return (
+    models.find((model) => model.default === true && model.enabled !== false)?.id ??
+    models.find((model) => model.enabled !== false)?.id ??
+    models[0]?.id ??
+    null
+  );
+}
 
 export function normalizeAgentModelChoice(
   agent: AgentModelSource,
@@ -10,14 +26,18 @@ export function normalizeAgentModelChoice(
     typeof choice?.model === 'string' && choice.model ? choice.model : null;
   if (agent?.id !== 'amr' || !configuredModel) return null;
 
-  const modelIds = agent.models?.map((model) => model.id) ?? [];
-  if (modelIds.length === 0 || modelIds.includes(configuredModel)) {
+  const matchingModel = agent.models?.find((model) => model.id === configuredModel) ?? null;
+  if (!matchingModel && (agent.models?.length ?? 0) === 0) {
     return null;
   }
+  if (matchingModel?.enabled !== false) return null;
+
+  const fallbackModel = defaultAgentModelId(agent);
+  if (!fallbackModel || fallbackModel === configuredModel) return null;
 
   return {
     ...choice,
-    model: modelIds[0],
+    model: fallbackModel,
   };
 }
 
