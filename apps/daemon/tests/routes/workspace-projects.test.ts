@@ -184,4 +184,30 @@ describe('workspace project routes', () => {
     });
     expect(moveToPersonal.status).toBe(403);
   });
+
+  it('honors workspace permission bits when sharing personal projects', async () => {
+    const projectId = `workspace-share-permission-${Date.now()}`;
+    await createProject(projectId, 'Share permission project');
+
+    const body = await list('member-share-permission', '?view=personal');
+    const project = body.projects.find((item: any) => item.id === projectId);
+    expect(project.currentUserAccess.canRename).toBe(true);
+    expect(project.currentUserAccess.canMoveToTeam).toBe(true);
+
+    const restrictedList = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/projects?view=personal`, {
+      headers: headers('member-share-permission', { 'x-od-workspace-can-share-projects': 'false' }),
+    });
+    expect(restrictedList.status).toBe(200);
+    const restrictedBody = await restrictedList.json() as { projects: Array<any> };
+    const restrictedProject = restrictedBody.projects.find((item: any) => item.id === projectId);
+    expect(restrictedProject.currentUserAccess.canRename).toBe(true);
+    expect(restrictedProject.currentUserAccess.canMoveToTeam).toBe(false);
+
+    const moveResp = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/projects/${projectId}/move`, {
+      method: 'POST',
+      headers: headers('member-share-permission', { 'x-od-workspace-can-share-projects': 'false' }),
+      body: JSON.stringify({ visibility: 'team' }),
+    });
+    expect(moveResp.status).toBe(403);
+  });
 });

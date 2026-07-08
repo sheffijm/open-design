@@ -1154,7 +1154,8 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
     role: 'owner' | 'admin' | 'member';
     memberStatus: 'active' | 'removed';
     lifecycleState: 'active' | 'billing_past_due' | 'locked' | 'deleting' | 'deleted';
-    writeEnabled: boolean;
+    canShareProjects: boolean;
+    canWriteSyncedFiles: boolean;
   };
 
   // Temporary adapter until the B-owned CurrentWorkspaceContext is wired into
@@ -1164,9 +1165,18 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
     const value = req.get(name);
     return typeof value === 'string' && value.trim() ? value.trim() : null;
   }
+  function headerBool(req: any, name: string, fallback: boolean): boolean {
+    const value = headerValue(req, name);
+    if (value === null) return fallback;
+    if (value === 'false') return false;
+    if (value === 'true') return true;
+    return fallback;
+  }
   function workspaceProjectContext(req: any, workspaceId: string): WorkspaceProjectContext {
     const lifecycleState = headerValue(req, 'x-od-workspace-lifecycle-state') ?? 'active';
     const role = headerValue(req, 'x-od-workspace-role') ?? 'owner';
+    const legacyWriteEnabled = headerBool(req, 'x-od-workspace-write-enabled', true);
+    const canWriteSyncedFiles = headerBool(req, 'x-od-workspace-can-write-synced-files', legacyWriteEnabled);
     return {
       workspaceId,
       appUserId: headerValue(req, 'x-od-app-user-id') ?? 'local-user',
@@ -1176,11 +1186,12 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       lifecycleState: lifecycleState === 'billing_past_due' || lifecycleState === 'locked' || lifecycleState === 'deleting' || lifecycleState === 'deleted'
         ? lifecycleState
         : 'active',
-      writeEnabled: headerValue(req, 'x-od-workspace-write-enabled') !== 'false',
+      canShareProjects: headerBool(req, 'x-od-workspace-can-share-projects', canWriteSyncedFiles),
+      canWriteSyncedFiles,
     };
   }
   function isWorkspaceLocked(ctx: WorkspaceProjectContext): boolean {
-    return ctx.lifecycleState === 'locked' || ctx.lifecycleState === 'deleted' || !ctx.writeEnabled;
+    return ctx.lifecycleState === 'locked' || ctx.lifecycleState === 'deleted';
   }
   function pendingSyncIntent(projectId: string, workspaceId: string, visibility: 'personal' | 'team') {
     return {
@@ -1193,7 +1204,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
     const frozen = wp.resourceState === 'frozen' || wp.resourceState === 'deleted' || isWorkspaceLocked(ctx);
     const selfCreated = wp.createdByWorkspaceMemberId != null && wp.createdByWorkspaceMemberId === ctx.workspaceMemberId;
     const privileged = ctx.role === 'owner' || ctx.role === 'admin';
-    const canMutate = !frozen && ctx.memberStatus === 'active' && (privileged || selfCreated);
+    const canMutate = !frozen && ctx.canWriteSyncedFiles && ctx.memberStatus === 'active' && (privileged || selfCreated);
     const disabledReason = frozen
       ? ctx.lifecycleState === 'deleted' || wp.resourceState === 'deleted'
         ? 'workspace_deleted'
@@ -1206,7 +1217,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       canRename: canMutate,
       canDelete: canMutate,
       canDuplicate: canMutate,
-      canMoveToTeam: canMutate && wp.visibility === 'personal',
+      canMoveToTeam: canMutate && ctx.canShareProjects && wp.visibility === 'personal',
       canMoveToPersonal: canMutate && wp.visibility === 'team',
       canExport: !frozen && ctx.memberStatus === 'active',
       canSendTo: !frozen && ctx.memberStatus === 'active',
