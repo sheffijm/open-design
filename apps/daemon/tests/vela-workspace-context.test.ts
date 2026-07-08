@@ -86,7 +86,7 @@ describe('createVelaWorkspaceContextProvider', () => {
     const context = await provider.current({});
     expect(context?.workspaceMemberId).toBe('wm-1');
     expect(context?.teamId).toBe('ws-team-1');
-    const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(String(url)).toBe('https://vela.example/api/v1/workspaces/current');
     expect((init as RequestInit).headers).toMatchObject({ authorization: 'Bearer ck-1' });
   });

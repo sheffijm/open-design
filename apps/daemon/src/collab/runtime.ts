@@ -18,6 +18,11 @@ import {
   contextToResourceHubPrincipal,
   createResourceHubPublishAdapterFromEnv,
 } from './resource-hub-publish-adapter.js';
+import {
+  contextHasTeamIdentity,
+  createVelaCliResourceAdapter,
+  shouldUseVelaCliResourceTransport,
+} from './vela-cli-resource-adapter.js';
 import type { WorkspaceContextProvider } from './workspace-context.js';
 import { createWorkspaceContextProviderFromEnv } from './vela-workspace-context.js';
 import {
@@ -76,17 +81,40 @@ export interface CreateCollabRuntimeOptions {
   onError?: (result: { projectId: string; error: unknown }) => void;
 }
 
+/**
+ * Pick the resource transport for this run. The `vela resource` CLI transport
+ * (OD_RESOURCE_TRANSPORT=vela-cli) reuses the vela login session and keeps the
+ * content-addressing in the CLI; otherwise the in-process hub SDK adapter runs.
+ * Both gate on the same workspace context, so one identity drives either path.
+ * Returns null when there is no project-dir resolver (caller falls back to the
+ * local stub).
+ */
+function selectResourcePublishAdapter(
+  resolveProjectDir: ((projectId: string) => string | Promise<string>) | undefined,
+  workspaceContext: WorkspaceContextProvider,
+): ResourcePublishAdapter | null {
+  if (!resolveProjectDir) return null;
+  if (shouldUseVelaCliResourceTransport()) {
+    return createVelaCliResourceAdapter({
+      resolveProjectDir,
+      hasTeamIdentity: async () => contextHasTeamIdentity(await workspaceContext.current({})),
+    });
+  }
+  return createResourceHubPublishAdapterFromEnv(resolveProjectDir, async () =>
+    contextToResourceHubPrincipal(await workspaceContext.current({})),
+  );
+}
+
 export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): CollabRuntime {
   const workspaceContext = options.workspaceContext ?? createWorkspaceContextProviderFromEnv();
-  // Single identity source: the resource-hub principal derives from the same
-  // workspace context the web gate reads, so one signed-in identity drives both.
+  // Single identity source: whichever transport runs, the team-identity gate
+  // derives from the same workspace context the web collab surface reads, so one
+  // signed-in identity drives both. Transport precedence: an explicit adapter →
+  // the `vela resource` CLI transport when opted in (OD_RESOURCE_TRANSPORT=vela-cli)
+  // → the in-process hub SDK adapter → the local stub.
   const adapter =
     options.adapter ??
-    (options.resolveProjectDir
-      ? createResourceHubPublishAdapterFromEnv(options.resolveProjectDir, async () =>
-          contextToResourceHubPrincipal(await workspaceContext.current({})),
-        )
-      : null) ??
+    selectResourcePublishAdapter(options.resolveProjectDir, workspaceContext) ??
     createStubResourcePublishAdapter();
   const published = new Map<string, number>();
   const syncStates = new Map<string, ProjectSyncState>();
