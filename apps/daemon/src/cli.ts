@@ -696,16 +696,21 @@ function amrLoginReasonSummary(failure) {
 }
 
 // Poll the vela status until the sign-in completes, fails, or times out. Mirrors
-// the web poll loop (2s interval, 5-min ceiling) so the CLI reports the same
-// classified failure the UI would show (issue #426).
+// the web poll contract (2s interval, 3s startup-settle, 5-min ceiling) so the
+// CLI reports the same classified failure the UI would show (issue #426).
 const AMR_CLI_LOGIN_POLL_INTERVAL_MS = 2000;
+const AMR_CLI_LOGIN_STARTUP_SETTLE_MS = 3000;
 const AMR_CLI_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 async function runAmrLogin(base, flags) {
   const loginResp = await fetch(`${base}/api/integrations/vela/login`, {
     method: 'POST',
   });
-  if (!loginResp.ok && loginResp.status !== 202) {
+  // 202 = started, 409 = a sign-in is already in flight on another surface.
+  // Both are valid: attach to the existing login and poll it (CLI/web parity).
+  // Only a real start failure (anything else) exits non-zero here.
+  const alreadyRunning = loginResp.status === 409;
+  if (!loginResp.ok && !alreadyRunning) {
     const body = await loginResp.json().catch(() => null);
     const failure = body?.failure ?? null;
     if (flags.json) {
@@ -725,7 +730,11 @@ async function runAmrLogin(base, flags) {
   }
 
   if (!flags.json) {
-    console.log('Sign-in started. Complete it in your browser…');
+    console.log(
+      alreadyRunning
+        ? 'Sign-in already in progress. Waiting for it to complete…'
+        : 'Sign-in started. Complete it in your browser…',
+    );
   }
   const startedAt = Date.now();
   for (;;) {
@@ -742,21 +751,35 @@ async function runAmrLogin(base, flags) {
       }
       return;
     }
-    const timedOut = Date.now() - startedAt >= AMR_CLI_LOGIN_TIMEOUT_MS;
-    const failure = timedOut
-      ? { code: 'AMR_LOGIN_TIMEOUT', recovery: 'reauth' }
-      : status?.lastLoginFailure ?? null;
-    if (failure) {
-      if (timedOut) await fetch(`${base}/api/integrations/vela/login/cancel`, { method: 'POST' }).catch(() => {});
-      if (flags.json) {
-        process.stdout.write(JSON.stringify({ ok: false, failure }, null, 2) + '\n');
-      } else {
-        console.error(`Sign-in failed\t${failure.code}`);
-        const reason = amrLoginReasonSummary(failure);
-        if (reason) console.error(`Reason\t${reason}`);
-      }
-      process.exit(1);
+    // Mirror amrLoginPollOutcome: after the startup-settle grace a login that is
+    // no longer in flight has terminated ("stopped"); the 5-min ceiling is a
+    // timeout. Stopped takes priority — waiting for lastLoginFailure alone would
+    // spin the full ceiling on a canceled exit (which surfaces no failure).
+    const elapsed = Date.now() - startedAt;
+    const stopped =
+      status?.loginInFlight === false && elapsed >= AMR_CLI_LOGIN_STARTUP_SETTLE_MS;
+    const timedOut = elapsed >= AMR_CLI_LOGIN_TIMEOUT_MS;
+    if (!stopped && !timedOut) continue;
+    let failure;
+    if (stopped) {
+      failure = status?.lastLoginFailure ?? {
+        code: 'AMR_LOGIN_INTERRUPTED',
+        recovery: 'reauth',
+      };
+    } else {
+      failure = { code: 'AMR_LOGIN_TIMEOUT', recovery: 'reauth' };
+      await fetch(`${base}/api/integrations/vela/login/cancel`, {
+        method: 'POST',
+      }).catch(() => {});
     }
+    if (flags.json) {
+      process.stdout.write(JSON.stringify({ ok: false, failure }, null, 2) + '\n');
+    } else {
+      console.error(`Sign-in failed\t${failure.code}`);
+      const reason = amrLoginReasonSummary(failure);
+      if (reason) console.error(`Reason\t${reason}`);
+    }
+    process.exit(1);
   }
 }
 

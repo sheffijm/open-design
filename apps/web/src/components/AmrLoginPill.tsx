@@ -307,9 +307,17 @@ export function AmrLoginPill({
     if (next) {
       setStatus(next);
       onStatusChange?.(next);
+      // Persist the daemon's classified failure across ordinary reads
+      // (mount/focus), so a reload after a failed sign-in keeps the specific
+      // reason instead of resetting to a plain signed-out pill (issue #426).
+      // Only in the terminal signed-out/not-signing-in state; login start,
+      // success, and cancel clear the error through their own branches.
+      if (!next.loggedIn && !next.loginInFlight && next.lastLoginFailure) {
+        setErrorMessage(amrLoginReasonText(t, next.lastLoginFailure));
+      }
     }
     return next;
-  }, [onStatusChange]);
+  }, [onStatusChange, t]);
 
   useEffect(() => {
     if (!skipInitialRefresh) void refresh();

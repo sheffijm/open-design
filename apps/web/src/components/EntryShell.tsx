@@ -1341,7 +1341,14 @@ function OnboardingView({
     let cancelled = false;
     void fetchVelaLoginStatus()
       .then((next) => {
-        if (!cancelled && next) setAmrStatus(next);
+        if (cancelled || !next) return;
+        setAmrStatus(next);
+        // Surface the daemon's persisted classified failure on the onboarding
+        // mount fetch so a reload after a failed sign-in keeps the specific
+        // reason instead of resetting to the plain sign-in CTA (issue #426).
+        if (!next.loggedIn && !next.loginInFlight && next.lastLoginFailure) {
+          setAmrLoginError(amrLoginReasonText(t, next.lastLoginFailure));
+        }
       })
       .finally(() => {
         if (!cancelled) setAmrStatusResolved(true);
@@ -1349,7 +1356,7 @@ function OnboardingView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (runtime === 'amr') return;

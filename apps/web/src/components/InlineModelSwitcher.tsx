@@ -200,15 +200,22 @@ export function InlineModelSwitcher({
       if (next.loggedIn) {
         amrLoginStartedAtRef.current = null;
         setAmrLoginPending(false);
+        setAmrLoginError(null);
       } else if (next.loginInFlight) {
         setAmrLoginPending(true);
       } else if (!pendingStartup) {
         amrLoginStartedAtRef.current = null;
         setAmrLoginPending(false);
+        // Surface the daemon's persisted classified failure on ordinary reads
+        // (mount/focus) so a reload after a failed sign-in keeps the specific
+        // reason instead of resetting to a plain signed-out entry (issue #426).
+        if (next.lastLoginFailure) {
+          setAmrLoginError(amrLoginReasonText(t, next.lastLoginFailure));
+        }
       }
     }
     return next;
-  }, []);
+  }, [t]);
 
   const startAmrPolling = useCallback((startedAt = Date.now()) => {
     stopAmrPolling();
