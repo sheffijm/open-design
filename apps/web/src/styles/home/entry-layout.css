@@ -3486,15 +3486,18 @@
   color: var(--accent-strong);
 }
 
-/* Free-text detail revealed under the "Where did you hear about us?" chips
-   when the visitor picks "Other". Sits below the chip row (the field is a
-   grid, so it flows onto its own line) and reads as an inline follow-up. */
+/* Free-text detail revealed when the visitor picks "Other" on the "Where did
+   you hear about us?" question. Rendered inline as the last item of the chip
+   row so it sits right after the Other chip (growing to fill the rest of the
+   row, or wrapping onto the next line at a comfortable width) instead of
+   floating below the group. Height matches the chips so the row stays even. */
 .onboarding-chip-field__other-input {
-  width: 100%;
-  max-width: 320px;
-  padding: 8px 12px;
+  flex: 1 1 200px;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 7px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--bg-panel);
   color: var(--text-strong);
   font-size: 13px;

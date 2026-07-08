@@ -2815,22 +2815,25 @@ function OnboardingView({
                       sourceOther: value === 'other' ? current.sourceOther : '',
                     }));
                   }}
+                  trailing={
+                    profile.source === 'other' ? (
+                      <input
+                        type="text"
+                        className="onboarding-chip-field__other-input"
+                        maxLength={64}
+                        autoComplete="off"
+                        autoFocus
+                        placeholder={t('settings.onboardingSourceOtherPlaceholder')}
+                        aria-label={t('settings.onboardingSourceOtherPlaceholder')}
+                        value={profile.sourceOther}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setProfile((current) => ({ ...current, sourceOther: next }));
+                        }}
+                      />
+                    ) : null
+                  }
                 />
-                {profile.source === 'other' ? (
-                  <input
-                    type="text"
-                    className="onboarding-chip-field__other-input"
-                    maxLength={64}
-                    autoComplete="off"
-                    placeholder={t('settings.onboardingSourceOtherPlaceholder')}
-                    aria-label={t('settings.onboardingSourceOtherPlaceholder')}
-                    value={profile.sourceOther}
-                    onChange={(event) => {
-                      const next = event.target.value;
-                      setProfile((current) => ({ ...current, sourceOther: next }));
-                    }}
-                  />
-                ) : null}
               </div>
             </div>
           ) : null}
@@ -3587,7 +3590,7 @@ function OnboardingPanelHeader({ title, body }: { title: string; body: string })
   );
 }
 
-type OnboardingChipFieldProps =
+type OnboardingChipFieldProps = (
   | {
       label: string;
       options: Array<{ value: string; label: string }>;
@@ -3601,12 +3604,18 @@ type OnboardingChipFieldProps =
       value: string[];
       onChange: (value: string[]) => void;
       multiple: true;
-    };
+    }
+) & {
+  // Optional element rendered inline at the end of the chip row (e.g. a
+  // free-text input revealed by an "Other" pick), so it reads as attached
+  // to the last chip rather than floating below the group.
+  trailing?: ReactNode;
+};
 
 // Profile fields render their options as flat toggleable chips so every choice
 // is visible and a selection takes one tap instead of opening a dropdown first.
 function OnboardingChipField(props: OnboardingChipFieldProps) {
-  const { label, options } = props;
+  const { label, options, trailing } = props;
   const selected = props.multiple
     ? props.value
     : props.value
@@ -3641,6 +3650,7 @@ function OnboardingChipField(props: OnboardingChipFieldProps) {
             </button>
           );
         })}
+        {trailing}
       </div>
     </div>
   );
