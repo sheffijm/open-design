@@ -4,6 +4,8 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 // TEMPORARY local collab-cloud fixture. A self-contained, in-memory, infra-free
 // stand-in for the real cross-daemon collaboration hub (C-lane spec §D4, which
@@ -17,11 +19,19 @@ import {
 // member directory). The daemon runs its real client against this exactly as it
 // would against vela — no mock concessions.
 //
-// SCOPE (§D4.1): the hub is (④) an APPEND-ONLY comment store and a light member
-// directory. It does NOT propagate comment edits/deletes, does not do presence,
-// and stores comments opaquely — it is a relay, not a validator. Auth is a
-// single shared bearer token (a local stub principal; the real hub verifies B's
-// token — §D4.4).
+// SCOPE (§D4.1): the hub is (④) a comment relay and a light member directory. It
+// carries the whole comment lifecycle — a create/edit UPSERTs by comment id and
+// moves the record to the head of the seq stream so pollers re-pull it, and a
+// delete rides as a tombstone (`deleted: true`) record. It stores comments
+// opaquely (a relay, not a validator) and does no presence. Auth is a single
+// shared bearer token (a local stub principal; the real hub verifies B's token
+// — §D4.4).
+//
+// PERSISTENCE: when a store path is configured (the `store` option or
+// OD_COLLAB_CLOUD_STORE), the fixture loads its state from that JSON file on
+// start and rewrites it on every change, so a fixture restart does not lose demo
+// data. Without a store path it stays purely in-memory (keeping tests isolated).
+// Persistence degrades: a read/write failure never blocks a relay request.
 //
 // DISPOSABLE: this whole file is deleted once vela `services/collab` is stood
 // up; the only migration is repointing OD_COLLAB_CLOUD_URL at the real service.
@@ -30,6 +40,12 @@ export type CollabCloudFixtureOptions = {
   host?: string;
   port?: number;
   token?: string;
+  /**
+   * Path to a JSON file to persist state to. Defaults to the
+   * `OD_COLLAB_CLOUD_STORE` env var; when neither is set the fixture is
+   * in-memory only.
+   */
+  store?: string;
 };
 
 export type CollabCloudFixtureInfo = {
@@ -132,18 +148,89 @@ function normalizeRole(value: unknown): string | null {
   return typeof value === "string" && MEMBER_ROLES.has(value) ? value : null;
 }
 
+// ---- persistence (opt-in, degrades) --------------------------------------
+
+type PersistedState = {
+  teams: Record<
+    string,
+    {
+      members: MemberEntry[];
+      projects: Record<string, ProjectStream>;
+    }
+  >;
+};
+
+function serializeTeams(teams: Map<string, Team>): PersistedState {
+  const out: PersistedState = { teams: {} };
+  for (const [teamId, team] of teams) {
+    const projects: Record<string, ProjectStream> = {};
+    for (const [projectId, stream] of team.projects) {
+      projects[projectId] = { comments: stream.comments, seq: stream.seq };
+    }
+    out.teams[teamId] = { members: [...team.members.values()], projects };
+  }
+  return out;
+}
+
+function deserializeTeams(raw: unknown): Map<string, Team> {
+  const teams = new Map<string, Team>();
+  const state = raw as PersistedState | null | undefined;
+  if (!state || typeof state !== "object" || !state.teams) return teams;
+  for (const [teamId, teamRaw] of Object.entries(state.teams)) {
+    const members = new Map<string, MemberEntry>();
+    for (const m of teamRaw?.members ?? []) {
+      if (m && typeof m.memberId === "string") members.set(m.memberId, m);
+    }
+    const projects = new Map<string, ProjectStream>();
+    for (const [projectId, streamRaw] of Object.entries(teamRaw?.projects ?? {})) {
+      const comments = Array.isArray(streamRaw?.comments) ? streamRaw.comments : [];
+      const seq = typeof streamRaw?.seq === "number" ? streamRaw.seq : 0;
+      projects.set(projectId, { comments, seq });
+    }
+    teams.set(teamId, { members, projects });
+  }
+  return teams;
+}
+
+/** Read persisted state from disk, or an empty map when absent / unreadable. */
+function loadTeams(storePath: string | null): Map<string, Team> {
+  if (!storePath) return new Map();
+  try {
+    const text = readFileSync(storePath, "utf8");
+    return deserializeTeams(JSON.parse(text));
+  } catch {
+    // First run (no file yet) or a corrupt store — start clean, do not crash.
+    return new Map();
+  }
+}
+
+/** Best-effort write of the whole state; a failure must not break the relay. */
+function saveTeams(storePath: string | null, teams: Map<string, Team>): void {
+  if (!storePath) return;
+  try {
+    mkdirSync(dirname(storePath), { recursive: true });
+    writeFileSync(storePath, JSON.stringify(serializeTeams(teams)), "utf8");
+  } catch {
+    /* persistence is best-effort */
+  }
+}
+
 export async function startCollabCloudFixtureServer(
   options: CollabCloudFixtureOptions = {},
 ): Promise<CollabCloudFixtureServer> {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 0;
   const token = options.token ?? DEFAULT_TOKEN;
+  const storePath = options.store ?? process.env.OD_COLLAB_CLOUD_STORE ?? null;
 
-  // In-memory state, isolated per team (§D4.4 authorization scope).
-  const teams = new Map<string, Team>();
+  // State, isolated per team (§D4.4 authorization scope). Seeded from the store
+  // file when one is configured so a fixture restart keeps demo data.
+  const teams = loadTeams(storePath);
+  const persist = () => saveTeams(storePath, teams);
 
   function reset(): void {
     teams.clear();
+    persist();
   }
 
   function teamFor(teamId: string): Team {
@@ -218,6 +305,7 @@ export async function startCollabCloudFixtureServer(
       const role = normalizeRole(body.role) ?? "member";
       const member: MemberEntry = { memberId, displayName, role };
       teamFor(teamId).members.set(memberId, member);
+      persist();
       sendJson(response, 200, { ok: true, member });
       return;
     }
@@ -246,17 +334,20 @@ export async function startCollabCloudFixtureServer(
           sendJson(response, 400, { error: "invalid_request", message: "comment.id is required" });
           return;
         }
-        // Append-only + idempotent by author-assigned id: re-pushing the same
-        // comment id (e.g. after a retry) does not create a duplicate. Keeps the
-        // seq stream monotonic and gap-free.
-        const existing = stream.comments.find((c) => c.id === id);
-        if (existing) {
-          sendJson(response, 200, { ok: true, seq: existing.seq });
-          return;
-        }
+        // Upsert by author-assigned id: the FIRST push of an id appends at a new
+        // seq; a LATER push of the same id (an edit, a status change, or a
+        // `deleted: true` tombstone) REPLACES the stored payload and re-stamps it
+        // with a fresh head seq, so a poller that already saw the old seq
+        // re-pulls the new state. The stream stays monotonic and one-record-per-id.
         stream.seq += 1;
         const stored: StoredComment = { ...record, id, seq: stream.seq };
-        stream.comments.push(stored);
+        const index = stream.comments.findIndex((c) => c.id === id);
+        if (index >= 0) {
+          stream.comments[index] = stored;
+        } else {
+          stream.comments.push(stored);
+        }
+        persist();
         sendJson(response, 200, { ok: true, seq: stored.seq });
         return;
       }

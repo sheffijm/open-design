@@ -361,8 +361,10 @@ export interface CollabCloudMembersResponse {
  * (`selector`/`label`/`position`/`htmlHint`/`selectionKind`/`podMembers`/
  * `slideIndex`) plus the drift-ladder fields (`anchorState`/`anchoredVersion`/
  * `lastGoodPosition`) ride along so a synced comment keeps pointing at the same
- * element on the receiver. Sync is APPEND-ONLY (§D4.1 ④): a comment is pushed
- * once on creation; edits/deletes are not propagated.
+ * element on the receiver. The stream carries the comment's full lifecycle: a
+ * create/edit is pushed with the current `updatedAt` (receivers apply the newest
+ * by `updatedAt`), and a delete is pushed as a tombstone (`deleted: true`) that
+ * removes the comment by `id` on every receiver.
  */
 export interface CollabCloudComment {
   /**
@@ -415,6 +417,13 @@ export interface CollabCloudComment {
   lastGoodPosition?: PreviewCommentPosition;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Tombstone marker. When `true`, this record is a delete: receivers remove the
+   * comment with this `id` from their local store (delete wins regardless of
+   * `updatedAt`). The remaining fields may be a best-effort snapshot of the
+   * comment as it last existed and should not be re-materialized.
+   */
+  deleted?: boolean;
 }
 
 /** POST /teams/:teamId/projects/:projectId/comments request body. */

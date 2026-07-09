@@ -480,6 +480,7 @@ import {
   getDeploymentById,
   getLatestConversationIdForProject,
   getMessageTelemetryFinalizationState,
+  getPreviewComment,
   getProject,
   getTemplate,
   insertConversation,
@@ -4209,6 +4210,7 @@ export async function startServer({
     upsertMessage,
     listPreviewComments,
     upsertPreviewComment,
+    getPreviewComment,
     updatePreviewCommentStatus,
     updatePreviewCommentAnchor,
     deletePreviewComment,
@@ -4439,13 +4441,22 @@ export async function startServer({
     agents: agentDeps,
     validation: validationDeps,
     // Collab-cloud comment seams (no-op off-team / when unconfigured): stamp the
-    // server-authoritative author and push a new comment to the cross-daemon relay.
+    // server-authoritative author, gate status/delete on the caller vs the
+    // comment author / project owner, and push the comment lifecycle (create/edit,
+    // status change, tombstone) to the cross-daemon relay.
     resolveAuthorMemberId: async (authorization) =>
       (await collab.workspaceContext.current({ authorization }))?.workspaceMemberId,
+    resolveProjectOwnerMemberId: resolveSharedProjectOwner,
     ...(collabCloud
       ? {
           onCommentCreated: (comment) => {
             void collabCloud.pushComment(comment).catch(() => {});
+          },
+          onCommentUpdated: (comment) => {
+            void collabCloud.pushComment(comment).catch(() => {});
+          },
+          onCommentDeleted: (comment) => {
+            void collabCloud.pushCommentDeletion(comment).catch(() => {});
           },
         }
       : {}),

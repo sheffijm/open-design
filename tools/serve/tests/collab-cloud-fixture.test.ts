@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   type CollabCloudFixtureServer,
@@ -116,16 +119,39 @@ describe("collab-cloud fixture", () => {
     expect(incremental.json.latestSeq).toBe(2);
   });
 
-  it("is idempotent on re-push by comment id (append-only, no dup)", async () => {
+  it("upserts by comment id: a re-push replaces the payload at a fresh head seq", async () => {
     server = await startCollabCloudFixtureServer({ token: TOKEN });
     const first = await call("POST", "/teams/t1/projects/p1/comments", { comment: comment("c1") });
     const again = await call("POST", "/teams/t1/projects/p1/comments", { comment: comment("c1", { note: "edited" }) });
     expect(first.json.seq).toBe(1);
-    expect(again.json.seq).toBe(1);
+    // The edit re-stamps the record at a new head seq so pollers re-pull it.
+    expect(again.json.seq).toBe(2);
+    const all = await call("GET", "/teams/t1/projects/p1/comments?sinceSeq=0");
+    // Still one record per id — the edit overwrote, it did not duplicate.
+    expect(all.json.comments).toHaveLength(1);
+    expect(all.json.comments[0].note).toBe("edited");
+    expect(all.json.comments[0].seq).toBe(2);
+
+    // A poller that already saw seq 1 re-pulls the edited record at seq 2.
+    const incremental = await call("GET", "/teams/t1/projects/p1/comments?sinceSeq=1");
+    expect(incremental.json.comments.map((c: any) => c.id)).toEqual(["c1"]);
+    expect(incremental.json.comments[0].note).toBe("edited");
+  });
+
+  it("carries a delete tombstone (deleted: true) through as an updated record", async () => {
+    server = await startCollabCloudFixtureServer({ token: TOKEN });
+    await call("POST", "/teams/t1/projects/p1/comments", { comment: comment("c1") });
+    const tomb = await call("POST", "/teams/t1/projects/p1/comments", {
+      comment: comment("c1", { deleted: true }),
+    });
+    expect(tomb.json.seq).toBe(2);
     const all = await call("GET", "/teams/t1/projects/p1/comments?sinceSeq=0");
     expect(all.json.comments).toHaveLength(1);
-    // First write wins (append-only relay does not overwrite).
-    expect(all.json.comments[0].note).toBe("note c1");
+    expect(all.json.comments[0].deleted).toBe(true);
+    // A poller past the create still receives the tombstone.
+    const incremental = await call("GET", "/teams/t1/projects/p1/comments?sinceSeq=1");
+    expect(incremental.json.comments.map((c: any) => c.id)).toEqual(["c1"]);
+    expect(incremental.json.comments[0].deleted).toBe(true);
   });
 
   it("carries the anchor payload + drift-ladder fields opaquely", async () => {
@@ -185,5 +211,32 @@ describe("collab-cloud fixture", () => {
     );
     expect(moved.status).toBe(200);
     expect(moved.json.comments.map((c: any) => c.id)).toEqual(["c2"]);
+  });
+
+  it("persists to a store file and reloads it on restart", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "od-collab-store-"));
+    const storePath = join(dir, "collab-cloud.json");
+    try {
+      // First run: seed a member + a comment, then shut down.
+      server = await startCollabCloudFixtureServer({ token: TOKEN, store: storePath });
+      await call("PUT", "/teams/t1/members/m1", { displayName: "琼羽", role: "owner" });
+      await call("POST", "/teams/t1/projects/p1/comments", { comment: comment("c1") });
+      // The state landed on disk as JSON.
+      const persisted = JSON.parse(readFileSync(storePath, "utf8"));
+      expect(persisted.teams.t1.members[0].memberId).toBe("m1");
+      expect(persisted.teams.t1.projects.p1.comments[0].id).toBe("c1");
+      await server.close();
+      server = null;
+
+      // Second run against the same store: the seeded data is still there.
+      server = await startCollabCloudFixtureServer({ token: TOKEN, store: storePath });
+      const members = await call("GET", "/teams/t1/members");
+      expect(members.json.members).toEqual([{ memberId: "m1", displayName: "琼羽", role: "owner" }]);
+      const comments = await call("GET", "/teams/t1/projects/p1/comments?sinceSeq=0");
+      expect(comments.json.comments.map((c: any) => c.id)).toEqual(["c1"]);
+      expect(comments.json.latestSeq).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

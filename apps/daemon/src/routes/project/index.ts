@@ -58,12 +58,18 @@ import { registerProjectConversationRoutes } from './conversations.js';
 export interface RegisterProjectRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'paths' | 'projectStore' | 'projectFiles' | 'conversations' | 'templates' | 'status' | 'events' | 'ids' | 'telemetry' | 'appConfig' | 'agents' | 'validation'> {
   /**
    * Collab-cloud comment seams, threaded to the nested preview-comment routes.
-   * `resolveAuthorMemberId` stamps the server-authoritative author on a new
-   * comment; `onCommentCreated` pushes it to the cross-daemon relay. Both are
-   * optional and no-op off-team / when the collab cloud is unconfigured.
+   * `resolveAuthorMemberId` stamps the server-authoritative author AND identifies
+   * the caller for permission gating; `resolveProjectOwnerMemberId` resolves the
+   * shared project's owner so the owner may delete / drive status on any comment.
+   * `onCommentCreated`/`onCommentUpdated`/`onCommentDeleted` push the comment's
+   * lifecycle (create/edit, status change, tombstone) to the cross-daemon relay.
+   * All optional and no-op off-team / when the collab cloud is unconfigured.
    */
   resolveAuthorMemberId?: (authorization: string | undefined) => Promise<string | undefined>;
+  resolveProjectOwnerMemberId?: (projectId: string) => Promise<string | null>;
   onCommentCreated?: (comment: PreviewComment) => void;
+  onCommentUpdated?: (comment: PreviewComment) => void;
+  onCommentDeleted?: (comment: PreviewComment) => void;
 }
 
 function projectDetailResolvedDir(

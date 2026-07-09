@@ -10,11 +10,13 @@ import {
 } from '@open-design/contracts';
 import {
   closeDatabase,
+  deleteSyncedPreviewComment,
   insertConversation,
   insertProject,
   listPreviewComments,
   mergeSyncedPreviewComment,
   openDatabase,
+  upsertPreviewComment,
 } from '../src/db.js';
 import { createCollabCloudClient, type CollabCloudClient } from '../src/integrations/collab-cloud.js';
 import {
@@ -173,6 +175,93 @@ describe('mergeSyncedPreviewComment', () => {
     expect(listPreviewComments(db, 'p1', 'conv-local')).toHaveLength(1);
     expect(listPreviewComments(db, 'p1', 'conv-remote')).toHaveLength(0);
   });
+
+  // —— multi-author coexistence on the SAME element (the顶掉 root cause) ————————
+
+  it('keeps two members\' comments on the same element as distinct rows', () => {
+    const db = seededDb();
+    // A member's comment on `hero` is synced in...
+    mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c-member', { memberId: 'm-member' }));
+    // ...and the local user (a different author) comments on the SAME element.
+    const own = upsertPreviewComment(db, 'p1', 'conv-local', {
+      target: {
+        filePath: 'index.html',
+        elementId: 'hero',
+        selector: '[data-od-id="hero"]',
+        label: 'h1.hero',
+        text: 'Hero',
+        htmlHint: '<h1>',
+        position: { x: 0, y: 0, width: 0, height: 0 },
+      },
+      note: 'owner note',
+      authorMemberId: 'm-owner',
+    });
+    expect(own).not.toBeNull();
+    const stored = listPreviewComments(db, 'p1', 'conv-local');
+    // Both coexist — the local upsert did NOT clobber the synced member comment.
+    expect(stored).toHaveLength(2);
+    expect(stored.find((c) => c.authorMemberId === 'm-member')?.note).toBe('note c-member');
+    expect(stored.find((c) => c.authorMemberId === 'm-owner')?.note).toBe('owner note');
+  });
+
+  it('merges two different-author comments on the same element without a collision', () => {
+    const db = seededDb();
+    expect(
+      mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('cA', { memberId: 'm-a' })),
+    ).toBe(true);
+    // Same element, different author + different id → a new distinct row (not IGNOREd).
+    expect(
+      mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('cB', { memberId: 'm-b' })),
+    ).toBe(true);
+    expect(listPreviewComments(db, 'p1', 'conv-local')).toHaveLength(2);
+  });
+
+  // —— edit sync (UPSERT by updatedAt) ——————————————————————————————————————————
+
+  it('applies a strictly-newer edit in place and ignores a stale one', () => {
+    const db = seededDb();
+    mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1', { note: 'v1', updatedAt: 100 }));
+    // Newer updatedAt → update in place.
+    expect(
+      mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1', { note: 'v2', updatedAt: 200 })),
+    ).toBe(true);
+    expect(listPreviewComments(db, 'p1', 'conv-local')[0]!.note).toBe('v2');
+    // Stale updatedAt → no-op, the fresher local content wins.
+    expect(
+      mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1', { note: 'v0', updatedAt: 150 })),
+    ).toBe(false);
+    expect(listPreviewComments(db, 'p1', 'conv-local')[0]!.note).toBe('v2');
+    // A re-pull at the same updatedAt is also a no-op (still one row).
+    expect(
+      mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1', { note: 'v2', updatedAt: 200 })),
+    ).toBe(false);
+    expect(listPreviewComments(db, 'p1', 'conv-local')).toHaveLength(1);
+  });
+
+  // —— delete sync (tombstone) ——————————————————————————————————————————————————
+
+  it('deletes the local comment on an inbound tombstone', () => {
+    const db = seededDb();
+    mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1'));
+    expect(listPreviewComments(db, 'p1', 'conv-local')).toHaveLength(1);
+    // Tombstone removes it (delete wins regardless of updatedAt).
+    expect(
+      mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1', { deleted: true, updatedAt: 1 })),
+    ).toBe(true);
+    expect(listPreviewComments(db, 'p1', 'conv-local')).toHaveLength(0);
+    // A repeated tombstone is a no-op.
+    expect(
+      mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1', { deleted: true })),
+    ).toBe(false);
+  });
+
+  it('deleteSyncedPreviewComment removes by id, scoped to the project', () => {
+    const db = seededDb();
+    mergeSyncedPreviewComment(db, 'p1', 'conv-local', cloudComment('c1'));
+    expect(deleteSyncedPreviewComment(db, 'other-project', 'c1')).toBe(false);
+    expect(deleteSyncedPreviewComment(db, 'p1', 'c1')).toBe(true);
+    expect(listPreviewComments(db, 'p1', 'conv-local')).toHaveLength(0);
+  });
 });
 
 // —— createCollabCloudService poll + merge idempotency (fake client) —————————
@@ -263,6 +352,38 @@ describe('createCollabCloudService', () => {
     });
     await service.pollOnce();
     expect(mergeCalls).toBe(0);
+    service.dispose();
+  });
+
+  it('pushes a tombstone (deleted: true) for a comment deletion', async () => {
+    const { client } = fakeClient();
+    const service = createCollabCloudService({
+      client,
+      workspaceContext: fixedContextProvider(teamContext()),
+      listProjectIds: () => ['p1'],
+      resolveLocalConversationId: () => 'conv-local',
+      mergeComment: () => false,
+    });
+    await service.pushCommentDeletion({
+      id: 'c1',
+      projectId: 'p1',
+      conversationId: 'conv-local',
+      filePath: 'index.html',
+      elementId: 'hero',
+      selector: 's',
+      label: 'l',
+      text: 't',
+      position: { x: 0, y: 0, width: 0, height: 0 },
+      htmlHint: '',
+      note: 'n',
+      status: 'open',
+      createdAt: 1,
+      updatedAt: 1,
+      authorMemberId: 'm-self',
+    } as any);
+    const pulled = await client.pullComments('team-1', 'p1', 0);
+    const tomb = pulled.comments.find((c) => c.id === 'c1');
+    expect(tomb?.deleted).toBe(true);
     service.dispose();
   });
 

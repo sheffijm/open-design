@@ -91,8 +91,18 @@ export function previewCommentToCloud(
 export interface CollabCloudService {
   /** PUT the current member's directory entry (best-effort; no-op off-team). */
   registerSelf(): Promise<void>;
-  /** Push a freshly-created comment to the cloud (best-effort; no-op off-team). */
+  /**
+   * Push a created OR edited comment to the cloud (best-effort; no-op off-team).
+   * The relay upserts by id and receivers apply the newest by `updatedAt`, so the
+   * same call carries both the initial create and any later edit/status change.
+   */
   pushComment(comment: PreviewComment): Promise<void>;
+  /**
+   * Push a delete as a tombstone (best-effort; no-op off-team). Receivers remove
+   * the comment by id. Stamps a fresh `updatedAt` so the tombstone is not treated
+   * as a stale edit if it races an in-flight update.
+   */
+  pushCommentDeletion(comment: PreviewComment): Promise<void>;
   /** The team's member directory (empty off-team / on error). */
   listMembers(): Promise<CollabCloudMemberDirectoryEntry[]>;
   /** Resolve one member id to its directory entry, or null. */
@@ -143,6 +153,17 @@ export function createCollabCloudService(deps: CollabCloudServiceDeps): CollabCl
     const identity = await teamIdentity();
     if (!identity) return;
     const cloud = previewCommentToCloud(comment, identity.memberId);
+    await deps.client.pushComment(identity.teamId, comment.projectId, cloud);
+  }
+
+  async function pushCommentDeletion(comment: PreviewComment): Promise<void> {
+    const identity = await teamIdentity();
+    if (!identity) return;
+    const cloud = previewCommentToCloud(comment, identity.memberId);
+    cloud.deleted = true;
+    // The tombstone's own event time — newer than the comment's last content
+    // edit so it can't be mistaken for a stale record on the relay/receiver.
+    cloud.updatedAt = Date.now();
     await deps.client.pushComment(identity.teamId, comment.projectId, cloud);
   }
 
@@ -225,6 +246,7 @@ export function createCollabCloudService(deps: CollabCloudServiceDeps): CollabCl
   return {
     registerSelf,
     pushComment,
+    pushCommentDeletion,
     listMembers,
     resolveMember,
     pollOnce,

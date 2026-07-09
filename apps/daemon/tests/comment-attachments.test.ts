@@ -335,7 +335,10 @@ describe('preview comment persistence', () => {
       .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'preview_comments'`)
       .get() as { sql?: string } | undefined;
     expect(table?.sql).toMatch(/slide_key INTEGER NOT NULL DEFAULT -1/);
-    expect(table?.sql).toMatch(/UNIQUE\(project_id, conversation_id, file_path, element_id, slide_key\)/);
+    // Author is folded into the unique key (multi-author coexistence migration).
+    expect(table?.sql).toMatch(
+      /UNIQUE\(project_id, conversation_id, file_path, element_id, slide_key, author_member_id\)/,
+    );
     expect(listPreviewComments(db, 'project-1', 'conversation-1')[0]?.slideIndex).toBe(0);
     // Anchor columns are backfilled even though the table was rebuilt for the
     // slide-key migration (the ALTERs run after the rebuild).

@@ -1,21 +1,39 @@
-import type { Express } from 'express';
+import type { Express, Request } from 'express';
 import type { PreviewComment } from '@open-design/contracts';
 import type { RouteDeps } from '../../server-context.js';
 
 export interface RegisterProjectCommentRoutesDeps extends RouteDeps<'db' | 'projectStore' | 'conversations'> {
   /**
-   * Resolve the comment author's workspaceMemberId from the request identity
-   * (workspace context). Server-authoritative — the stored/synced comment's
-   * author must not be client-supplied. Optional: off-team it returns undefined
-   * and the comment is stored without an author.
+   * Resolve the CURRENT caller's workspaceMemberId from the request identity
+   * (workspace context). Server-authoritative — used both to stamp the author on
+   * a new/edited comment and to gate status/delete on the caller's identity.
+   * Optional: off-team it returns undefined and comments are stored without an
+   * author and no permission gating applies.
    */
   resolveAuthorMemberId?: (authorization: string | undefined) => Promise<string | undefined>;
   /**
-   * Fired after a comment is saved, so the collab-cloud service can push it to
-   * the cross-daemon relay (best-effort — a push failure must not fail the
-   * local save). No-op off-team / when the collab cloud is unconfigured.
+   * Resolve a shared project's OWNER workspaceMemberId (server-authoritative,
+   * from the team hub). Used to let the project owner delete / send-to-agent on
+   * another member's comment. Null off-team / when the project is not shared.
+   */
+  resolveProjectOwnerMemberId?: (projectId: string) => Promise<string | null>;
+  /**
+   * Fired after a comment is created OR edited (body upsert), so the collab-cloud
+   * service can push it to the cross-daemon relay (best-effort — a push failure
+   * must not fail the local save). No-op off-team / when the collab cloud is
+   * unconfigured.
    */
   onCommentCreated?: (comment: PreviewComment) => void;
+  /**
+   * Fired after a comment's status changes (the send-to-agent lifecycle), so the
+   * new status propagates to other members. Best-effort.
+   */
+  onCommentUpdated?: (comment: PreviewComment) => void;
+  /**
+   * Fired after a comment is deleted, with the comment as it last existed, so a
+   * tombstone can be pushed to the relay. Best-effort.
+   */
+  onCommentDeleted?: (comment: PreviewComment) => void;
 }
 
 export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectCommentRoutesDeps): void {
@@ -25,10 +43,43 @@ export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectC
     getConversation,
     listPreviewComments,
     upsertPreviewComment,
+    getPreviewComment,
     updatePreviewCommentStatus,
     updatePreviewCommentAnchor,
     deletePreviewComment,
   } = ctx.conversations;
+
+  /** The caller's workspaceMemberId, or undefined off-team / personal mode. */
+  async function resolveCaller(req: Request): Promise<string | undefined> {
+    if (!ctx.resolveAuthorMemberId) return undefined;
+    return ctx.resolveAuthorMemberId(req.headers.authorization);
+  }
+
+  /**
+   * Server-authoritative permission gate for status change + delete. Both are
+   * allowed for the comment's author and the project owner (owner drives
+   * send-to-agent and may delete any comment). Degrades open when there is no
+   * caller identity (personal / off-team) or the comment has no author, so the
+   * single-user flow is never gated. Body EDITS need no gate here: the POST
+   * upsert stamps the author server-side and matches the caller's own row, so a
+   * non-author can only ever touch their own comment.
+   */
+  async function callerMayMutate(
+    req: Request,
+    projectId: string,
+    comment: PreviewComment,
+  ): Promise<boolean> {
+    const author = comment.authorMemberId;
+    if (!author) return true;
+    const me = await resolveCaller(req);
+    if (!me) return true;
+    if (me === author) return true;
+    if (ctx.resolveProjectOwnerMemberId) {
+      const owner = await ctx.resolveProjectOwnerMemberId(projectId);
+      if (owner && owner === me) return true;
+    }
+    return false;
+  }
 
   // ---- Preview comments ----------------------------------------------------
 
@@ -50,11 +101,11 @@ export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectC
     try {
       // Server-authoritative author: stamp the current member id so the stored
       // (and pushed) comment carries who wrote it, rather than trusting the body.
+      // This also makes the upsert author-scoped — a caller can only create or
+      // edit their OWN comment on an element, never overwrite another member's.
       const body = { ...(req.body || {}) };
-      if (ctx.resolveAuthorMemberId) {
-        const authorMemberId = await ctx.resolveAuthorMemberId(req.headers.authorization);
-        if (authorMemberId) body.authorMemberId = authorMemberId;
-      }
+      const authorMemberId = await resolveCaller(req);
+      if (authorMemberId) body.authorMemberId = authorMemberId;
       const comment = upsertPreviewComment(db, req.params.id, req.params.cid, body);
       updateProject(db, req.params.id, {});
       // Best-effort cross-daemon push; never fails the local save.
@@ -73,12 +124,24 @@ export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectC
 
   app.patch(
     '/api/projects/:id/conversations/:cid/comments/:commentId',
-    (req, res) => {
+    async (req, res) => {
       const conv = getConversation(db, req.params.cid);
       if (!conv || conv.projectId !== req.params.id) {
         return res.status(404).json({ error: 'conversation not found' });
       }
       try {
+        const existing = getPreviewComment(
+          db,
+          req.params.id,
+          req.params.cid,
+          req.params.commentId,
+        ) as PreviewComment | null;
+        if (!existing) return res.status(404).json({ error: 'comment not found' });
+        // Status change is the send-to-agent lifecycle: allowed for the author
+        // and the project owner, blocked for other members.
+        if (!(await callerMayMutate(req, req.params.id, existing))) {
+          return res.status(403).json({ error: 'not permitted' });
+        }
         const comment = updatePreviewCommentStatus(
           db,
           req.params.id,
@@ -89,6 +152,11 @@ export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectC
         if (!comment)
           return res.status(404).json({ error: 'comment not found' });
         updateProject(db, req.params.id, {});
+        try {
+          ctx.onCommentUpdated?.(comment as unknown as PreviewComment);
+        } catch {
+          /* push is best-effort */
+        }
         res.json({ comment });
       } catch (err: any) {
         res.status(400).json({ error: String(err?.message || err) });
@@ -105,8 +173,10 @@ export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectC
       }
       try {
         // Drift-ladder write-back: the client resolves anchor state each render
-        // and reports it here. No updateProject() — anchor resolution is a
-        // derived read-back, not a content edit.
+        // and reports it here. This is a per-daemon DERIVED read-back (each
+        // daemon anchors against its own content), not a user edit or a synced
+        // field — so it is neither permission-gated nor pushed to the relay, and
+        // it does not bump updated_at.
         const comment = updatePreviewCommentAnchor(
           db,
           req.params.id,
@@ -124,10 +194,22 @@ export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectC
 
   app.delete(
     '/api/projects/:id/conversations/:cid/comments/:commentId',
-    (req, res) => {
+    async (req, res) => {
       const conv = getConversation(db, req.params.cid);
       if (!conv || conv.projectId !== req.params.id) {
         return res.status(404).json({ error: 'conversation not found' });
+      }
+      // Load before deleting so we can gate on the author and build the tombstone.
+      const existing = getPreviewComment(
+        db,
+        req.params.id,
+        req.params.cid,
+        req.params.commentId,
+      ) as PreviewComment | null;
+      if (!existing) return res.status(404).json({ error: 'comment not found' });
+      // Delete is allowed for the comment's author and the project owner.
+      if (!(await callerMayMutate(req, req.params.id, existing))) {
+        return res.status(403).json({ error: 'not permitted' });
       }
       const ok = deletePreviewComment(
         db,
@@ -137,6 +219,11 @@ export function registerProjectCommentRoutes(app: Express, ctx: RegisterProjectC
       );
       if (!ok) return res.status(404).json({ error: 'comment not found' });
       updateProject(db, req.params.id, {});
+      try {
+        ctx.onCommentDeleted?.(existing);
+      } catch {
+        /* push is best-effort */
+      }
       res.json({ ok: true });
     },
   );
