@@ -93,7 +93,8 @@ export function createResourceHubPublishAdapter(
       let ref;
       try {
         ref = await client.getRef(principal, resourceId, PUBLISHED_REF);
-      } catch {
+      } catch (error) {
+        if (!(error instanceof ResourceHubError) || error.status !== 404) throw error;
         return null; // nothing published yet
       }
       const versions = await client.listVersions(principal, resourceId);

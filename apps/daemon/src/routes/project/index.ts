@@ -55,6 +55,7 @@ import { auditDesignSystemPackage } from '../../tools-connectors-cli.js';
 import { parseOrchestratorWorkspace } from '../../workspace-contract.js';
 import { registerProjectConversationRoutes } from './conversations.js';
 import {
+  projectResourceIdFor,
   velaProjectSyncStateToProject,
   type VelaTeamProjectCatalogClient,
   type VelaTeamProjectRecord,
@@ -1760,6 +1761,15 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   function validVisibility(value: unknown): value is 'personal' | 'team' {
     return value === 'personal' || value === 'team';
   }
+  function parseProjectIds(value: unknown): string[] | null {
+    if (!Array.isArray(value) || value.length === 0) return null;
+    const ids = [];
+    for (const id of value) {
+      if (typeof id !== 'string' || !id.trim() || !isSafeId(id)) return null;
+      ids.push(id);
+    }
+    return ids;
+  }
 
   function workspaceMoveAllowed(summary: any, targetVisibility: 'personal' | 'team'): boolean {
     if (targetVisibility === 'team') return summary.currentUserAccess.canMoveToTeam;
@@ -1796,7 +1806,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       updateWorkspaceProject(db, ctx.workspaceId, project.id, {
         visibility,
         updatedByWorkspaceMemberId: ctx.workspaceMemberId,
-        resourceHubResourceId: visibility === 'team' ? wp.resourceHubResourceId ?? null : null,
+        resourceHubResourceId: visibility === 'team' ? projectResourceIdFor(project.id) : null,
         cloudTombstonedAt: visibility === 'team' ? null : Date.now(),
         syncState: visibility === 'team' ? 'pending_upload' : 'local_only',
       });
@@ -1813,8 +1823,8 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       const ctx = workspaceProjectContext(req, req.params.workspaceId);
       if (!ctx) return sendMissingWorkspaceContext(res);
       const visibility = req.body?.visibility;
-      const projectIds = Array.isArray(req.body?.projectIds) ? req.body.projectIds.filter((id: unknown) => typeof id === 'string') : [];
-      if (!validVisibility(visibility) || projectIds.length === 0) {
+      const projectIds = parseProjectIds(req.body?.projectIds);
+      if (!validVisibility(visibility) || !projectIds) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'projectIds and visibility are required');
       }
       if (visibility === 'personal') {
@@ -1836,7 +1846,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
           updateWorkspaceProject(db, ctx.workspaceId, id, {
             visibility,
             updatedByWorkspaceMemberId: ctx.workspaceMemberId,
-            resourceHubResourceId: visibility === 'team' ? undefined : null,
+            resourceHubResourceId: visibility === 'team' ? projectResourceIdFor(id) : null,
             cloudTombstonedAt: visibility === 'team' ? null : Date.now(),
             syncState: visibility === 'team' ? 'pending_upload' : 'local_only',
           });
@@ -1856,8 +1866,8 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
     try {
       const ctx = workspaceProjectContext(req, req.params.workspaceId);
       if (!ctx) return sendMissingWorkspaceContext(res);
-      const projectIds = Array.isArray(req.body?.projectIds) ? req.body.projectIds.filter((id: unknown) => typeof id === 'string') : [];
-      if (projectIds.length === 0) return sendApiError(res, 400, 'BAD_REQUEST', 'projectIds are required');
+      const projectIds = parseProjectIds(req.body?.projectIds);
+      if (!projectIds) return sendApiError(res, 400, 'BAD_REQUEST', 'projectIds are required');
       const locations = await configuredProjectLocations();
       const rows = workspaceProjectRowsForIds(projectIds, ctx, locations);
       const summaries = projectIds.map((id: string) => {

@@ -251,7 +251,7 @@ describe('workspace project routes', () => {
       id: moveProjectId,
       visibility: 'team',
       syncState: 'pending_upload',
-      resourceHubResourceId: null,
+      resourceHubResourceId: `project-${moveProjectId}`,
       cloudTombstonedAt: null,
       createdByWorkspaceMemberId: null,
       pendingSyncIntent: {
@@ -260,6 +260,31 @@ describe('workspace project routes', () => {
         workspaceId,
       },
     });
+
+    const invalidMoveResp = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/projects/batch-move`, {
+      method: 'POST',
+      headers: headers('member-direct', { 'x-od-workspace-role': 'admin' }),
+      body: JSON.stringify({ projectIds: [deleteProjectId, 123], visibility: 'team' }),
+    });
+    expect(invalidMoveResp.status).toBe(400);
+
+    const afterInvalidMove = await list('member-direct', '?view=all');
+    const untouched = afterInvalidMove.projects.find((item: any) => item.id === deleteProjectId);
+    expect(untouched).toMatchObject({
+      visibility: 'personal',
+      syncState: 'local_only',
+      resourceHubResourceId: null,
+    });
+
+    const invalidDeleteResp = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/projects/batch-delete`, {
+      method: 'POST',
+      headers: headers('member-direct', { 'x-od-workspace-role': 'admin' }),
+      body: JSON.stringify({ projectIds: [deleteProjectId, 123] }),
+    });
+    expect(invalidDeleteResp.status).toBe(400);
+
+    const afterInvalidDelete = await fetch(`${baseUrl}/api/projects/${deleteProjectId}`);
+    expect(afterInvalidDelete.status).toBe(200);
     const batchShareStatus = await fetch(`${baseUrl}/api/projects/${moveProjectId}/collab/status`);
     expect(batchShareStatus.status).toBe(200);
     const batchShare = await batchShareStatus.json() as { syncState: string; ownerMemberId: string | null };
