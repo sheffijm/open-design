@@ -208,6 +208,8 @@ const PROJECT_STRING_FLAGS = new Set([
 const PROJECT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'follow']);
 const WORKSPACE_STRING_FLAGS = new Set([
   'daemon-url', 'workspace', 'view', 'visibility', 'owner', 'project',
+  'member', 'role', 'app-user', 'lifecycle-state',
+  'member-status', 'can-share-projects', 'can-write-synced-files',
 ]);
 const WORKSPACE_BOOLEAN_FLAGS = new Set(['help', 'h', 'json']);
 // `od templates …` mirrors NewProjectPanel / ExamplesTab. Same surface,
@@ -6254,6 +6256,8 @@ async function runWorkspace(args) {
 
 Common options:
   --daemon-url <url>   Open Design daemon HTTP base.
+  --member <id>        Workspace member id for route-level authorization.
+  --role <role>        Workspace role: owner, admin, or member.
   --json               Emit raw JSON.`);
     process.exit(args.length === 0 ? 2 : 0);
   }
@@ -6272,8 +6276,37 @@ Common options:
   }
   const base = (await projectDaemonUrl(flags)).replace(/\/$/, '');
   const projectIds = repeatableFlagValues(rest, 'project');
+  const workspaceMemberId = typeof flags.member === 'string' && flags.member.trim() ? flags.member.trim() : '';
+  if (!workspaceMemberId) {
+    console.error('--member <id> is required');
+    process.exit(2);
+  }
+  const workspaceHeaders = {
+    'x-od-workspace-id': workspaceId,
+    'x-od-workspace-member-id': workspaceMemberId,
+    ...(typeof flags.role === 'string' && flags.role.trim() ? { 'x-od-workspace-role': flags.role.trim() } : {}),
+    ...(typeof flags['app-user'] === 'string' && flags['app-user'].trim() ? { 'x-od-app-user-id': flags['app-user'].trim() } : {}),
+    ...(typeof flags['lifecycle-state'] === 'string' && flags['lifecycle-state'].trim()
+      ? { 'x-od-workspace-lifecycle-state': flags['lifecycle-state'].trim() }
+      : {}),
+    ...(typeof flags['member-status'] === 'string' && flags['member-status'].trim()
+      ? { 'x-od-workspace-member-status': flags['member-status'].trim() }
+      : {}),
+    ...(typeof flags['can-share-projects'] === 'string' && flags['can-share-projects'].trim()
+      ? { 'x-od-workspace-can-share-projects': flags['can-share-projects'].trim() }
+      : {}),
+    ...(typeof flags['can-write-synced-files'] === 'string' && flags['can-write-synced-files'].trim()
+      ? { 'x-od-workspace-can-write-synced-files': flags['can-write-synced-files'].trim() }
+      : {}),
+  };
   async function request(path, init) {
-    const resp = await fetch(`${base}${path}`, init);
+    const resp = await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        ...workspaceHeaders,
+        ...(init?.headers ?? {}),
+      },
+    });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       console.error(`${init?.method ?? 'GET'} ${path} failed: ${resp.status} ${JSON.stringify(data)}`);

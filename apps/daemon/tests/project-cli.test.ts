@@ -17,6 +17,7 @@ const TSX_CLI = pathResolve(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs');
 interface CapturedRequest {
   method: string;
   url: string;
+  headers: http.IncomingHttpHeaders;
   body: string;
 }
 
@@ -47,6 +48,7 @@ async function startProjectStubServer(): Promise<StubServer> {
       const captured: CapturedRequest = {
         method: req.method ?? '',
         url: req.url ?? '',
+        headers: req.headers,
         body: raw,
       };
       requests.push(captured);
@@ -196,6 +198,10 @@ describe('od project CLI', () => {
       'list',
       '--workspace',
       'ws-1',
+      '--member',
+      'member-1',
+      '--role',
+      'admin',
       '--view',
       'team',
       '--json',
@@ -213,6 +219,11 @@ describe('od project CLI', () => {
       method: 'GET',
       url: '/api/workspaces/ws-1/projects?view=team',
     });
+    expect(stub.requests[0]!.headers).toMatchObject({
+      'x-od-workspace-id': 'ws-1',
+      'x-od-workspace-member-id': 'member-1',
+      'x-od-workspace-role': 'admin',
+    });
   });
 
   it('sends repeatable project ids for workspace batch delete', async () => {
@@ -224,6 +235,10 @@ describe('od project CLI', () => {
       'batch-delete',
       '--workspace',
       'ws-1',
+      '--member',
+      'member-1',
+      '--role',
+      'admin',
       '--project',
       'project-1',
       '--project',
@@ -241,6 +256,11 @@ describe('od project CLI', () => {
       method: 'POST',
       url: '/api/workspaces/ws-1/projects/batch-delete',
       body: JSON.stringify({ projectIds: ['project-1', 'project-2'] }),
+    });
+    expect(stub.requests[0]!.headers).toMatchObject({
+      'x-od-workspace-id': 'ws-1',
+      'x-od-workspace-member-id': 'member-1',
+      'x-od-workspace-role': 'admin',
     });
   });
 });

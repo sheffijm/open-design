@@ -1843,6 +1843,10 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
         return row ? normalizeWorkspaceProjectRow(row, ctx) : null;
       });
       if (summaries.some((item: any) => !item)) return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
+      const shared = summaries.filter((item: any) => item.visibility === 'team');
+      if (shared.length > 0) {
+        return sendApiError(res, 403, 'PROJECT_UNSHARE_UNSUPPORTED', 'deleting shared team projects is not supported yet');
+      }
       const forbidden = summaries.filter((item: any) => !item.currentUserAccess.canDelete);
       if (forbidden.length > 0) {
         return sendApiError(res, 403, 'PROJECT_BATCH_CONTAINS_FORBIDDEN_ITEMS', 'batch contains forbidden projects');

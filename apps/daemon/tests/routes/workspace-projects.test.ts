@@ -296,6 +296,34 @@ describe('workspace project routes', () => {
     expect(afterB.projects.some((item) => item.id === projectId)).toBe(true);
   });
 
+  it('blocks deleting team-visible projects until the unshare seam exists', async () => {
+    const projectId = `workspace-delete-team-${Date.now()}`;
+    await createProject(projectId, 'Team delete fixture');
+
+    const moveResp = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/projects/${projectId}/move`, {
+      method: 'POST',
+      headers: headers('member-delete-team', { 'x-od-workspace-role': 'admin' }),
+      body: JSON.stringify({ visibility: 'team' }),
+    });
+    expect(moveResp.status).toBe(200);
+
+    const deleteResp = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/projects/batch-delete`, {
+      method: 'POST',
+      headers: headers('member-delete-team', { 'x-od-workspace-role': 'admin' }),
+      body: JSON.stringify({ projectIds: [projectId] }),
+    });
+
+    expect(deleteResp.status).toBe(403);
+    await expect(deleteResp.json()).resolves.toMatchObject({
+      error: {
+        code: 'PROJECT_UNSHARE_UNSUPPORTED',
+      },
+    });
+
+    const stillExists = await fetch(`${baseUrl}/api/projects/${projectId}`);
+    expect(stillExists.status).toBe(200);
+  });
+
   it('fails batch-delete when project directory cleanup fails', async () => {
     const projectId = `workspace-delete-cleanup-fails-${Date.now()}`;
     const dbDeleteProject = vi.fn();
