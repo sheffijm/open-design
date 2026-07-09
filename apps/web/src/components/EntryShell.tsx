@@ -101,6 +101,7 @@ import {
   useDiscordPresence,
 } from './useDiscordPresence';
 import { HomeView, seedHomeComposerPrompt } from './HomeView';
+import { RecentProjectsStrip } from './RecentProjectsStrip';
 import {
   createPluginAuthoringHandoff,
   createPluginUseHandoff,
@@ -1085,10 +1086,44 @@ export function EntryShell({
                 project spaces / workspace settings), rendered as a placeholder
                 until those land. */}
             {view === 'drafts' ? (
-              <TeamSlotPlaceholder icon="file" title={t('entry.navDrafts')} />
+              <div className="entry-section">
+                <header className="entry-section__head">
+                  <h1 className="entry-section__title">{t('entry.navDrafts')}</h1>
+                </header>
+                {projectsLoading ? (
+                  <CenteredLoader label={t('common.loading')} />
+                ) : (
+                  <RecentProjectsStrip
+                    projects={projects}
+                    designSystems={designSystems}
+                    limit={1000}
+                    onOpen={(id) => onOpenProject(id)}
+                    onViewAll={() => {}}
+                    onDelete={onDeleteProject}
+                    onRename={onRenameProject}
+                  />
+                )}
+              </div>
             ) : null}
             {view === 'all-projects' ? (
-              <TeamSlotPlaceholder icon="folder" title={t('entry.navAllProjects')} />
+              <div className="entry-section">
+                <header className="entry-section__head">
+                  <h1 className="entry-section__title">{t('entry.navAllProjects')}</h1>
+                </header>
+                {projectsLoading ? (
+                  <CenteredLoader label={t('common.loading')} />
+                ) : (
+                  <RecentProjectsStrip
+                    projects={projects}
+                    designSystems={designSystems}
+                    limit={1000}
+                    onOpen={(id) => onOpenProject(id)}
+                    onViewAll={() => {}}
+                    onDelete={onDeleteProject}
+                    onRename={onRenameProject}
+                  />
+                )}
+              </div>
             ) : null}
             {view === 'members' ? (
               <TeamSlotPlaceholder icon="users" title={t('entry.navMembers')} />
