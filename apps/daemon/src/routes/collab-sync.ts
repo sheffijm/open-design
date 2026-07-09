@@ -211,11 +211,17 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
     // client still computes isOwner=true and keeps editing. When this hub read
     // becomes a slow vela proxy, cache it behind the version probe (see
     // team-projects.ts TODO) rather than hitting it on every status poll.
-    if (syncState === 'local_only' && resolveSharedProjectOwner) {
+    // Derive whenever the owner is UNKNOWN (not just on local_only): an author who
+    // published (locally or via the file-sync watcher) has syncState='synced' but
+    // an empty in-memory owners map after a restart, so gating on local_only left
+    // ownerMemberId null → the OWNER's own client failed the isOwner check and went
+    // read-only on their own project. Filling the owner from the hub whenever it is
+    // null fixes that while keeping a non-owner member read-only.
+    if (ownerMemberId == null && resolveSharedProjectOwner) {
       try {
         const hubOwner = await resolveSharedProjectOwner(projectId);
         if (hubOwner != null) {
-          syncState = 'synced';
+          if (syncState === 'local_only') syncState = 'synced';
           ownerMemberId = hubOwner;
         }
       } catch {
