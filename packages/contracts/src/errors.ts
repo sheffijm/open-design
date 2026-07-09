@@ -117,6 +117,13 @@ export const API_ERROR_CODES = [
   'CONNECTOR_RATE_LIMITED',
   'CONNECTOR_OUTPUT_TOO_LARGE',
   'CONNECTOR_EXECUTION_FAILED',
+  // Team-edition copy red-line (AC-9). A frozen or deleted team resource
+  // (design system / plugin / skill) may not be copied out to a personal,
+  // editable copy — the escape hole that would let a downgraded team keep using
+  // frozen content. Enforced server-side by assertTeamResourceCopyAllowed
+  // (api/team-resources.ts) at every copy-out route; UI graying is not enough.
+  'WORKSPACE_RESOURCE_FROZEN',
+  'WORKSPACE_RESOURCE_DELETED',
   'INTERNAL_ERROR',
 ] as const;
 

@@ -6,10 +6,15 @@ import type {
   Project,
   ProjectMetadata,
 } from '@open-design/contracts';
+import { TeamResourceCopyForbiddenError } from '@open-design/contracts';
 import {
   duplicatePluginExampleIntoProject,
   PluginDuplicateProjectError,
 } from '../../plugins/duplicate-project.js';
+import {
+  enforceTeamResourceCopyAllowed,
+  type TeamResourceStateProvider,
+} from '../../collab/team-resource-state.js';
 import type { PluginShareAction } from '../../services/plugin-share-tasks.js';
 
 export interface RegisterPluginEventRoutesDeps {
@@ -105,6 +110,9 @@ interface PluginRouteHelpers {
 
 export interface RegisterPluginRoutesDeps {
   db: SqliteDbLike;
+  /** Team-resource copy red-line (D3). When present, a frozen team plugin cannot
+   *  be duplicated into a personal project. Omit to skip the guard (no-op). */
+  teamResources?: TeamResourceStateProvider;
   paths: { PROJECTS_DIR: string; PLUGIN_REGISTRY_ROOTS: string[]; PLUGIN_LOCKFILE_PATH: string };
   ids: { randomId(): string };
   projectStore: {
@@ -169,7 +177,7 @@ export function registerPluginEventRoutes(app: Express, deps: RegisterPluginEven
 }
 
 export function registerPluginRoutes(app: Express, deps: RegisterPluginRoutesDeps): void {
-  const { db, paths, ids, projectStore, conversations, plugins, helpers } = deps;
+  const { db, paths, ids, projectStore, conversations, plugins, helpers, teamResources } = deps;
   app.get('/api/plugins', async (_req, res) => { try { res.json({ plugins: helpers.applyBakedPreviews(plugins.listInstalledPlugins(db), helpers.PLUGIN_PREVIEWS_DIR) }); } catch (err) { res.status(500).json({ error: String(err) }); } });
   app.get('/api/plugins/:id', async (req, res) => { try { const plugin = plugins.getInstalledPlugin(db, req.params.id); if (!plugin) return res.status(404).json({ error: 'plugin not found' }); res.json(plugin); } catch (err) { res.status(500).json({ error: String(err) }); } });
   app.post('/api/plugins/upload-zip', (req, res) => helpers.pluginUpload.single('file')(req, res, async (err: unknown) => { if (err) return helpers.sendMulterError(res, err); try { const file = req.file; if (!file?.buffer) return res.status(400).json({ error: 'file is required' }); const result = await helpers.pluginInstallation.stageUploadedPluginZip(file.buffer, `upload:zip:${helpers.decodeMultipartFilename(file.originalname || 'plugin.zip')}`); res.status((result as { ok?: boolean }).ok ? 200 : 400).json(result); } catch (uploadErr: unknown) { res.status(400).json({ ok: false, warnings: [], message: uploadErr instanceof Error ? uploadErr.message : String(uploadErr), log: [] }); } }));
@@ -187,6 +195,13 @@ export function registerPluginRoutes(app: Express, deps: RegisterPluginRoutesDep
       if (!plugin) return res.status(404).json({ error: { code: 'plugin-not-found', message: 'plugin not found' } });
       if (typeof plugin.id !== 'string' || typeof plugin.fsPath !== 'string') {
         return res.status(422).json({ error: { code: 'plugin-not-duplicable', message: 'plugin record is missing a filesystem source' } });
+      }
+      // AC-9 copy red-line (D3): a frozen team plugin cannot be duplicated into a
+      // personal project. Runs before any project is created (nothing to clean up
+      // if it throws). No-op until the resource-hub reports this plugin as a
+      // frozen team resource.
+      if (teamResources) {
+        await enforceTeamResourceCopyAllowed(teamResources, { kind: 'plugin', resourceId: plugin.id });
       }
       const body = req.body && typeof req.body === 'object'
         ? req.body as PluginDuplicateProjectRequest
@@ -257,6 +272,9 @@ export function registerPluginRoutes(app: Express, deps: RegisterPluginRoutesDep
       if (cleanupProjectId) {
         if (insertedProject) projectStore.dbDeleteProject(db, cleanupProjectId);
         await projectStore.removeProjectDir(paths.PROJECTS_DIR, cleanupProjectId).catch(() => {});
+      }
+      if (err instanceof TeamResourceCopyForbiddenError) {
+        return res.status(403).json({ error: { code: err.code, message: err.message } });
       }
       if (err instanceof PluginDuplicateProjectError) {
         return res.status(err.status).json({ error: { code: err.code, message: err.message } });
