@@ -168,7 +168,7 @@ describe('SearchableModelSelect', () => {
     const disabledOption = await screen.findByRole('option', {
       name: /^deepseek-v4-pro$/,
     });
-    expect(disabledOption.hasAttribute('disabled')).toBe(true);
+    expect(disabledOption.getAttribute('aria-disabled')).toBe('true');
 
     const lock = screen.getByTestId('model-option-upgrade-lock');
     expect(lock.getAttribute('aria-label')).toBe('Upgrade to use');

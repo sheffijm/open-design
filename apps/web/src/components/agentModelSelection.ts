@@ -30,7 +30,7 @@ export function normalizeAgentModelChoice(
   if (!matchingModel && (agent.models?.length ?? 0) === 0) {
     return null;
   }
-  if (matchingModel?.enabled !== false) return null;
+  if (matchingModel && matchingModel.enabled !== false) return null;
 
   const fallbackModel = defaultAgentModelId(agent);
   if (!fallbackModel || fallbackModel === configuredModel) return null;
