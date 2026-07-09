@@ -56,7 +56,6 @@ import {
 import { aihubmixHeaders } from './integrations/aihubmix.js';
 import type { AgentCliEnvPrefs } from './app-config.js';
 import type { RuntimeAgentDef } from './runtimes/types.js';
-import { resolveModelForAgent } from './runtimes/models.js';
 import { preparePromptFileForAgent, type PreparedPromptFile } from './runtimes/prompt-file.js';
 import { configuredAllowedInternalHosts } from './origin-validation.js';
 import {
@@ -77,6 +76,17 @@ import {
 } from '@open-design/contracts/api/connectionTest';
 import { googleGenerateContentUrl } from './integrations/google-models.js';
 import { resolveAmrProfile } from './integrations/vela.js';
+import { amrModelLoadingCache } from './runtimes/amr-model-cache.js';
+import {
+  fetchVelaPresetModels,
+  fetchVelaRemoteModelsWithRetry,
+} from './runtimes/defs/amr.js';
+import {
+  getRememberedLiveModels,
+  preferFreshLiveModels,
+  resolveDefaultModelFromOptions,
+  resolveModelForAgent,
+} from './runtimes/models.js';
 
 export { validateBaseUrl } from '@open-design/contracts/api/connectionTest';
 
@@ -1960,11 +1970,46 @@ async function prepareOpenCodeConnectionTestCwd(tempDir: string): Promise<void> 
   }
 }
 
+async function resolveConnectionTestModelForAgent(
+  def: RuntimeAgentDef,
+  requestedModel: string | null,
+  env: NodeJS.ProcessEnv,
+  liveModelScope: string | null,
+  launchPath?: string | null,
+): Promise<string | null> {
+  const resolved = resolveModelForAgent(def, requestedModel, env, liveModelScope);
+  if (def.id !== 'amr' || resolved !== 'default' || !launchPath) return resolved;
+
+  try {
+    const cacheKey = JSON.stringify({
+      connectionTest: true,
+      launchPath,
+      home: env.HOME ?? env.USERPROFILE ?? '',
+      openDesignAmrProfile: env.OPEN_DESIGN_AMR_PROFILE ?? '',
+      velaProfile: env.VELA_PROFILE ?? '',
+      velaLinkUrl: env.VELA_LINK_URL ?? '',
+      velaRuntimeKey: env.VELA_RUNTIME_KEY ?? '',
+      velaOpencodeBin: env.VELA_OPENCODE_BIN ?? '',
+    });
+    const catalog = await amrModelLoadingCache.get(cacheKey, {
+      fetchPreset: () => fetchVelaPresetModels(launchPath, env),
+      fetchRemote: () => fetchVelaRemoteModelsWithRetry(launchPath, env),
+    });
+    const liveModels = preferFreshLiveModels(
+      catalog.models ?? [],
+      getRememberedLiveModels(def.id, liveModelScope),
+    );
+    return resolveDefaultModelFromOptions(liveModels) ?? resolved;
+  } catch {
+    return resolved;
+  }
+}
+
 async function testAgentConnectionInternal(
   input: AgentConnectionInput,
 ): Promise<ConnectionTestResponse> {
   const start = Date.now();
-  const model =
+  let model =
     typeof input.model === 'string' && input.model.trim()
       ? input.model.trim()
       : 'default';
@@ -2218,6 +2263,13 @@ async function testAgentConnectionInternal(
       ...baseEnv,
       ...(mmdRouteLaunchEnv || {}),
     }, executableResolution);
+    model = await resolveConnectionTestModelForAgent(
+      def,
+      model,
+      env,
+      liveModelScope,
+      executableResolution.launchPath,
+    ) ?? model;
     const auth = await probeAgentAuthStatus(def, executableResolution.launchPath, env);
     if (auth?.status === 'missing') {
       // Preflight auth probe runs after binary resolution but before the
@@ -2275,7 +2327,7 @@ async function testAgentConnectionInternal(
       child,
       SMOKE_PROMPT,
       tempDir,
-      input.model,
+      model,
       env,
       liveModelScope,
       sink.send,

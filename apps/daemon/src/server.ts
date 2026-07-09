@@ -4602,11 +4602,11 @@ export async function startServer({
     const agentOptions = { model: safeModel, reasoning: safeReasoning };
     const agentLaunch = resolveAgentLaunch(def, configuredAgentEnv);
     const resolvedBin = agentLaunch.selectedPath;
-    if (def.id === 'amr' && resolvedBin && agentLaunch.launchPath && typeof model !== 'string') {
-      // Concretize an omitted model to the live catalog's first entry so the
-      // resume guard sees the launched fallback model. A user-selected
-      // `default` must remain `default` so AMR/vela can use its configured
-      // upstream default instead of Open Design's catalog head.
+    if (def.id === 'amr' && resolvedBin && agentLaunch.launchPath) {
+      // Concretize omitted/default AMR model requests to the live catalog
+      // default before the resume guard. The AMR preflight below applies the
+      // same rewrite before spawn; keeping this earlier copy aligned prevents
+      // stored concrete session models from comparing against raw `default`.
       try {
         const resumeProbe = await resolveAmrModelProbe({ dataDir: RUNTIME_DATA_DIR, env: process.env, readAppConfig });
         const resumeCatalog = await amrModelLoadingCache.get(resumeProbe.cacheKey, {

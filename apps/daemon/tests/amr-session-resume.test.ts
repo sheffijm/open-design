@@ -255,8 +255,15 @@ describe('AMR (vela) ACP session resume — full server cycle', () => {
 
     expect((await sendRunAndWait(started.url, conversationId, 'use account default', 'default')).status)
       .toBe('succeeded');
+    expect((await sendRunAndWait(started.url, conversationId, 'use account default again', 'default')).status)
+      .toBe('succeeded');
 
-    expect(await readInvocations(logPath)).toEqual(['new', 'set_model:deepseek-v4-flash']);
+    expect(await readInvocations(logPath)).toEqual([
+      'new',
+      'set_model:deepseek-v4-flash',
+      'load',
+      'set_model:deepseek-v4-flash',
+    ]);
   });
 
   it('uses the catalog default model for omitted AMR model selections, skipping disabled catalog heads', async () => {
