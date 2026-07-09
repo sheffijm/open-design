@@ -336,7 +336,7 @@ export const zhCN: Dict = {
   "settings.agentInstallGroup": "可安装（{count}）",
   "settings.agentAuthRequired": "需要认证",
   "settings.agentAuthUnknown": "认证状态未知",
-  "settings.amrCloud": "Open Design AMR",
+  "settings.amrCloud": "Open Design Cloud",
   "settings.amrAuthorize": "授权",
   "settings.amrBenefitOfficial": "官方推荐",
   "settings.amrBenefitLowerPrice": "免部署即用",

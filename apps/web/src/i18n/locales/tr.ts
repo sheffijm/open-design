@@ -334,7 +334,7 @@ export const tr: Dict = {
   'settings.agentInstallGroup': 'Kurulabilir ({count})',
   'settings.agentAuthRequired': 'Kimlik doğrulama gerekli',
   'settings.agentAuthUnknown': 'Kimlik doğrulama durumu bilinmiyor',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Yetkilendir',
   'settings.amrBenefitOfficial': 'Officially maintained',
   'settings.amrBenefitLowerPrice': 'Lower price',

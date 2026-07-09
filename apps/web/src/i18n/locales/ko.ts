@@ -334,7 +334,7 @@ export const ko: Dict = {
   'settings.agentInstallGroup': '설치 가능 ({count})',
   'settings.agentAuthRequired': '인증 필요',
   'settings.agentAuthUnknown': '인증 상태를 알 수 없음',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': '승인',
   'settings.amrBenefitOfficial': '공식',
   'settings.amrBenefitLowerPrice': '더 저렴한 비용',

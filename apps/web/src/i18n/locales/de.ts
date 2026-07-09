@@ -334,7 +334,7 @@ export const de: Dict = {
   'settings.agentInstallGroup': 'Zur Installation verfügbar ({count})',
   'settings.agentAuthRequired': 'Authentifizierung erforderlich',
   'settings.agentAuthUnknown': 'Authentifizierungsstatus unbekannt',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Autorisieren',
   'settings.amrBenefitOfficial': 'Officially maintained',
   'settings.amrBenefitLowerPrice': 'Lower price',

@@ -334,7 +334,7 @@ export const ptBR: Dict = {
   'settings.agentInstallGroup': 'Disponíveis para instalar ({count})',
   'settings.agentAuthRequired': 'Autenticação necessária',
   'settings.agentAuthUnknown': 'Status de autenticação desconhecido',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Autorizar',
   'settings.amrBenefitOfficial': 'Officially maintained',
   'settings.amrBenefitLowerPrice': 'Lower price',

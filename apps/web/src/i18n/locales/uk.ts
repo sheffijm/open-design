@@ -334,7 +334,7 @@ export const uk: Dict = {
   'settings.agentInstallGroup': 'Доступні для встановлення ({count})',
   'settings.agentAuthRequired': 'Потрібна автентифікація',
   'settings.agentAuthUnknown': 'Стан автентифікації невідомий',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Авторизувати',
   'settings.amrBenefitOfficial': 'Офіційний',
   'settings.amrBenefitLowerPrice': 'Нижча вартість',

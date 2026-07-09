@@ -334,7 +334,7 @@ export const th: Dict = {
   'settings.agentInstallGroup': 'พร้อมให้ติดตั้ง ({count})',
   'settings.agentAuthRequired': 'ต้องยืนยันตัวตน',
   'settings.agentAuthUnknown': 'ไม่ทราบสถานะการยืนยันตัวตน',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'อนุญาต',
   'settings.amrBenefitOfficial': 'ทางการ',
   'settings.amrBenefitLowerPrice': 'ต้นทุนต่ำกว่า',

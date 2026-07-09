@@ -334,7 +334,7 @@ export const ar: Dict = {
   'settings.agentInstallGroup': 'متاحة للتثبيت ({count})',
   'settings.agentAuthRequired': 'المصادقة مطلوبة',
   'settings.agentAuthUnknown': 'حالة المصادقة غير معروفة',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'تفويض',
   'settings.amrBenefitOfficial': 'رسمي',
   'settings.amrBenefitLowerPrice': 'تكلفة أقل',

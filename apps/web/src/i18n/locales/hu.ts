@@ -334,7 +334,7 @@ export const hu: Dict = {
   'settings.agentInstallGroup': 'Telepíthető ({count})',
   'settings.agentAuthRequired': 'Hitelesítés szükséges',
   'settings.agentAuthUnknown': 'A hitelesítési állapot ismeretlen',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Engedélyezés',
   'settings.amrBenefitOfficial': 'Officially maintained',
   'settings.amrBenefitLowerPrice': 'Lower price',

@@ -334,7 +334,7 @@ export const ru: Dict = {
   'settings.agentInstallGroup': 'Доступно для установки ({count})',
   'settings.agentAuthRequired': 'Требуется аутентификация',
   'settings.agentAuthUnknown': 'Статус аутентификации неизвестен',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Авторизовать',
   'settings.amrBenefitOfficial': 'Официальный',
   'settings.amrBenefitLowerPrice': 'Ниже стоимость',

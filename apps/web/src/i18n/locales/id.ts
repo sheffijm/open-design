@@ -334,7 +334,7 @@ export const id: Dict = {
   'settings.agentInstallGroup': 'Tersedia untuk dipasang ({count})',
   'settings.agentAuthRequired': 'Autentikasi diperlukan',
   'settings.agentAuthUnknown': 'Status autentikasi tidak diketahui',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Otorisasi',
   'settings.amrBenefitOfficial': 'Officially maintained',
   'settings.amrBenefitLowerPrice': 'Lower price',

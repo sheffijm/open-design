@@ -334,7 +334,7 @@ export const ja: Dict = {
   'settings.agentInstallGroup': 'インストール可能（{count}）',
   'settings.agentAuthRequired': '認証が必要です',
   'settings.agentAuthUnknown': '認証状態は不明です',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': '認証',
   'settings.amrBenefitOfficial': '公式',
   'settings.amrBenefitLowerPrice': '低コスト',

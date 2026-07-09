@@ -334,7 +334,7 @@ export const esES: Dict = {
   'settings.agentInstallGroup': 'Disponibles para instalar ({count})',
   'settings.agentAuthRequired': 'Autenticación requerida',
   'settings.agentAuthUnknown': 'Estado de autenticación desconocido',
-  'settings.amrCloud': 'Open Design',
+  'settings.amrCloud': 'Open Design Cloud',
   'settings.amrAuthorize': 'Autorizar',
   'settings.amrBenefitOfficial': 'Officially maintained',
   'settings.amrBenefitLowerPrice': 'Lower price',
