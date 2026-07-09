@@ -122,6 +122,26 @@ describe('web-clone example-card tracking', () => {
     expect(document.querySelector('.home-hero__prompt-example--site')).not.toBeNull();
   });
 
+  // Contract lock: the shipped Website-clone example set is intentionally
+  // narrowed to two first-party / partner sites (open-design.ai, kimi.com) to
+  // avoid shipping third-party brand copies (legal review, PR #5178). Assert the
+  // exact count + domains so the rail can't silently drift back to the old
+  // 7-site set or lose a card without updating this contract.
+  it('resolves exactly the two contracted Website-clone site cards (open-design.ai, kimi.com)', async () => {
+    writeHomeGuideStage('done');
+    stubPlugins();
+    renderHome();
+
+    fireEvent.click(await screen.findByTestId('home-hero-rail-web-clone'));
+    const siteCards = await screen.findAllByTestId('home-hero-prompt-example');
+    const domains = siteCards.map((c) => (c.textContent ?? '').trim());
+    expect(domains).toEqual(['open-design.ai', 'kimi.com']);
+    // Every card must be the site variant (favicon tile + bare domain).
+    expect(
+      siteCards.every((c) => c.classList.contains('home-hero__prompt-example--site')),
+    ).toBe(true);
+  });
+
   it('fires element=example_prompt with chip_id=web-clone when a text example is picked', async () => {
     writeHomeGuideStage('done');
     stubPlugins();
