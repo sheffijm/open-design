@@ -171,4 +171,12 @@ describe("isSupportMailtoUrl", () => {
     expect(isSupportMailtoUrl("mailto:support@open-design.ai?subject=x&bcc=attacker@example.com")).toBe(false);
     expect(isSupportMailtoUrl("mailto:support@open-design.ai?whatever=1")).toBe(false);
   });
+
+  test("rejects a CR/LF-injected subject/body that could smuggle a mail header", () => {
+    // %0D%0A decodes to CRLF; a "Bcc:" line after it would add a recipient.
+    expect(
+      isSupportMailtoUrl("mailto:support@open-design.ai?subject=ok%0D%0ABcc:attacker@example.com"),
+    ).toBe(false);
+    expect(isSupportMailtoUrl("mailto:support@open-design.ai?body=line1%0Aline2")).toBe(false);
+  });
 });

@@ -1005,8 +1005,12 @@ export function isSupportMailtoUrl(url: string): boolean {
     const parsed = new URL(url);
     if (parsed.protocol !== "mailto:") return false;
     if (parsed.pathname.toLowerCase() !== SUPPORT_EMAIL) return false;
-    for (const key of parsed.searchParams.keys()) {
+    for (const [key, value] of parsed.searchParams) {
       if (key !== "subject" && key !== "body") return false;
+      // Reject a decoded CR/LF in the value: `subject=ok%0D%0ABcc:attacker@…`
+      // would otherwise smuggle a header past the key allowlist and inject an
+      // extra recipient once the mail client parses the mailto.
+      if (/[\r\n]/.test(value)) return false;
     }
     return true;
   } catch {
