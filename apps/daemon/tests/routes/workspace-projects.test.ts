@@ -119,6 +119,27 @@ describe('workspace project routes', () => {
     expect(stillExists.status).toBe(200);
   });
 
+  it('rejects workspace project mutations without workspace identity', async () => {
+    const projectId = `workspace-missing-context-${Date.now()}`;
+    await createProject(projectId, 'Missing context fixture');
+
+    const deleteResp = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/projects/batch-delete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectIds: [projectId] }),
+    });
+
+    expect(deleteResp.status).toBe(401);
+    await expect(deleteResp.json()).resolves.toMatchObject({
+      error: {
+        code: 'WORKSPACE_CONTEXT_REQUIRED',
+      },
+    });
+
+    const stillExists = await fetch(`${baseUrl}/api/projects/${projectId}`);
+    expect(stillExists.status).toBe(200);
+  });
+
   it('validates workspace project views and applies each accepted view', async () => {
     const suffix = Date.now();
     const draftId = `workspace-view-draft-${suffix}`;

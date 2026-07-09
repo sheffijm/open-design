@@ -1185,16 +1185,18 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
     if (value === 'true') return true;
     return fallback;
   }
-  function workspaceProjectContext(req: any, workspaceId: string): WorkspaceProjectContext {
+  function workspaceProjectContext(req: any, workspaceId: string): WorkspaceProjectContext | null {
+    const workspaceMemberId = headerValue(req, 'x-od-workspace-member-id');
+    if (!workspaceMemberId) return null;
     const lifecycleState = headerValue(req, 'x-od-workspace-lifecycle-state') ?? 'active';
-    const role = headerValue(req, 'x-od-workspace-role') ?? 'owner';
+    const role = headerValue(req, 'x-od-workspace-role') ?? 'member';
     const legacyWriteEnabled = headerBool(req, 'x-od-workspace-write-enabled', true);
     const canWriteSyncedFiles = headerBool(req, 'x-od-workspace-can-write-synced-files', legacyWriteEnabled);
     return {
       workspaceId,
       appUserId: headerValue(req, 'x-od-app-user-id') ?? 'local-user',
-      workspaceMemberId: headerValue(req, 'x-od-workspace-member-id') ?? 'local-member',
-      role: role === 'admin' || role === 'member' ? role : 'owner',
+      workspaceMemberId,
+      role: role === 'owner' || role === 'admin' ? role : 'member',
       memberStatus: headerValue(req, 'x-od-workspace-member-status') === 'removed' ? 'removed' : 'active',
       lifecycleState: lifecycleState === 'billing_past_due' || lifecycleState === 'locked' || lifecycleState === 'deleting' || lifecycleState === 'deleted'
         ? lifecycleState
@@ -1202,6 +1204,9 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       canShareProjects: headerBool(req, 'x-od-workspace-can-share-projects', canWriteSyncedFiles),
       canWriteSyncedFiles,
     };
+  }
+  function sendMissingWorkspaceContext(res: Response) {
+    return sendApiError(res, 401, 'WORKSPACE_CONTEXT_REQUIRED', 'workspace context is required');
   }
   function isWorkspaceLocked(ctx: WorkspaceProjectContext): boolean {
     return ctx.lifecycleState === 'locked' || ctx.lifecycleState === 'deleted';
@@ -1686,6 +1691,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   app.get('/api/workspaces/:workspaceId/projects', async (req, res) => {
     try {
       const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      if (!ctx) return sendMissingWorkspaceContext(res);
       if (ctx.memberStatus === 'removed') {
         /** @type {import('@open-design/contracts').WorkspaceProjectsResponse} */
         const body = { projects: [] };
@@ -1750,6 +1756,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   app.post('/api/workspaces/:workspaceId/projects/:projectId/move', async (req, res) => {
     try {
       const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      if (!ctx) return sendMissingWorkspaceContext(res);
       const project = getProject(db, req.params.projectId);
       if (!project) return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
       const visibility = req.body?.visibility;
@@ -1784,6 +1791,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   app.post('/api/workspaces/:workspaceId/projects/batch-move', async (req, res) => {
     try {
       const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      if (!ctx) return sendMissingWorkspaceContext(res);
       const visibility = req.body?.visibility;
       const projectIds = Array.isArray(req.body?.projectIds) ? req.body.projectIds.filter((id: unknown) => typeof id === 'string') : [];
       if (!validVisibility(visibility) || projectIds.length === 0) {
@@ -1826,6 +1834,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   app.post('/api/workspaces/:workspaceId/projects/batch-delete', async (req, res) => {
     try {
       const ctx = workspaceProjectContext(req, req.params.workspaceId);
+      if (!ctx) return sendMissingWorkspaceContext(res);
       const projectIds = Array.isArray(req.body?.projectIds) ? req.body.projectIds.filter((id: unknown) => typeof id === 'string') : [];
       if (projectIds.length === 0) return sendApiError(res, 400, 'BAD_REQUEST', 'projectIds are required');
       const rows = workspaceProjectRowsForIds(projectIds, ctx);
