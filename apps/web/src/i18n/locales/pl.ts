@@ -2600,6 +2600,7 @@ export const pl: Dict = {
   'fileViewer.boxSelect': 'Zaznaczenie prostokątne',
   'fileViewer.screenshot': 'Zrzut ekranu',
   'fileViewer.versions.entry': 'Wersje',
+  'fileViewer.versions.entryFull': 'Historia wersji',
   'fileViewer.versions.title': 'Wersje',
   'fileViewer.versions.countOne': '1 wersja',
   'fileViewer.versions.countMany': '{count} wersji',

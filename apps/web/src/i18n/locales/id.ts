@@ -2600,6 +2600,7 @@ export const id: Dict = {
   'fileViewer.boxSelect': 'Box select',
   'fileViewer.screenshot': 'Screenshot',
   'fileViewer.versions.entry': 'Versi',
+  'fileViewer.versions.entryFull': 'Riwayat versi',
   'fileViewer.versions.title': 'Versi',
   'fileViewer.versions.countOne': '1 versi',
   'fileViewer.versions.countMany': '{count} versi',

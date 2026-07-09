@@ -2600,6 +2600,7 @@ export const fa: Dict = {
   'fileViewer.boxSelect': 'انتخاب کادری',
   'fileViewer.screenshot': 'اسکرین‌شات',
   'fileViewer.versions.entry': 'نسخه‌ها',
+  'fileViewer.versions.entryFull': 'تاریخچه نسخه‌ها',
   'fileViewer.versions.title': 'نسخه‌ها',
   'fileViewer.versions.countOne': '۱ نسخه',
   'fileViewer.versions.countMany': '{count} نسخه',

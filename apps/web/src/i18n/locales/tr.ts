@@ -2600,6 +2600,7 @@ export const tr: Dict = {
   'fileViewer.boxSelect': 'Kutu seçimi',
   'fileViewer.screenshot': 'Ekran görüntüsü',
   'fileViewer.versions.entry': 'Sürümler',
+  'fileViewer.versions.entryFull': 'Sürüm geçmişi',
   'fileViewer.versions.title': 'Sürümler',
   'fileViewer.versions.countOne': '1 sürüm',
   'fileViewer.versions.countMany': '{count} sürüm',

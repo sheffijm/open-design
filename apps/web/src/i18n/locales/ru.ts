@@ -2600,6 +2600,7 @@ export const ru: Dict = {
   'fileViewer.boxSelect': 'Выбрать область',
   'fileViewer.screenshot': 'Скриншот',
   'fileViewer.versions.entry': 'Версии',
+  'fileViewer.versions.entryFull': 'История версий',
   'fileViewer.versions.title': 'Версии',
   'fileViewer.versions.countOne': '1 версия',
   'fileViewer.versions.countMany': '{count} версий',

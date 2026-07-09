@@ -2600,6 +2600,7 @@ export const ko: Dict = {
   'fileViewer.boxSelect': '영역 선택',
   'fileViewer.screenshot': '스크린샷',
   'fileViewer.versions.entry': '버전',
+  'fileViewer.versions.entryFull': '버전 기록',
   'fileViewer.versions.title': '버전',
   'fileViewer.versions.countOne': '버전 1개',
   'fileViewer.versions.countMany': '버전 {count}개',

@@ -3382,6 +3382,7 @@ export interface Dict {
   'fileViewer.boxSelect': string;
   'fileViewer.screenshot': string;
   'fileViewer.versions.entry': string;
+  'fileViewer.versions.entryFull': string;
   'fileViewer.versions.title': string;
   'fileViewer.versions.countOne': string;
   'fileViewer.versions.countMany': string;

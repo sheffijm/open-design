@@ -3895,6 +3895,7 @@ export const zhCN: Dict = {
   'designFiles.createDesignSystemFromProject': '基于此项目创建设计系统',
   'designFiles.duplicateProject': '复制项目',
   'fileViewer.versions.entry': '版本',
+  'fileViewer.versions.entryFull': '历史版本',
   'fileViewer.versions.title': '版本管理',
   'fileViewer.versions.countOne': '1 个版本',
   'fileViewer.versions.countMany': '{count} 个版本',

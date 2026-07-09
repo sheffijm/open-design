@@ -2600,6 +2600,7 @@ export const th: Dict = {
   'fileViewer.boxSelect': 'เลือกแบบกล่อง',
   'fileViewer.screenshot': 'ภาพหน้าจอ',
   'fileViewer.versions.entry': 'เวอร์ชัน',
+  'fileViewer.versions.entryFull': 'ประวัติเวอร์ชัน',
   'fileViewer.versions.title': 'เวอร์ชัน',
   'fileViewer.versions.countOne': '1 เวอร์ชัน',
   'fileViewer.versions.countMany': '{count} เวอร์ชัน',

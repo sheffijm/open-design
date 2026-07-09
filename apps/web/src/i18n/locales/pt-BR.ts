@@ -2600,6 +2600,7 @@ export const ptBR: Dict = {
   'fileViewer.boxSelect': 'Selecionar área',
   'fileViewer.screenshot': 'Captura de tela',
   'fileViewer.versions.entry': 'Versões',
+  'fileViewer.versions.entryFull': 'Histórico de versões',
   'fileViewer.versions.title': 'Versões',
   'fileViewer.versions.countOne': '1 versão',
   'fileViewer.versions.countMany': '{count} versões',

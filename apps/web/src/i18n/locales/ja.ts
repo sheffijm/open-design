@@ -2600,6 +2600,7 @@ export const ja: Dict = {
   'fileViewer.boxSelect': '範囲選択',
   'fileViewer.screenshot': 'スクリーンショット',
   'fileViewer.versions.entry': 'バージョン',
+  'fileViewer.versions.entryFull': 'バージョン履歴',
   'fileViewer.versions.title': 'バージョン',
   'fileViewer.versions.countOne': '1件のバージョン',
   'fileViewer.versions.countMany': '{count}件のバージョン',

@@ -2600,6 +2600,7 @@ export const hu: Dict = {
   'fileViewer.boxSelect': 'Keretes kijelölés',
   'fileViewer.screenshot': 'Képernyőkép',
   'fileViewer.versions.entry': 'Verziók',
+  'fileViewer.versions.entryFull': 'Verzióelőzmények',
   'fileViewer.versions.title': 'Verziók',
   'fileViewer.versions.countOne': '1 verzió',
   'fileViewer.versions.countMany': '{count} verzió',

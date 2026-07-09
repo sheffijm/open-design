@@ -2600,6 +2600,7 @@ export const uk: Dict = {
   'fileViewer.boxSelect': 'Прямокутне виділення',
   'fileViewer.screenshot': 'Знімок екрана',
   'fileViewer.versions.entry': 'Версії',
+  'fileViewer.versions.entryFull': 'Історія версій',
   'fileViewer.versions.title': 'Версії',
   'fileViewer.versions.countOne': '1 версія',
   'fileViewer.versions.countMany': '{count} версій',

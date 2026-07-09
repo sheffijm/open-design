@@ -2600,6 +2600,7 @@ export const esES: Dict = {
   'fileViewer.boxSelect': 'Seleccionar área',
   'fileViewer.screenshot': 'Captura',
   'fileViewer.versions.entry': 'Versiones',
+  'fileViewer.versions.entryFull': 'Historial de versiones',
   'fileViewer.versions.title': 'Versiones',
   'fileViewer.versions.countOne': '1 versión',
   'fileViewer.versions.countMany': '{count} versiones',

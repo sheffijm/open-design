@@ -3901,6 +3901,7 @@ export const zhTW: Dict = {
   'designFiles.createDesignSystemFromProject': '基於此專案創建設計系統',
   'designFiles.duplicateProject': '複製專案',
   'fileViewer.versions.entry': '版本',
+  'fileViewer.versions.entryFull': '歷史版本',
   'fileViewer.versions.title': '版本管理',
   'fileViewer.versions.countOne': '1 個版本',
   'fileViewer.versions.countMany': '{count} 個版本',

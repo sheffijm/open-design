@@ -2600,6 +2600,7 @@ export const ar: Dict = {
   'fileViewer.boxSelect': 'تحديد بمربع',
   'fileViewer.screenshot': 'لقطة شاشة',
   'fileViewer.versions.entry': 'الإصدارات',
+  'fileViewer.versions.entryFull': 'سجل الإصدارات',
   'fileViewer.versions.title': 'الإصدارات',
   'fileViewer.versions.countOne': 'إصدار واحد',
   'fileViewer.versions.countMany': '{count} إصدارات',

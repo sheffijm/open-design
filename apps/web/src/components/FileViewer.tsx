@@ -6006,8 +6006,11 @@ function HtmlViewer({
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const zoomMenuRef = useRef<HTMLDivElement | null>(null);
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
+  // Single open-state for the unified chrome share/export/send popover; the
+  // active tab is `unifiedActionTab`. External share/download requests below just
+  // preselect the tab and open this one popover.
   const [deployMenuOpen, setDeployMenuOpen] = useState(false);
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [unifiedActionTab, setUnifiedActionTab] = useState<'share' | 'export' | 'send'>('share');
   // False when closed; otherwise records which entry opened the modal so the
   // surface_view impression can carry entry_from.
   const [versionModalOpen, setVersionModalOpen] = useState<false | 'toolbar' | 'more_menu'>(false);
@@ -8455,17 +8458,15 @@ function HtmlViewer({
   }, [agentToolsOpen]);
 
   useEffect(() => {
-    if (!deployMenuOpen && !downloadMenuOpen) return;
+    if (!deployMenuOpen) return;
     const onDocClick = (e: MouseEvent) => {
       if (!shareRef.current) return;
       if (shareRef.current.contains(e.target as Node)) return;
       setDeployMenuOpen(false);
-      setDownloadMenuOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       setDeployMenuOpen(false);
-      setDownloadMenuOpen(false);
     };
     document.addEventListener('mousedown', onDocClick);
     document.addEventListener('keydown', onKey);
@@ -8473,7 +8474,7 @@ function HtmlViewer({
       document.removeEventListener('mousedown', onDocClick);
       document.removeEventListener('keydown', onKey);
     };
-  }, [deployMenuOpen, downloadMenuOpen]);
+  }, [deployMenuOpen]);
 
   useEffect(() => {
     if (!inTabPresent) return;
@@ -8524,7 +8525,7 @@ function HtmlViewer({
   // page. Surfaced here in the Download menu because templates are saved
   // from the same artifact output surface as files.
   function openSaveAsTemplateModal() {
-    setDownloadMenuOpen(false);
+    setDeployMenuOpen(false);
     // Start the template click→result correlation; the result fires later from
     // handleSaveAsTemplate once the save actually resolves.
     const requestId = analytics.newRequestId();
@@ -9264,8 +9265,14 @@ function HtmlViewer({
     isDeckArtifact ||
     artifactKind === 'html' ||
     rendererId === 'html';
-  const canShare = source !== null && isShareableArtifact && !viewerOnly;
-  const canDownload = source !== null && (isShareableArtifact || isMarkdownArtifact) && !viewerOnly;
+  // "raw" = the artifact is share/download-eligible IGNORING viewerOnly, so the
+  // unified chrome action still renders (disabled) for read-only members instead
+  // of vanishing. `canShare`/`canDownload` keep the `&& !viewerOnly` gate that
+  // guards the actual export/publish handlers.
+  const rawCanShare = source !== null && isShareableArtifact;
+  const rawCanDownload = source !== null && (isShareableArtifact || isMarkdownArtifact);
+  const canShare = rawCanShare && !viewerOnly;
+  const canDownload = rawCanDownload && !viewerOnly;
   // PPTX export is slide-based, so show it only for explicit decks plus
   // structured deck runtimes. Do not key this off plain `.slide`: ordinary
   // parallax/long pages may use that class but must remain page-mode exports.
@@ -9282,7 +9289,6 @@ function HtmlViewer({
   useEffect(() => {
     if (!viewerOnly) return;
     setDeployMenuOpen(false);
-    setDownloadMenuOpen(false);
     setDrawOverlayOpen(false);
     setInspectMode(false);
     if (mode === 'source') setMode('preview');
@@ -9319,7 +9325,7 @@ function HtmlViewer({
     consumedShareNonceRef.current = nonce;
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
-    setDownloadMenuOpen(false);
+    setUnifiedActionTab('share');
     setDeployMenuOpen(true);
   }, [shareRequest?.nonce, canShare, projectId, file.name]);
 
@@ -9335,8 +9341,8 @@ function HtmlViewer({
     consumedDownloadNonceRef.current = nonce;
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
-    setDeployMenuOpen(false);
-    setDownloadMenuOpen(true);
+    setUnifiedActionTab('export');
+    setDeployMenuOpen(true);
   }, [downloadRequest?.nonce, canShare, projectId, file.name]);
 
   // A queued chat send for this deck just started: flip the preview to the
@@ -9362,21 +9368,18 @@ function HtmlViewer({
     syncCachedSlideStateToIframe();
   }, [slideNavRequest?.nonce, slideNavRequest?.slideIndex, effectiveDeck, previewStateKey, slideState?.count]);
 
-  const openDownloadMenu = () => {
-    if (viewerOnly) return; // read-only viewer cannot download/export
-    fireArtifactHeaderClick('download_dropdown');
-    setExportReadyNudge(false);
-    markExportReadyNudgeSeen(projectId, file.name);
-    setDeployMenuOpen(false);
-    setDownloadMenuOpen((v) => !v);
-  };
+  // The unified chrome share button toggles the one popover. Default to the
+  // Share tab when the artifact is shareable, otherwise open straight on Export
+  // (e.g. markdown, which is downloadable but not publishable).
   const openDeployMenu = () => {
-    if (viewerOnly) return; // read-only viewer cannot share/publish
+    if (viewerOnly) return; // read-only viewer cannot share/publish/export
     fireArtifactHeaderClick('share_dropdown');
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
-    setDownloadMenuOpen(false);
-    setDeployMenuOpen((v) => !v);
+    setDeployMenuOpen((v) => {
+      if (!v) setUnifiedActionTab(canShare ? 'share' : 'export');
+      return !v;
+    });
   };
   const captureExportImageSnapshot = useCallback(async (
     options?: { wholeDeck?: boolean },
@@ -9523,7 +9526,7 @@ function HtmlViewer({
     // in-flight export's analytics result.
     if (imageExportInFlightRef.current) return;
     flushSync(() => {
-      setDownloadMenuOpen(false);
+      setDeployMenuOpen(false);
     });
     // Start the image export's own click→result correlation (separate modal
     // flow, so it can't ride fireShareExport).
@@ -10277,24 +10280,6 @@ function HtmlViewer({
               </button>
             ))}
           </div>
-          {versioningAvailable ? (
-            <button
-              type="button"
-              className="viewer-action file-version-trigger od-tooltip"
-              disabled={source === null}
-              title={t('fileViewer.versions.title')}
-              aria-label={t('fileViewer.versions.title')}
-              data-tooltip={t('fileViewer.versions.title')}
-              data-tooltip-placement="bottom"
-              onClick={() => {
-                fireArtifactToolbarClick('versions', 'toolbar');
-                setVersionModalOpen('toolbar');
-              }}
-            >
-              <RemixIcon name="history-line" size={14} />
-              <span>{t('fileViewer.versions.entry')}</span>
-            </button>
-          ) : null}
           {showPreviewToolbarControls ? (
             <span className="viewer-preview-toolbar-inline">
               <span className="viewer-divider" aria-hidden />
@@ -10501,7 +10486,7 @@ function HtmlViewer({
                     {mode === id ? <Icon name="check" size={13} /> : null}
                   </button>
                 ))}
-                {versioningAvailable ? (
+                {versioningAvailable && !viewerOnly ? (
                   <button
                     type="button"
                     className="viewer-toolbar-more-item"
@@ -10514,7 +10499,7 @@ function HtmlViewer({
                     }}
                   >
                     <RemixIcon name="history-line" size={15} />
-                    <span>{t('fileViewer.versions.entry')}</span>
+                    <span>{t('fileViewer.versions.entryFull')}</span>
                   </button>
                 ) : null}
                 {showPreviewToolbarControls ? (
@@ -10700,22 +10685,63 @@ function HtmlViewer({
               ) : null}
             </div>
           ) : null}
-          {canShare || canDownload ? (
+          {versioningAvailable && !viewerOnly && (rawCanShare || rawCanDownload) ? (
+            <button
+              type="button"
+              className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only"
+              disabled={source === null}
+              aria-label={t('fileViewer.versions.entryFull')}
+              title={t('fileViewer.versions.entryFull')}
+              onClick={() => {
+                fireArtifactToolbarClick('versions', 'toolbar');
+                setVersionModalOpen('toolbar');
+              }}
+            >
+              <RemixIcon name="history-line" size={15} />
+              <span>{t('fileViewer.versions.entryFull')}</span>
+            </button>
+          ) : null}
+          {rawCanShare || rawCanDownload ? (
             <div className="chrome-file-action-menus" ref={shareRef}>
-              {canShare ? (
-                <div className="share-menu chrome-share-menu">
-                  <button
-                    type="button"
-                    className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only"
-                    aria-haspopup="menu"
-                    aria-expanded={deployMenuOpen}
-                    aria-label={shareMenuLabel}
-                    onClick={openDeployMenu}
-                  >
-                    <span>{shareMenuLabel}</span>
-                  </button>
-                  {deployMenuOpen ? (
-                    <div className="share-menu-popover" role="menu">
+              <div className="share-menu chrome-share-menu chrome-share-menu--unified">
+                <button
+                  type="button"
+                  className={
+                    'chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified' +
+                    (exportReadyNudge ? ' export-ready-nudge' : '')
+                  }
+                  aria-haspopup="menu"
+                  aria-expanded={deployMenuOpen}
+                  aria-label={shareMenuLabel}
+                  disabled={viewerOnly}
+                  title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
+                  onClick={openDeployMenu}
+                >
+                  <RemixIcon name="share-forward-line" size={15} />
+                  <span>{shareMenuLabel}</span>
+                </button>
+                {deployMenuOpen && (canShare || canDownload) ? (
+                  <div className="share-menu-popover chrome-unified-popover" role="menu">
+                    <div className="chrome-unified-tabs" role="tablist" aria-label="分享和导出操作">
+                      {([
+                        ...(canShare ? [['share', '分享'] as const] : []),
+                        ...(canDownload ? [['export', '导出'] as const] : []),
+                        ['send', '发送到...'] as const,
+                      ]).map(([tab, label]) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          className={unifiedActionTab === tab ? 'is-active' : undefined}
+                          role="tab"
+                          aria-selected={unifiedActionTab === tab}
+                          onClick={() => setUnifiedActionTab(tab)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {unifiedActionTab === 'share' && canShare ? (
+                      <div className="chrome-unified-panel chrome-unified-panel--share">
                       <div className="share-menu-section-label" role="presentation">
                         {t('fileViewer.shareMenuShareLink')}
                       </div>
@@ -10849,32 +10875,16 @@ function HtmlViewer({
                         </span>
                         <span>{socialShareMenuLabel}</span>
                       </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {canDownload ? (
-                <div className="share-menu chrome-share-menu">
-                  <button
-                    type="button"
-                    className={
-                      'chrome-action chrome-action-primary chrome-action-export' +
-                      (exportReadyNudge ? ' export-ready-nudge' : '')
-                    }
-                    aria-haspopup="menu"
-                    aria-expanded={downloadMenuOpen}
-                    onClick={openDownloadMenu}
-                  >
-                    <span>{t('fileViewer.download')}</span>
-                  </button>
-                  {downloadMenuOpen ? (
-                    <div className="share-menu-popover" role="menu">
+                      </div>
+                    ) : null}
+                    {unifiedActionTab === 'export' && canDownload ? (
+                      <div className="chrome-unified-panel">
                   <button
                     type="button"
                     className="share-menu-item"
                     role="menuitem"
                     onClick={() => {
-                      setDownloadMenuOpen(false);
+                      setDeployMenuOpen(false);
                       // Pixel-perfect screenshot PDF (matches the preview, same
                       // renderer as image/PPTX). Chosen over Chromium's vector
                       // printToPDF because that path drops CJK glyphs in the
@@ -10929,7 +10939,7 @@ function HtmlViewer({
                           : t('fileViewer.exportPptxHint')
                       }
                       onClick={() => {
-                        setDownloadMenuOpen(false);
+                        setDeployMenuOpen(false);
                         setPptxExportMode('editable');
                         setPptxExportModalOpen(true);
                       }}
@@ -10954,7 +10964,7 @@ function HtmlViewer({
                     className="share-menu-item"
                     role="menuitem"
                     onClick={() => {
-                      setDownloadMenuOpen(false);
+                      setDeployMenuOpen(false);
                       fireShareExport('zip', () => exportProjectAsZip({
                         projectId,
                         filePath: file.name,
@@ -10971,7 +10981,7 @@ function HtmlViewer({
                     className="share-menu-item"
                     role="menuitem"
                     onClick={() => {
-                      setDownloadMenuOpen(false);
+                      setDeployMenuOpen(false);
                       fireShareExport('html', () => exportProjectAsHtml({
                         projectId,
                         filePath: file.name,
@@ -10989,7 +10999,7 @@ function HtmlViewer({
                       className="share-menu-item"
                       role="menuitem"
                       onClick={() => {
-                        setDownloadMenuOpen(false);
+                        setDeployMenuOpen(false);
                         fireShareExport('markdown', () => exportAsMd(source ?? '', exportTitle));
                       }}
                     >
@@ -11019,10 +11029,16 @@ function HtmlViewer({
                           : t('fileViewer.saveAsTemplate')}
                     </span>
                   </button>
-                </div>
+                      </div>
+                    ) : null}
+                    {unifiedActionTab === 'send' ? (
+                      <div className="chrome-unified-panel chrome-unified-panel--handoff">
+                        <HandoffButton projectId={projectId} />
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
-              ) : null}
             </div>
           ) : null}
         </>)}
