@@ -541,6 +541,13 @@ export function EntryShell({
       } satisfies Project;
     });
   const allProjectsList: Project[] = [...projects, ...sharedProjectCards];
+  // Persistent set of project ids the team hub already lists as shared. Passed to
+  // every project strip so a card that has been moved into the team space keeps
+  // its "已在团队空间" badge after a refresh — the strip's own optimistic set only
+  // covers the current session, and would otherwise reset on reload.
+  const teamSharedProjectIds = new Set(
+    teamProjects.projects.map((teamProject) => teamProject.projectId),
+  );
   // Open handler for the "全部项目" grid. A project already in the member's local
   // list opens directly; a team-shared project the member has not pulled yet is
   // first pulled + registered on the daemon (materialize content + insert a local
@@ -1153,6 +1160,7 @@ export function EntryShell({
                     projects={projects}
                     designSystems={designSystems}
                     limit={1000}
+                    sharedProjectIds={teamSharedProjectIds}
                     onOpen={(id) => onOpenProject(id)}
                     onViewAll={() => {}}
                     onDelete={onDeleteProject}
@@ -1178,6 +1186,7 @@ export function EntryShell({
                     projects={allProjectsList}
                     designSystems={designSystems}
                     limit={1000}
+                    sharedProjectIds={teamSharedProjectIds}
                     onOpen={(id) => void handleOpenAllProjects(id)}
                     onViewAll={() => {}}
                     onDelete={onDeleteProject}

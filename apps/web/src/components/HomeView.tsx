@@ -83,6 +83,7 @@ import { consumePendingHomeChip, HOME_CHIP_INTENT_EVENT } from '../runtime/home-
 import { navigate } from '../router';
 import { setPendingDesignSystemCreateEntry } from '../analytics/ds-create-entry';
 import { workspaceContextLinkedDirs } from './workspace-context';
+import { useTeamProjects } from '../collab/useWorkspaceContext';
 import {
   buildHomeMediaComposer,
   homeMediaSurfaceForChipId,
@@ -318,6 +319,14 @@ export function HomeView({
 }: Props) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
+  // Persistent team-shared ids so the home strip's "已在团队空间" badge survives a
+  // refresh (the strip's own optimistic set is session-only). Team-wide, from the
+  // resource hub via the daemon; empty off-team / when the hub is unconfigured.
+  const homeTeamProjects = useTeamProjects();
+  const homeSharedProjectIds = useMemo(
+    () => new Set(homeTeamProjects.projects.map((teamProject) => teamProject.projectId)),
+    [homeTeamProjects.projects],
+  );
   // P0 page_view page_name=home — fire once on mount. ref-keyed to survive
   // re-renders that flip parent state without remounting HomeView.
   const homePageViewFiredRef = useRef(false);
@@ -2099,6 +2108,7 @@ export function HomeView({
       <RecentProjectsStrip
         projects={projects}
         designSystems={designSystems}
+        sharedProjectIds={homeSharedProjectIds}
         {...(projectsLoading !== undefined ? { loading: projectsLoading } : {})}
         onOpen={(id) => {
           // P0 ui_click area=recent_projects element=project_card — emit

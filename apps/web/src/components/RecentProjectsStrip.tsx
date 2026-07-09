@@ -30,6 +30,10 @@ interface Props {
   onDuplicate?: (id: string) => Promise<void> | void;
   onRename?: (id: string, name: string) => void;
   limit?: number;
+  /** Ids of projects already shared to the team (persistent, from the hub). A
+   *  project in this set shows the 共享 badge + "已在团队空间" and cannot be
+   *  re-shared — so the state survives a refresh, not just the in-session share. */
+  sharedProjectIds?: ReadonlySet<string>;
 }
 
 const EMPTY_DESIGN_SYSTEMS: DesignSystemSummary[] = [];
@@ -52,6 +56,7 @@ export function RecentProjectsStrip({
   onDuplicate,
   onRename,
   limit,
+  sharedProjectIds,
 }: Props) {
   const t = useT();
   const rowRef = useRef<HTMLDivElement | null>(null);
@@ -106,6 +111,10 @@ export function RecentProjectsStrip({
   // `canShareProjects` (403 off-team / no rights), so we only badge on success.
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [sharedIds, setSharedIds] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // A project counts as team-shared if the hub already lists it (persistent —
+  // survives refresh) OR we shared it in this session (optimistic, before the
+  // team-projects poll catches up). The union is what makes the badge stick.
+  const isShared = (id: string) => sharedProjectIds?.has(id) === true || sharedIds.has(id);
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
   const renameTitleId = useId();
   const confirmTitleId = useId();
@@ -342,7 +351,7 @@ export function RecentProjectsStrip({
                     >
                       <Icon name="spinner" size={18} />
                     </span>
-                  ) : sharedIds.has(project.id) ? (
+                  ) : isShared(project.id) ? (
                     <span
                       className="recent-projects__shared-badge"
                       style={{
@@ -426,14 +435,14 @@ export function RecentProjectsStrip({
                       <button
                         type="button"
                         role="menuitem"
-                        disabled={sharingId === project.id || sharedIds.has(project.id)}
+                        disabled={sharingId === project.id || isShared(project.id)}
                         onClick={() => void handleShareToTeam(project)}
                       >
                         <Icon name="share" size={12} />
                         <span>
                           {sharingId === project.id
                             ? '分享中…'
-                            : sharedIds.has(project.id)
+                            : isShared(project.id)
                               ? '已在团队空间'
                               : '转入团队空间'}
                         </span>
