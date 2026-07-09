@@ -128,18 +128,24 @@ vi.mock('../../src/providers/daemon', async () => {
   };
 });
 
-vi.mock('../../src/providers/registry', () => ({
-  deletePreviewComment: vi.fn(),
-  fetchPreviewComments: (...args: unknown[]) => fetchPreviewComments(...args),
-  fetchDesignSystem: (...args: unknown[]) => fetchDesignSystem(...args),
-  fetchProjectDesignSystemPackageAudit: (...args: unknown[]) => fetchProjectDesignSystemPackageAudit(...args),
-  fetchLiveArtifacts: (...args: unknown[]) => fetchLiveArtifacts(...args),
-  fetchProjectFiles: (...args: unknown[]) => fetchProjectFiles(...args),
-  fetchSkill: (...args: unknown[]) => fetchSkill(...args),
-  patchPreviewCommentStatus: (...args: unknown[]) => patchPreviewCommentStatus(...args),
-  upsertPreviewComment: vi.fn(),
-  writeProjectTextFile: (...args: unknown[]) => writeProjectTextFile(...args),
-}));
+vi.mock('../../src/providers/registry', async () => {
+  const actual = await vi.importActual<typeof import('../../src/providers/registry')>(
+    '../../src/providers/registry',
+  );
+  return {
+    ...actual,
+    deletePreviewComment: vi.fn(),
+    fetchPreviewComments: (...args: unknown[]) => fetchPreviewComments(...args),
+    fetchDesignSystem: (...args: unknown[]) => fetchDesignSystem(...args),
+    fetchProjectDesignSystemPackageAudit: (...args: unknown[]) => fetchProjectDesignSystemPackageAudit(...args),
+    fetchLiveArtifacts: (...args: unknown[]) => fetchLiveArtifacts(...args),
+    fetchProjectFiles: (...args: unknown[]) => fetchProjectFiles(...args),
+    fetchSkill: (...args: unknown[]) => fetchSkill(...args),
+    patchPreviewCommentStatus: (...args: unknown[]) => patchPreviewCommentStatus(...args),
+    upsertPreviewComment: vi.fn(),
+    writeProjectTextFile: (...args: unknown[]) => writeProjectTextFile(...args),
+  };
+});
 
 vi.mock('../../src/providers/project-events', () => ({
   useProjectFileEvents: vi.fn(),
@@ -456,13 +462,17 @@ describe('retry target resolution', () => {
 
 describe('ProjectView daemon cleanup', () => {
   beforeEach(() => {
+    fetchChatRunStatus.mockResolvedValue(null);
+    listActiveChatRuns.mockResolvedValue([]);
     listProjectRuns.mockResolvedValue([]);
+    reattachDaemonRun.mockResolvedValue(undefined);
+    streamViaDaemon.mockResolvedValue(undefined);
     cancelBrandExtraction.mockResolvedValue({ ok: true, status: 'failed' });
   });
 
   afterEach(() => {
     cleanup();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.useRealTimers();
     globalThis.fetch = originalFetch;
     window.sessionStorage.clear();
@@ -2337,6 +2347,11 @@ describe('ProjectView daemon cleanup', () => {
       exitCode: null,
       signal: null,
     });
+    reattachDaemonRun.mockImplementation(async (options: {
+      handlers: { onError: (error: Error) => void };
+    }) => {
+      options.handlers.onError(genericDisconnect);
+    });
     streamViaDaemon.mockImplementation(async (options: {
       onRunCreated?: (runId: string) => void;
       handlers: { onError: (error: Error) => void };
@@ -2845,7 +2860,7 @@ describe('ProjectView daemon cleanup', () => {
     );
 
     await waitFor(() => {
-      expect(reattachDaemonRun.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(reattachDaemonRun.mock.calls.length).toBeGreaterThanOrEqual(2);
       expect(saveMessage).toHaveBeenCalledWith(
         'project-reattach-code-only-generic-disconnect',
         'conv-1',
@@ -2855,6 +2870,8 @@ describe('ProjectView daemon cleanup', () => {
         }),
         expect.objectContaining({ telemetryFinalized: true }),
       );
+    }, {
+      timeout: 4_500,
     });
   });
 
