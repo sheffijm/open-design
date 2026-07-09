@@ -309,6 +309,48 @@ describe('AMR (vela) ACP session resume — full server cycle', () => {
     expect(await readInvocations(logPath)).toEqual(['new', 'set_model:kimi-k2.6']);
   });
 
+  it('rejects explicit AMR default when every catalog model is disabled', async () => {
+    binDir = await mkdtemp(path.join(os.tmpdir(), 'od-amr-locked-default-bin-'));
+    const logPath = path.join(binDir, 'invocations.jsonl');
+    const lockedCatalog = JSON.stringify({
+      source: 'preset',
+      data: [
+        { id: 'deepseek-v4-flash', enabled: false },
+        { id: 'kimi-k2.6', enabled: false },
+      ],
+    });
+    const lockedRemoteCatalog = JSON.stringify({
+      source: 'remote',
+      data: [
+        { id: 'deepseek-v4-flash', enabled: false },
+        { id: 'kimi-k2.6', enabled: false },
+      ],
+    });
+    const bin = await writeVelaWrapper(binDir, 'vela-locked-default', {
+      logPath,
+      logSetModel: true,
+      requireSetModel: true,
+      modelPresetJson: lockedCatalog,
+      modelListJson: lockedRemoteCatalog,
+    });
+
+    clearTelemetryEnv();
+    started = (await startServer({ port: 0, returnServer: true })) as StartedServer;
+    await putConfig(started.url, {
+      agentId: 'amr',
+      agentCliEnv: { amr: { VELA_BIN: bin } },
+      telemetry: { metrics: true, content: false, artifactManifest: false },
+      privacyDecisionAt: Date.now(),
+    });
+
+    const conversationId = await createConversation(started.url);
+    const run = await sendRunAndWait(started.url, conversationId, 'use account default', 'default');
+
+    expect(run.status).toBe('failed');
+    expect(run.errorCode).toBe('AMR_MODEL_UNAVAILABLE');
+    expect(await readInvocations(logPath)).toEqual([]);
+  });
+
   it('reseeds a fresh session (no resume) when the model changes between turns', async () => {
     binDir = await mkdtemp(path.join(os.tmpdir(), 'od-amr-modelchange-bin-'));
     const logPath = path.join(binDir, 'invocations.jsonl');

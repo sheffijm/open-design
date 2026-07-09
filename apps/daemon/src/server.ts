@@ -5420,7 +5420,7 @@ export async function startServer({
           (!liveModelIds.has(safeModel) || safeModel !== defaultRunModel)
         )
       ) {
-        safeModel = defaultRunModel ?? safeModel ?? null;
+        safeModel = defaultRunModel ?? (safeModel === 'default' ? null : safeModel ?? null);
         agentOptions.model = safeModel;
       }
       if (liveModelIds.size === 0) {

@@ -26,6 +26,7 @@ import {
 import { listProviderModels } from '../src/integrations/provider-models.js';
 import { startServer } from '../src/server.js';
 import { rememberLiveModels } from '../src/runtimes/models.js';
+import { amrModelLoadingCache } from '../src/runtimes/amr-model-cache.js';
 
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -189,6 +190,7 @@ beforeAll(async () => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  amrModelLoadingCache.resetForTests();
 });
 
 afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
@@ -2294,6 +2296,99 @@ describe('POST /api/test/connection agent mode', () => {
       if (previousRequireSetModel === undefined) delete process.env.FAKE_VELA_REQUIRE_SET_MODEL;
       else process.env.FAKE_VELA_REQUIRE_SET_MODEL = previousRequireSetModel;
       await fsp.rm(markerDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refreshes AMR connection-test default resolution when file credentials change', async () => {
+    const tempHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'od-conn-test-amr-home-'));
+    const logPath = path.join(tempHome, 'invocations.jsonl');
+    const previousHome = process.env.HOME;
+    const previousUserProfile = process.env.USERPROFILE;
+    const previousLog = process.env.FAKE_VELA_INVOCATION_LOG;
+    const previousLogSetModel = process.env.FAKE_VELA_LOG_SET_MODEL;
+    const previousRequireSetModel = process.env.FAKE_VELA_REQUIRE_SET_MODEL;
+    const previousPreset = process.env.FAKE_VELA_MODEL_PRESET_JSON;
+    const previousList = process.env.FAKE_VELA_MODEL_LIST_JSON;
+    const writeAmrConfig = async (runtimeKey: string, userId: string) => {
+      const configPath = path.join(tempHome, '.amr', 'config.json');
+      await fsp.mkdir(path.dirname(configPath), { recursive: true });
+      await fsp.writeFile(
+        configPath,
+        JSON.stringify({
+          profiles: {
+            local: {
+              runtimeKey,
+              linkUrl: 'https://openrouter.example/v1',
+              user: { id: userId, email: `${userId}@example.test` },
+            },
+          },
+        }),
+        'utf8',
+      );
+    };
+    const setCatalog = (modelId: string) => {
+      const preset = JSON.stringify({
+        source: 'preset',
+        data: [{ id: modelId, default: true }],
+      });
+      const remote = JSON.stringify({
+        source: 'remote',
+        data: [{ id: modelId, default: true }],
+      });
+      process.env.FAKE_VELA_MODEL_PRESET_JSON = preset;
+      process.env.FAKE_VELA_MODEL_LIST_JSON = remote;
+    };
+    try {
+      process.env.HOME = tempHome;
+      process.env.USERPROFILE = tempHome;
+      process.env.FAKE_VELA_INVOCATION_LOG = logPath;
+      process.env.FAKE_VELA_LOG_SET_MODEL = '1';
+      delete process.env.FAKE_VELA_REQUIRE_SET_MODEL;
+
+      await withFakeAgent(
+        'vela',
+        `void import(${JSON.stringify(pathToFileURL(FAKE_VELA_FIXTURE).href)});\n`,
+        async () => {
+          await writeAmrConfig('rt-before', 'user-before');
+          setCatalog('before-upgrade-model');
+          expect(await testAgentConnection({ agentId: 'amr', model: 'default' }))
+            .toMatchObject({ ok: true, kind: 'success', model: 'before-upgrade-model' });
+
+          await writeAmrConfig('rt-after', 'user-after');
+          setCatalog('after-upgrade-model');
+          expect(await testAgentConnection({ agentId: 'amr', model: 'default' }))
+            .toMatchObject({ ok: true, kind: 'success', model: 'after-upgrade-model' });
+        },
+      );
+
+      const methods = (await fsp.readFile(logPath, 'utf8'))
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { method: string })
+        .map((entry) => entry.method);
+      expect(methods).toEqual([
+        'new',
+        'set_model:before-upgrade-model',
+        'new',
+        'set_model:after-upgrade-model',
+      ]);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = previousUserProfile;
+      if (previousLog === undefined) delete process.env.FAKE_VELA_INVOCATION_LOG;
+      else process.env.FAKE_VELA_INVOCATION_LOG = previousLog;
+      if (previousLogSetModel === undefined) delete process.env.FAKE_VELA_LOG_SET_MODEL;
+      else process.env.FAKE_VELA_LOG_SET_MODEL = previousLogSetModel;
+      if (previousRequireSetModel === undefined) delete process.env.FAKE_VELA_REQUIRE_SET_MODEL;
+      else process.env.FAKE_VELA_REQUIRE_SET_MODEL = previousRequireSetModel;
+      if (previousPreset === undefined) delete process.env.FAKE_VELA_MODEL_PRESET_JSON;
+      else process.env.FAKE_VELA_MODEL_PRESET_JSON = previousPreset;
+      if (previousList === undefined) delete process.env.FAKE_VELA_MODEL_LIST_JSON;
+      else process.env.FAKE_VELA_MODEL_LIST_JSON = previousList;
+      await fsp.rm(tempHome, { recursive: true, force: true });
     }
   });
 

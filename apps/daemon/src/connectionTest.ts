@@ -75,7 +75,7 @@ import {
   type ProviderTestRequest,
 } from '@open-design/contracts/api/connectionTest';
 import { googleGenerateContentUrl } from './integrations/google-models.js';
-import { resolveAmrProfile } from './integrations/vela.js';
+import { readVelaCredentialRevision, resolveAmrProfile } from './integrations/vela.js';
 import { amrModelLoadingCache } from './runtimes/amr-model-cache.js';
 import {
   fetchVelaPresetModels,
@@ -1990,6 +1990,7 @@ async function resolveConnectionTestModelForAgent(
       velaLinkUrl: env.VELA_LINK_URL ?? '',
       velaRuntimeKey: env.VELA_RUNTIME_KEY ?? '',
       velaOpencodeBin: env.VELA_OPENCODE_BIN ?? '',
+      credentialRevision: readVelaCredentialRevision(env),
     });
     const catalog = await amrModelLoadingCache.get(cacheKey, {
       fetchPreset: () => fetchVelaPresetModels(launchPath, env),
