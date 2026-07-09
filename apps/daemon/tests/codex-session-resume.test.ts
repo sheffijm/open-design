@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { startServer } from '../src/server.js';
 import { writeMcpConfig } from '../src/mcp-config.js';
-import { setToken } from '../src/mcp-tokens.js';
+import { clearToken, setToken } from '../src/mcp-tokens.js';
 
 // End-to-end coverage for codex native (capture-style) session resume.
 //
@@ -61,6 +61,16 @@ describe('codex native session resume', () => {
     if (binDir) await removeTempDir(binDir);
     binDir = null;
     restoreEnv(originalEnv);
+    // The MCP-directive red-spec below writes an authenticated `github` server
+    // into the process-wide OD_DATA_DIR (tests/setup.ts shares one root for the
+    // whole daemon Vitest run). Reset it after every test so that state cannot
+    // leak into later test files and make them suite-order dependent. Both calls
+    // are idempotent no-ops when nothing was written.
+    const dataDir = process.env.OD_DATA_DIR;
+    if (dataDir) {
+      await writeMcpConfig(dataDir, { servers: [] }).catch(() => {});
+      await clearToken(dataDir, 'github').catch(() => {});
+    }
   });
 
   it('captures the thread id on turn 1 and resumes it (without resending history) on turn 2', async () => {
