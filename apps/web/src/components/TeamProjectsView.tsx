@@ -34,6 +34,7 @@ export function TeamProjectsView({ mode, context, onOpenProject }: Props) {
     try {
       const next = await listWorkspaceProjects({
         workspaceId: context.workspaceId,
+        context,
         view,
       });
       setProjects(next);
@@ -42,7 +43,7 @@ export function TeamProjectsView({ mode, context, onOpenProject }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [context.workspaceId, t, view]);
+  }, [context, t, view]);
 
   useEffect(() => {
     void refresh();
@@ -64,6 +65,7 @@ export function TeamProjectsView({ mode, context, onOpenProject }: Props) {
     try {
       const moved = await moveWorkspaceProject({
         workspaceId: context.workspaceId,
+        context,
         projectId: project.id,
         visibility,
       });

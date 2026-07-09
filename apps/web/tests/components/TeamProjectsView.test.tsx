@@ -17,7 +17,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function context(): WorkspaceCollabContext {
+function context(overrides: Partial<WorkspaceCollabContext> = {}): WorkspaceCollabContext {
+  const permissions = {
+    canManageMembers: false,
+    canManageBilling: false,
+    canInviteMembers: false,
+    canManageAutoRecharge: false,
+    canShareProjects: true,
+    canWriteSyncedFiles: true,
+    canViewWorkspaceSettings: true,
+    canManageSharedResources: false,
+    ...overrides.permissions,
+  };
   return {
     workspaceId: 'ws-1',
     workspaceType: 'team',
@@ -34,16 +45,20 @@ function context(): WorkspaceCollabContext {
       availableSeats: 8,
       isSeatFull: false,
     },
-    permissions: {
-      canManageMembers: false,
-      canManageBilling: false,
-      canInviteMembers: false,
-      canManageAutoRecharge: false,
-      canShareProjects: true,
-      canWriteSyncedFiles: true,
-      canViewWorkspaceSettings: true,
-      canManageSharedResources: false,
-    },
+    ...overrides,
+    permissions,
+  };
+}
+
+function expectedWorkspaceHeaders(ctx: WorkspaceCollabContext) {
+  return {
+    'x-od-workspace-id': ctx.workspaceId,
+    'x-od-workspace-member-id': ctx.workspaceMemberId,
+    'x-od-workspace-role': ctx.role,
+    'x-od-workspace-member-status': ctx.memberStatus,
+    'x-od-workspace-lifecycle-state': ctx.lifecycleState,
+    'x-od-workspace-can-share-projects': String(ctx.permissions.canShareProjects),
+    'x-od-workspace-can-write-synced-files': String(ctx.permissions.canWriteSyncedFiles),
   };
 }
 
@@ -89,14 +104,17 @@ function workspaceProject(
   };
 }
 
-function renderView(mode: 'drafts' | 'all-projects' = 'all-projects') {
+function renderView(mode: 'drafts' | 'all-projects' = 'all-projects', ctx = context()) {
   render(
     <I18nProvider initial="en">
-      <TeamProjectsView mode={mode} context={context()} onOpenProject={vi.fn()} />
+      <TeamProjectsView mode={mode} context={ctx} onOpenProject={vi.fn()} />
     </I18nProvider>,
   );
 
-  expect(globalThis.fetch).toHaveBeenCalledWith('/api/workspaces/ws-1/projects?view=all');
+  expect(globalThis.fetch).toHaveBeenCalledWith(
+    '/api/workspaces/ws-1/projects?view=all',
+    { headers: expectedWorkspaceHeaders(ctx) },
+  );
 }
 
 describe('TeamProjectsView', () => {
@@ -153,11 +171,35 @@ describe('TeamProjectsView', () => {
         '/api/workspaces/ws-1/projects/project-1/move',
         expect.objectContaining({
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...expectedWorkspaceHeaders(context()),
+          },
           body: JSON.stringify({ visibility: 'team' }),
         }),
       );
     });
     expect(await screen.findByText('Shared')).toBeTruthy();
     expect(screen.getByText('Sync pending')).toBeTruthy();
+  });
+
+  it('forwards member permissions when listing and disables sharing without permission', async () => {
+    const restrictedContext = context({
+      workspaceMemberId: 'member-no-share',
+      permissions: {
+        ...context().permissions,
+        canShareProjects: false,
+      },
+    });
+    vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ projects: [workspaceProject()] }));
+
+    renderView('all-projects', restrictedContext);
+
+    expect(await screen.findByText('Landing refresh')).toBeTruthy();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/workspaces/ws-1/projects?view=all',
+      { headers: expectedWorkspaceHeaders(restrictedContext) },
+    );
+    expect(screen.getByRole('button', { name: /share to team/i })).toBeDisabled();
   });
 });

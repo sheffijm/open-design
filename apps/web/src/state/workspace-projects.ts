@@ -1,3 +1,4 @@
+import type { WorkspaceCollabContext } from '@open-design/contracts';
 import type { Project } from '../types';
 
 export type WorkspaceProjectVisibility = 'personal' | 'team';
@@ -43,8 +44,21 @@ export interface WorkspaceProjectsResponse {
   projects: WorkspaceProjectSummary[];
 }
 
+function workspaceContextHeaders(context: WorkspaceCollabContext): Record<string, string> {
+  return {
+    'x-od-workspace-id': context.workspaceId,
+    'x-od-workspace-member-id': context.workspaceMemberId,
+    'x-od-workspace-role': context.role,
+    'x-od-workspace-member-status': context.memberStatus,
+    'x-od-workspace-lifecycle-state': context.lifecycleState,
+    'x-od-workspace-can-share-projects': String(context.permissions.canShareProjects),
+    'x-od-workspace-can-write-synced-files': String(context.permissions.canWriteSyncedFiles),
+  };
+}
+
 export async function listWorkspaceProjects(input: {
   workspaceId: string;
+  context: WorkspaceCollabContext;
   view?: 'all' | 'drafts' | 'team';
   owner?: 'all' | 'mine' | 'others';
   visibility?: 'all' | WorkspaceProjectVisibility;
@@ -57,6 +71,7 @@ export async function listWorkspaceProjects(input: {
   const query = params.toString();
   const resp = await fetch(
     `/api/workspaces/${encodeURIComponent(input.workspaceId)}/projects${query ? `?${query}` : ''}`,
+    { headers: workspaceContextHeaders(input.context) },
   );
   if (!resp.ok) throw new Error(`workspace projects ${resp.status}`);
   const body = (await resp.json()) as WorkspaceProjectsResponse;
@@ -65,6 +80,7 @@ export async function listWorkspaceProjects(input: {
 
 export async function moveWorkspaceProject(input: {
   workspaceId: string;
+  context: WorkspaceCollabContext;
   projectId: string;
   visibility: WorkspaceProjectVisibility;
 }): Promise<WorkspaceProjectSummary> {
@@ -72,7 +88,10 @@ export async function moveWorkspaceProject(input: {
     `/api/workspaces/${encodeURIComponent(input.workspaceId)}/projects/${encodeURIComponent(input.projectId)}/move`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...workspaceContextHeaders(input.context),
+      },
       body: JSON.stringify({ visibility: input.visibility }),
     },
   );
