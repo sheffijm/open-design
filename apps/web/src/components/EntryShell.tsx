@@ -526,28 +526,38 @@ export function EntryShell({
   // real name), timestamps from when it was shared. No custom section: these flow
   // through `RecentProjectsStrip` like any other card.
   const localProjectIds = new Set(projects.map((project) => project.id));
+  const teamSharedProjectIds = new Set(
+    teamProjects.projects.map((teamProject) => teamProject.projectId),
+  );
   const sharedProjectCards: Project[] = teamProjects.projects
     .filter((teamProject) => !localProjectIds.has(teamProject.projectId))
     .map((teamProject) => {
       const sharedAtMs = Date.parse(teamProject.sharedAt);
-      const timestamp = Number.isFinite(sharedAtMs) ? sharedAtMs : Date.now();
+      const fallbackTimestamp = Number.isFinite(sharedAtMs) ? sharedAtMs : Date.now();
+      const createdAt = typeof teamProject.createdAt === 'number'
+        ? teamProject.createdAt
+        : fallbackTimestamp;
+      const updatedAt = typeof teamProject.updatedAt === 'number'
+        ? teamProject.updatedAt
+        : fallbackTimestamp;
       return {
         id: teamProject.projectId,
-        name: '共享项目',
-        skillId: null,
-        designSystemId: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
+        name: teamProject.name?.trim() || t('recentProjects.sharedProjectFallbackName'),
+        skillId: teamProject.skillId ?? null,
+        designSystemId: teamProject.designSystemId ?? null,
+        createdAt,
+        updatedAt,
+        ...(teamProject.metadata ? { metadata: teamProject.metadata } : {}),
       } satisfies Project;
     });
-  const allProjectsList: Project[] = [...projects, ...sharedProjectCards];
+  const allProjectsList: Project[] = [
+    ...projects.filter((project) => teamSharedProjectIds.has(project.id)),
+    ...sharedProjectCards,
+  ];
   // Persistent set of project ids the team hub already lists as shared. Passed to
   // every project strip so a card that has been moved into the team space keeps
   // its "已在团队空间" badge after a refresh — the strip's own optimistic set only
   // covers the current session, and would otherwise reset on reload.
-  const teamSharedProjectIds = new Set(
-    teamProjects.projects.map((teamProject) => teamProject.projectId),
-  );
   // projectId → sharing member id, so a card in the 全部项目 / 草稿 grids can
   // resolve "{creator}创建" against the member directory. A project absent here
   // is the member's own local project → "我创建".
@@ -1005,9 +1015,11 @@ export function EntryShell({
             {avatarMenu}
           </div>
           <div
-            className={`entry-main__inner${
-              view === 'home' ? '' : ' entry-main__inner--wide'
-            }`}
+            className={[
+              'entry-main__inner',
+              view === 'home' ? '' : 'entry-main__inner--wide',
+              view === 'drafts' || view === 'all-projects' ? 'entry-main__inner--project-grid' : '',
+            ].filter(Boolean).join(' ')}
           >
             <div data-testid="entry-view-home" data-active={view === 'home' ? 'true' : 'false'} {...inactiveViewProps(view === 'home')}>
               <HomeView
@@ -1156,9 +1168,6 @@ export function EntryShell({
                 until those land. */}
             {view === 'drafts' ? (
               <div className="entry-section">
-                <header className="entry-section__head">
-                  <h1 className="entry-section__title">{t('entry.navDrafts')}</h1>
-                </header>
                 {projectsLoading ? (
                   <CenteredLoader label={t('common.loading')} />
                 ) : (
@@ -1166,6 +1175,8 @@ export function EntryShell({
                     projects={projects}
                     designSystems={designSystems}
                     limit={1000}
+                    heading={t('entry.navDrafts')}
+                    description={t('entry.draftsDescription')}
                     space="drafts"
                     sharedProjectIds={teamSharedProjectIds}
                     projectOwnerMemberIds={teamProjectOwnerMemberIds}
@@ -1179,14 +1190,6 @@ export function EntryShell({
             ) : null}
             {view === 'all-projects' ? (
               <div className="entry-section">
-                <header className="entry-section__head">
-                  <div>
-                    <h1 className="entry-section__title">{t('entry.navAllProjects')}</h1>
-                    <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-                      团队所有人的项目
-                    </p>
-                  </div>
-                </header>
                 {projectsLoading ? (
                   <CenteredLoader label={t('common.loading')} />
                 ) : (
@@ -1194,6 +1197,8 @@ export function EntryShell({
                     projects={allProjectsList}
                     designSystems={designSystems}
                     limit={1000}
+                    heading={t('entry.navAllProjects')}
+                    description={t('entry.allProjectsDescription')}
                     space="team"
                     sharedProjectIds={teamSharedProjectIds}
                     projectOwnerMemberIds={teamProjectOwnerMemberIds}
@@ -1201,6 +1206,8 @@ export function EntryShell({
                     onViewAll={() => {}}
                     onDelete={onDeleteProject}
                     onRename={onRenameProject}
+                    canAssignInviteRoles={workspaceContext?.permissions.canInviteMembers === true}
+                    canManageProjectCollection={workspaceContext?.permissions.canShareProjects === true}
                   />
                 )}
               </div>

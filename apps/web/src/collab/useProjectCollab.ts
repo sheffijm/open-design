@@ -9,6 +9,8 @@ export interface UseProjectCollabOptions {
   baseUrl?: string;
   heartbeatMs?: number;
   statusPollMs?: number;
+  presenceFilePath?: string | null;
+  presenceActivity?: CollabPresenceMember['activity'];
 }
 
 /**
@@ -100,9 +102,16 @@ export function useProjectCollab(
 ): ProjectCollab {
   const context = useWorkspaceContext(options);
   const decision = resolveCollabSession(context);
+  const member = decision.member
+    ? {
+        ...decision.member,
+        ...(options.presenceFilePath ? { filePath: options.presenceFilePath } : {}),
+        ...(options.presenceActivity !== undefined ? { activity: options.presenceActivity } : {}),
+      }
+    : null;
   const collab = useCollab({
     projectId: projectId ?? null,
-    member: decision.member,
+    member,
     enabled: decision.enabled,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
@@ -123,6 +132,7 @@ export function useProjectCollab(
   // state until their id is confirmed, then flips to editable. A personal /
   // unshared project is never read-only on this gate.
   const shared = collab.syncState !== 'local_only' && collab.syncState !== null;
+  const collabEnabled = decision.enabled && shared;
   const isOwner = collab.ownerMemberId != null && collab.ownerMemberId === context?.workspaceMemberId;
   const sharedReadOnly = shared && !isOwner;
   const viewerOnly = workspaceReadOnly || sharedReadOnly;
@@ -182,8 +192,8 @@ export function useProjectCollab(
   }, [viewerOnly, publishedVersion, pull, pullTick]);
 
   return {
-    enabled: decision.enabled,
-    member: decision.member,
+    enabled: collabEnabled,
+    member,
     present: collab.present,
     publishedVersion: collab.publishedVersion,
     syncState: collab.syncState,

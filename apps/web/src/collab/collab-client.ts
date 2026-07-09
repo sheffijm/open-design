@@ -82,10 +82,9 @@ export class CollabClient {
   start(): void {
     if (this.running) return;
     this.running = true;
-    void this.heartbeat();
     void this.pollStatus();
-    this.timers.push(setInterval(() => void this.heartbeat(), this.heartbeatMs));
     this.timers.push(setInterval(() => void this.pollStatus(), this.statusPollMs));
+    this.timers.push(setInterval(() => void this.heartbeat(), this.heartbeatMs));
   }
 
   stop(): void {
@@ -116,6 +115,10 @@ export class CollabClient {
   }
 
   async heartbeat(): Promise<void> {
+    if (!this.isSharedProject()) {
+      if (this.snapshot.present.length > 0) this.update({ present: [] });
+      return;
+    }
     try {
       const body = await this.post('/presence/heartbeat', this.member);
       if (Array.isArray(body?.present)) this.update({ present: body.present as CollabPresenceMember[] });
@@ -126,6 +129,7 @@ export class CollabClient {
 
   async pollStatus(): Promise<void> {
     try {
+      const wasShared = this.isSharedProject();
       const body = await this.get('/collab/status');
       const version = typeof body?.publishedVersion === 'number' ? body.publishedVersion : null;
       const syncState = (body?.syncState as ProjectSyncState | undefined) ?? null;
@@ -133,6 +137,7 @@ export class CollabClient {
       const ownerDisplayName = typeof body?.ownerDisplayName === 'string' ? body.ownerDisplayName : null;
       const ownerRole = isCollabMemberRole(body?.ownerRole) ? body.ownerRole : null;
       this.update({ publishedVersion: version, syncState, ownerMemberId, ownerDisplayName, ownerRole });
+      if (!wasShared && this.isSharedProject()) void this.heartbeat();
     } catch (error) {
       this.onError?.(error);
     }
@@ -175,6 +180,10 @@ export class CollabClient {
   private update(patch: Partial<CollabSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
     this.onUpdate?.(this.snapshot);
+  }
+
+  private isSharedProject(): boolean {
+    return this.snapshot.syncState !== null && this.snapshot.syncState !== 'local_only';
   }
 
   private async get(path: string): Promise<Record<string, unknown> | null> {

@@ -585,6 +585,7 @@ import { createTeamResourceShareService } from './collab/team-resource-share.js'
 import { contextToResourceHubPrincipal } from './collab/resource-hub-publish-adapter.js';
 import { createCollabCloudClientFromEnv } from './integrations/collab-cloud.js';
 import { createCollabCloudService } from './collab/collab-cloud-service.js';
+import { createVelaCliCollabClientFromEnv } from './collab/vela-cli-collab-client.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import {
   assembleExample,
@@ -3814,9 +3815,26 @@ export async function startServer({
   // hub when OD_RESOURCE_HUB_URL + workspace member env are set, else a local
   // stub. resolveProjectDir lets the hub adapter pack/land managed projects.
   const collab = createCollabRuntime({
-    resolveProjectDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
+    resolveProjectDir: (projectId) => {
+      const project = getProject(db, projectId);
+      return resolveProjectDir(PROJECTS_DIR, projectId, project?.metadata);
+    },
+    describeProject: (projectId) => {
+      const project = getProject(db, projectId);
+      if (!project) return null;
+      return {
+        name: project.name,
+        skillId: project.skillId ?? null,
+        designSystemId: project.designSystemId ?? null,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        ...(project.metadata ? { metadata: project.metadata } : {}),
+      };
+    },
   });
-  registerCollabPresenceRoutes(app, { collab });
+  const velaCliCollabClient = createVelaCliCollabClientFromEnv();
+  const collabCloudClient = velaCliCollabClient ?? createCollabCloudClientFromEnv();
+  registerCollabPresenceRoutes(app, { collab, cloud: velaCliCollabClient });
 
   // Collab cloud (C-lane §D2.5/§D4): cross-daemon comment sync + member
   // directory. The client is null (all calls degrade to no-op) unless
@@ -3824,7 +3842,6 @@ export async function startServer({
   // so a single identity drives member registration, comment push, and the
   // pull+merge poller. Kept out of collab/runtime.ts to avoid colliding with the
   // team-project-catalog work also editing that file.
-  const collabCloudClient = createCollabCloudClientFromEnv();
   const collabCloud = collabCloudClient
     ? createCollabCloudService({
         client: collabCloudClient,
@@ -3846,9 +3863,12 @@ export async function startServer({
   // serves) rather than trusting a client-supplied id, so a pulled project is
   // recorded read-only under its true single writer.
   const teamProjectsLister = createTeamProjectsLister({ workspaceContext: collab.workspaceContext });
-  const resolveSharedProjectOwner = async (projectId: string): Promise<string | null> => {
+  const resolveSharedProject = async (projectId: string) => {
     const list = await teamProjectsLister();
-    return list.find((entry) => entry.projectId === projectId)?.ownerMemberId ?? null;
+    return list.find((entry) => entry.projectId === projectId) ?? null;
+  };
+  const resolveSharedProjectOwner = async (projectId: string): Promise<string | null> => {
+    return (await resolveSharedProject(projectId))?.ownerMemberId ?? null;
   };
   // Author-side publish TRIGGER (C spec §D1): watch the projects THIS daemon's
   // member owns + has shared, and coalesce every file edit into a debounced
@@ -3879,6 +3899,7 @@ export async function startServer({
     // project record so it appears in /api/projects and opens read-only (the
     // member is not the owner). Idempotent — an already-local project is a no-op.
     projectStore: {
+      get: (projectId) => getProject(db, projectId),
       has: (projectId) => getProject(db, projectId) != null,
       register: (input) => {
         insertProject(db, {
@@ -3886,12 +3907,23 @@ export async function startServer({
           name: input.name,
           skillId: input.skillId,
           designSystemId: input.designSystemId,
+          metadata: input.metadata,
           createdAt: input.createdAt,
+          updatedAt: input.updatedAt,
+        });
+      },
+      update: (input) => {
+        updateProject(db, input.id, {
+          name: input.name,
+          skillId: input.skillId,
+          designSystemId: input.designSystemId,
+          metadata: input.metadata,
           updatedAt: input.updatedAt,
         });
       },
     },
     resolvePullDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
+    resolveSharedProject,
     resolveSharedProjectOwner,
     // Resolve the owner's display name + role from the collab-cloud directory so
     // /collab/status can hand the client a named "shared project" banner.

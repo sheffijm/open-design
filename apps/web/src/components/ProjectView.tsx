@@ -1322,7 +1322,9 @@ export function ProjectView({
   // Team collaboration: presence for a shared project. Dormant (no heartbeat,
   // renders nothing) unless the workspace context marks the viewer an active
   // team member — safe to mount unconditionally.
-  const projectCollab = useProjectCollab(project?.id ?? null);
+  const projectCollab = useProjectCollab(project?.id ?? null, {
+    presenceFilePath: project?.metadata?.entryFile ?? null,
+  });
   // Read-only banner copy: when the collab cloud resolved who shared this project,
   // name them ("这是 麻薯 创建的共享项目…"); otherwise fall back to the name-less
   // notice. Only computed when the viewer is actually read-only.
@@ -8268,12 +8270,6 @@ export function ProjectView({
                   {projectTypeLabel ? (
                     <span className="meta" data-testid="project-meta">{projectTypeLabel}</span>
                   ) : null}
-                  {projectCollab.enabled ? (
-                    <PresenceBar
-                      members={projectCollab.present}
-                      {...(projectCollab.member ? { selfMemberId: projectCollab.member.memberId } : {})}
-                    />
-                  ) : null}
                 </span>
               )}
               designSystemPicker={(
@@ -8378,6 +8374,13 @@ export function ProjectView({
           githubConnected={githubConnected}
           commentPortalId={commentInspectorPortalId}
           onCommentModeChange={setCommentInspectorActive}
+          presenceSlot={projectCollab.enabled ? (
+            <PresenceBar
+              members={projectCollab.present}
+              selfMember={projectCollab.member}
+              {...(projectCollab.member ? { selfMemberId: projectCollab.member.memberId } : {})}
+            />
+          ) : null}
           chatConfig={config}
           chatAgentsById={agentsById}
           chatLocale={locale}

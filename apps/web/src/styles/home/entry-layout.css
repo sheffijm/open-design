@@ -760,6 +760,9 @@
 .entry-main__inner--wide {
   max-width: 1440px;
 }
+.entry-main__inner--project-grid {
+  max-width: none;
+}
 
 /* Sticky top-right control strip inside the main scroll area.
    Stays visually pinned regardless of scroll position so the

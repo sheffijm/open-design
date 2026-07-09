@@ -23,6 +23,10 @@ import {
   createCollabCloudService,
   previewCommentToCloud,
 } from '../src/collab/collab-cloud-service.js';
+import {
+  buildVelaCollabEnv,
+  createVelaCliCollabClient,
+} from '../src/collab/vela-cli-collab-client.js';
 import type { WorkspaceContextProvider } from '../src/collab/workspace-context.js';
 
 let tempDir: string | null = null;
@@ -452,5 +456,96 @@ describe('collab-cloud client', () => {
     expect(result.notModified).toBe(true);
     expect(result.comments).toEqual([]);
     expect(result.latestSeq).toBe(2);
+  });
+});
+
+describe('VelaCliCollabClient', () => {
+  it('keeps an explicit VELA_PROFILE and AMR_HOME when spawning the CLI', () => {
+    const env = buildVelaCollabEnv({
+      OPEN_DESIGN_AMR_PROFILE: 'prod',
+      VELA_PROFILE: 'local',
+      AMR_HOME: '/tmp/od-collab-owner-amr',
+      VELA_API_URL: 'http://127.0.0.1:18082',
+    });
+
+    expect(env.VELA_PROFILE).toBe('local');
+    expect(env.AMR_HOME).toBe('/tmp/od-collab-owner-amr');
+    expect(env.VELA_API_URL).toBe('http://127.0.0.1:18082');
+  });
+
+  it('uses vela collab commands for comments, directory, and presence', async () => {
+    const calls: string[][] = [];
+    const client = createVelaCliCollabClient({
+      run: async (args) => {
+        calls.push(args);
+        if (args[0] === 'member' && args[1] === 'register') {
+          return JSON.stringify({ member: { memberId: 'm-self', displayName: '麻薯', role: 'owner' } });
+        }
+        if (args[0] === 'comment' && args[1] === 'push') {
+          return JSON.stringify({ seq: 7 });
+        }
+        if (args[0] === 'comment' && args[1] === 'pull') {
+          return JSON.stringify({ latestSeq: 7, comments: [cloudComment('c1', { seq: 7 })] });
+        }
+        if (args[0] === 'presence' && args[1] === 'heartbeat') {
+          return JSON.stringify({
+            viewers: [
+              {
+                memberId: 'm-self',
+                displayName: '麻薯',
+                role: 'owner',
+                filePath: 'Typography',
+                activity: { label: '正在评论 Typography' },
+                heartbeatAt: '2026-07-10T00:00:00.000Z',
+              },
+            ],
+          });
+        }
+        return JSON.stringify({});
+      },
+    });
+
+    await expect(client.registerMember('team-1', 'm-self', {
+      displayName: '麻薯',
+      role: 'owner',
+    })).resolves.toEqual({ memberId: 'm-self', displayName: '麻薯', role: 'owner' });
+    await expect(client.pushComment('team-1', 'p1', cloudComment('c1'))).resolves.toEqual({ seq: 7 });
+    await expect(client.pullComments('team-1', 'p1', 0)).resolves.toMatchObject({
+      latestSeq: 7,
+      comments: [{ id: 'c1' }],
+    });
+    await expect(client.heartbeatPresence('p1', {
+      member: { memberId: 'm-self', name: '麻薯', role: 'owner' },
+      clientId: 'client-1',
+      filePath: 'Typography',
+      activity: { label: '正在评论 Typography' },
+    })).resolves.toEqual([
+      {
+        memberId: 'm-self',
+        name: '麻薯',
+        role: 'owner',
+        filePath: 'Typography',
+        activity: { label: '正在评论 Typography' },
+        heartbeatAt: '2026-07-10T00:00:00.000Z',
+      },
+    ]);
+
+    expect(calls[0]).toEqual(['member', 'register', '--display-name', '麻薯', '--role', 'owner']);
+    expect(calls[1]?.slice(0, 3)).toEqual(['comment', 'push', 'p1']);
+    expect(JSON.parse(calls[1]![4]!)).toMatchObject({ id: 'c1' });
+    expect(calls[2]).toEqual(['comment', 'pull', 'p1', '--since-seq', '0']);
+    expect(calls[3]).toEqual([
+      'presence',
+      'heartbeat',
+      'p1',
+      '--client-id',
+      'client-1',
+      '--display-name',
+      '麻薯',
+      '--file-path',
+      'Typography',
+      '--activity-json',
+      JSON.stringify({ label: '正在评论 Typography' }),
+    ]);
   });
 });

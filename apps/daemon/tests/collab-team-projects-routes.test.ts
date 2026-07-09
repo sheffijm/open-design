@@ -23,6 +23,14 @@ const HUB_RESOURCES: ResourceRecord[] = [
     teamId: 't1',
     kind: 'project',
     ownerMemberId: 'wm-owner',
+    metadata: {
+      name: 'Launch Deck',
+      skillId: null,
+      designSystemId: null,
+      createdAt: 1_784_000_000_000,
+      updatedAt: 1_784_000_060_000,
+      metadata: { kind: 'deck' },
+    },
     createdAt: '2026-07-01T00:00:00.000Z',
     deletedAt: null,
   },
@@ -31,6 +39,7 @@ const HUB_RESOURCES: ResourceRecord[] = [
     teamId: 't1',
     kind: 'design_system',
     ownerMemberId: 'wm-owner',
+    metadata: {},
     createdAt: '2026-07-02T00:00:00.000Z',
     deletedAt: null,
   },
@@ -113,7 +122,50 @@ describe('GET /api/workspace/projects/team', () => {
     // The design system is filtered out; the project's `project-` prefix is stripped.
     expect(res.body).toEqual({
       projects: [
-        { projectId: 'p1', ownerMemberId: 'wm-owner', sharedAt: '2026-07-01T00:00:00.000Z' },
+        {
+          projectId: 'p1',
+          ownerMemberId: 'wm-owner',
+          sharedAt: '2026-07-01T00:00:00.000Z',
+          name: 'Launch Deck',
+          skillId: null,
+          designSystemId: null,
+          createdAt: 1_784_000_000_000,
+          updatedAt: 1_784_000_060_000,
+          metadata: { kind: 'deck' },
+        },
+      ],
+    });
+  });
+
+  it('lists shared projects through the vela resource CLI transport', async () => {
+    const workspaceContext = teamContextProvider();
+    const calls: string[][] = [];
+    const listTeamProjects = createTeamProjectsLister({
+      workspaceContext,
+      env: { OD_RESOURCE_TRANSPORT: 'vela-cli' },
+      runVelaResource: async (args) => {
+        calls.push(args);
+        return JSON.stringify({ resources: HUB_RESOURCES });
+      },
+    });
+    const api = await startServer({ workspaceContext, listTeamProjects });
+
+    const res = await api.get('/api/workspace/projects/team');
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([['shared', '--json']]);
+    expect(res.body).toEqual({
+      projects: [
+        {
+          projectId: 'p1',
+          ownerMemberId: 'wm-owner',
+          sharedAt: '2026-07-01T00:00:00.000Z',
+          name: 'Launch Deck',
+          skillId: null,
+          designSystemId: null,
+          createdAt: 1_784_000_000_000,
+          updatedAt: 1_784_000_060_000,
+          metadata: { kind: 'deck' },
+        },
       ],
     });
   });

@@ -59,6 +59,11 @@ export interface CollabRuntime {
    * project can tell whether it is their own (writer) or someone else's (read-only).
    */
   requestTeamShare(projectId: string, ownerMemberId?: string): void;
+  /**
+   * Move a project out of the team space. The resource adapter owns the actual
+   * backend removal; the runtime clears local sync bookkeeping after it succeeds.
+   */
+  requestTeamUnshare(projectId: string): Promise<void>;
   /** The member who shared this project, or null if not shared here. */
   projectOwnerMemberId(projectId: string): string | null;
   /**
@@ -79,6 +84,8 @@ export interface CreateCollabRuntimeOptions {
   adapter?: ResourcePublishAdapter;
   /** Managed-project directory resolver, so the real hub adapter can pack/land. */
   resolveProjectDir?: (projectId: string) => string;
+  /** Resource-index metadata for team project discovery/cards. */
+  describeProject?: (projectId: string) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
   /** Workspace-context provider. Defaults to a dev provider until wired to an identity source. */
   workspaceContext?: WorkspaceContextProvider;
   /** Team-resource state provider. Defaults to a dev provider until wired to the hub. */
@@ -101,16 +108,19 @@ export interface CreateCollabRuntimeOptions {
 function selectResourcePublishAdapter(
   resolveProjectDir: ((projectId: string) => string | Promise<string>) | undefined,
   workspaceContext: WorkspaceContextProvider,
+  describeProject: ((projectId: string) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>) | undefined,
 ): ResourcePublishAdapter | null {
   if (!resolveProjectDir) return null;
   if (shouldUseVelaCliResourceTransport()) {
     return createVelaCliResourceAdapter({
       resolveProjectDir,
+      ...(describeProject ? { describeProject } : {}),
       hasTeamIdentity: async () => contextHasTeamIdentity(await workspaceContext.current({})),
     });
   }
   return createResourceHubPublishAdapterFromEnv(resolveProjectDir, async () =>
     contextToResourceHubPrincipal(await workspaceContext.current({})),
+    describeProject,
   );
 }
 
@@ -123,13 +133,16 @@ export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): C
   // → the in-process hub SDK adapter → the local stub.
   const adapter =
     options.adapter ??
-    selectResourcePublishAdapter(options.resolveProjectDir, workspaceContext) ??
+    selectResourcePublishAdapter(options.resolveProjectDir, workspaceContext, options.describeProject) ??
     createStubResourcePublishAdapter();
   const published = new Map<string, number>();
   const syncStates = new Map<string, ProjectSyncState>();
   // projectId → the member who shared it (the single writer). Members compare
   // this to their own id to know whether they view the project read-only.
   const owners = new Map<string, string>();
+  // Projects explicitly moved out of the team space. Used to ignore a late
+  // publish completion from a share request that was immediately undone.
+  const unshared = new Set<string>();
   // Always track the published head + sync state so members can poll them; also
   // forward to any caller-supplied callback. (exactOptionalPropertyTypes forbids
   // assigning an explicit `undefined` to an optional property, hence we always
@@ -137,6 +150,14 @@ export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): C
   const schedulerOptions: CollabPublishSchedulerOptions = {
     adapter,
     onPublished: (result) => {
+      if (unshared.has(result.projectId)) {
+        void adapter.unpublish?.({ projectId: result.projectId }).catch((error: unknown) => {
+          options.onError?.({ projectId: result.projectId, error });
+        });
+        published.delete(result.projectId);
+        syncStates.set(result.projectId, 'local_only');
+        return;
+      }
       published.set(result.projectId, result.version);
       syncStates.set(result.projectId, 'synced');
       options.onPublished?.(result);
@@ -169,6 +190,7 @@ export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): C
     projectSyncState: (projectId) => syncStates.get(projectId) ?? 'local_only',
     projectOwnerMemberId: (projectId) => owners.get(projectId) ?? null,
     requestTeamShare(projectId, ownerMemberId) {
+      unshared.delete(projectId);
       // Record the sharer as the project's single writer so members can tell
       // apart their own project from one shared to them.
       if (ownerMemberId) owners.set(projectId, ownerMemberId);
@@ -177,6 +199,13 @@ export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): C
       syncStates.set(projectId, 'pending_upload');
       scheduler.notifyChanged(projectId, 'share');
       scheduler.runBoundary(projectId);
+    },
+    async requestTeamUnshare(projectId) {
+      unshared.add(projectId);
+      if (adapter.unpublish) await adapter.unpublish({ projectId });
+      owners.delete(projectId);
+      published.delete(projectId);
+      syncStates.set(projectId, 'local_only');
     },
     async pullLatest(projectId) {
       // The real hub adapter materializes the published tree locally; the stub

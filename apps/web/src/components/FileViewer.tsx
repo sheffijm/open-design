@@ -9,6 +9,7 @@ import {
   type ProjectFileVersion,
   type SocialShareRequest,
   type SocialShareResponse,
+  type WorkspaceTeamProjectsResponse,
 } from '@open-design/contracts';
 import {
   anonymizeArtifactId,
@@ -128,6 +129,17 @@ import type {
 } from '../types';
 import { Icon } from './Icon';
 import { RemixIcon } from './RemixIcon';
+
+async function projectIsSharedWithWorkspace(projectId: string): Promise<boolean> {
+  try {
+    const response = await fetch('/api/workspace/projects/team');
+    if (!response.ok) return false;
+    const body = (await response.json()) as WorkspaceTeamProjectsResponse;
+    return body.projects.some((project) => project.projectId === projectId);
+  } catch {
+    return false;
+  }
+}
 import { HandoffButton } from './HandoffButton';
 import { SocialShareGrid } from './SocialShareGrid';
 import { Toast } from './Toast';
@@ -3134,7 +3146,7 @@ function FileVersionManagerModal({
                     type="button"
                     className={`viewer-action primary file-version-restore-action${confirmRestore ? ' active' : ''}`}
                     disabled={restoreDisabled}
-                    title={viewerOnly ? '共享项目只读：可以评论，不能编辑或导出' : undefined}
+                    title={viewerOnly ? t('fileViewer.readonlySharedNoExport') : undefined}
                     aria-haspopup="dialog"
                     aria-expanded={confirmRestore}
                     aria-controls={confirmRestore ? restorePopoverId : undefined}
@@ -5222,6 +5234,7 @@ function ReactComponentViewer({
   const [unifiedActionTab, setUnifiedActionTab] = useState<'share' | 'export' | 'send'>('share');
   const [shareAccess, setShareAccess] = useState<'private' | 'workspace'>('private');
   const [shareAccessMenuOpen, setShareAccessMenuOpen] = useState(false);
+  const [shareAccessBusy, setShareAccessBusy] = useState(false);
   const [filePublished, setFilePublished] = useState(false);
   const [publishLinkFeedback, setPublishLinkFeedback] = useState<'copied' | 'failed' | null>(null);
   const shareRef = useRef<HTMLDivElement | null>(null);
@@ -5299,6 +5312,16 @@ function ReactComponentViewer({
     };
   }, [shareAccess]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void projectIsSharedWithWorkspace(projectId).then((shared) => {
+      if (!cancelled) setShareAccess(shared ? 'workspace' : 'private');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, shareMenuOpen]);
+
   // Collapse the nested workspace-access listbox whenever the share popover
   // itself closes, so it never re-opens mid-flight.
   useEffect(() => {
@@ -5324,6 +5347,29 @@ function ReactComponentViewer({
     window.setTimeout(() => {
       setPublishLinkFeedback((current) => (current === feedback ? null : current));
     }, 1800);
+  }
+
+  async function setWorkspaceShareAccess(nextAccess: 'private' | 'workspace') {
+    setShareAccessMenuOpen(false);
+    if (nextAccess === shareAccess || shareAccessBusy) return;
+
+    setShareAccessBusy(true);
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/collab/sync-intent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          event: nextAccess === 'workspace' ? 'project_team_share_requested' : 'project_team_unshare_requested',
+          projectId,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setShareAccess(nextAccess);
+    } catch (error) {
+      console.warn('[FileViewer] failed to update workspace project sharing', error);
+    } finally {
+      setShareAccessBusy(false);
+    }
   }
 
   const exportTitle = file.name.replace(/\.(jsx|tsx)$/i, '') || file.name;
@@ -5414,11 +5460,11 @@ function ReactComponentViewer({
                 </button>
                 {shareMenuOpen ? (
                   <div className="share-menu-popover chrome-unified-popover" role="menu">
-                    <div className="chrome-unified-tabs" role="tablist" aria-label="分享和导出操作">
+                    <div className="chrome-unified-tabs" role="tablist" aria-label={t('fileViewer.unifiedShareAria')}>
                       {([
-                        ['share', '分享'],
-                        ['export', '导出'],
-                        ['send', '发送到...'],
+                        ['share', t('fileViewer.unifiedShareTab')],
+                        ['export', t('fileViewer.unifiedExportTab')],
+                        ['send', t('fileViewer.unifiedSendTab')],
                       ] as const).map(([tab, label]) => (
                         <button
                           key={tab}
@@ -5438,11 +5484,11 @@ function ReactComponentViewer({
                           <div className="chrome-share-card__header">
                             <span className="share-menu-icon"><RemixIcon name="team-line" size={16} /></span>
                             <span className="share-menu-text">
-                              <span>在工作空间中分享项目</span>
+                              <span>{t('fileViewer.workspaceShareTitle')}</span>
                               <small>
                                 {shareAccess === 'private'
-                                  ? '仅你可以访问此项目。选择工作空间成员后，即可分享给团队。'
-                                  : '此工作空间的成员可以访问此项目。'}
+                                  ? t('fileViewer.workspaceSharePrivateDescription')
+                                  : t('fileViewer.workspaceShareWorkspaceDescription')}
                               </small>
                             </span>
                           </div>
@@ -5452,6 +5498,7 @@ function ReactComponentViewer({
                               className="chrome-access-trigger"
                               aria-haspopup="listbox"
                               aria-expanded={shareAccessMenuOpen}
+                              disabled={shareAccessBusy}
                               onClick={() => setShareAccessMenuOpen((v) => !v)}
                             >
                               <span className="share-menu-icon">
@@ -5466,16 +5513,16 @@ function ReactComponentViewer({
                               </span>
                               <span>
                                 {shareAccess === 'private'
-                                  ? '仅自己'
-                                  : '工作空间成员'}
+                                  ? t('fileViewer.workspaceAccessPrivate')
+                                  : t('fileViewer.workspaceAccessMembers')}
                               </span>
                               <RemixIcon name="arrow-down-s-line" size={16} />
                             </button>
                             {shareAccessMenuOpen ? (
                               <div className="chrome-access-options" role="listbox">
                                 {([
-                                  ['private', 'lock-line', '仅自己'],
-                                  ['workspace', 'team-line', '工作空间成员'],
+                                  ['private', 'lock-line', t('fileViewer.workspaceAccessPrivate')],
+                                  ['workspace', 'team-line', t('fileViewer.workspaceAccessMembers')],
                                 ] as const).map(([value, icon, label]) => (
                                   <button
                                     key={value}
@@ -5483,10 +5530,8 @@ function ReactComponentViewer({
                                     role="option"
                                     aria-selected={shareAccess === value}
                                     className={shareAccess === value ? 'is-active' : undefined}
-                                    onClick={() => {
-                                      setShareAccess(value);
-                                      setShareAccessMenuOpen(false);
-                                    }}
+                                    disabled={shareAccessBusy}
+                                    onClick={() => void setWorkspaceShareAccess(value)}
                                   >
                                     <span className="share-menu-icon"><RemixIcon name={icon} size={16} /></span>
                                     <span>{label}</span>
@@ -5501,8 +5546,8 @@ function ReactComponentViewer({
                           <div className="chrome-share-card__header">
                             <span className="share-menu-icon"><RemixIcon name="broadcast-line" size={16} /></span>
                             <span className="share-menu-text">
-                              <span>发布单个文件给所有人</span>
-                              <small>将当前单个文件设为外部可见。任何获得发布链接的人都可以在线查看。</small>
+                              <span>{t('fileViewer.publishSingleFileTitle')}</span>
+                              <small>{t('fileViewer.publishSingleFileDescription')}</small>
                             </span>
                           </div>
                           {filePublished ? (
@@ -5523,14 +5568,14 @@ function ReactComponentViewer({
                                     ? t('fileViewer.copied')
                                     : publishLinkFeedback === 'failed'
                                       ? t('useEverywhere.copyFailed')
-                                      : '复制链接'}
+                                      : t('fileViewer.copyShareLink')}
                                 </button>
                                 <button
                                   type="button"
                                   className="chrome-publish-button chrome-publish-button--ghost"
                                   onClick={() => setFilePublished(false)}
                                 >
-                                  取消发布
+                                  {t('common.cancel')}
                                 </button>
                               </div>
                             </>
@@ -5541,7 +5586,7 @@ function ReactComponentViewer({
                               onClick={() => setFilePublished(true)}
                             >
                               <RemixIcon name="upload-cloud-2-line" size={15} />
-                              发布文件
+                              {t('fileViewer.publishFile')}
                             </button>
                           )}
                         </div>
@@ -6011,12 +6056,9 @@ function HtmlViewer({
   // preselect the tab and open this one popover.
   const [deployMenuOpen, setDeployMenuOpen] = useState(false);
   const [unifiedActionTab, setUnifiedActionTab] = useState<'share' | 'export' | 'send'>('share');
-  // Workspace-visibility selector for the unified share tab (ported verbatim
-  // from the demo). `shareAccess` is UI-only state today: the real workspace
-  // authorization backend is not wired yet, so this only drives the local
-  // card + the `data-artifact-share-access` body flag.
   const [shareAccess, setShareAccess] = useState<'private' | 'workspace'>('private');
   const [shareAccessMenuOpen, setShareAccessMenuOpen] = useState(false);
+  const [shareAccessBusy, setShareAccessBusy] = useState(false);
   const [filePublished, setFilePublished] = useState(false);
   const [publishLinkFeedback, setPublishLinkFeedback] = useState<'copied' | 'failed' | null>(null);
   // False when closed; otherwise records which entry opened the modal so the
@@ -6085,6 +6127,17 @@ function HtmlViewer({
       delete document.body.dataset.artifactShareAccess;
     };
   }, [shareAccess]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void projectIsSharedWithWorkspace(projectId).then((shared) => {
+      if (!cancelled) setShareAccess(shared ? 'workspace' : 'private');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, deployMenuOpen]);
+
   // Collapse the nested workspace-access listbox whenever the unified share
   // popover itself closes, so it never re-opens mid-flight.
   useEffect(() => {
@@ -6109,6 +6162,38 @@ function HtmlViewer({
     window.setTimeout(() => {
       setPublishLinkFeedback((current) => (current === feedback ? null : current));
     }, 1800);
+  }
+  async function setWorkspaceShareAccess(nextAccess: 'private' | 'workspace') {
+    setShareAccessMenuOpen(false);
+    if (nextAccess === shareAccess || shareAccessBusy || viewerOnly) return;
+
+    setShareAccessBusy(true);
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/collab/sync-intent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          event: nextAccess === 'workspace' ? 'project_team_share_requested' : 'project_team_unshare_requested',
+          projectId,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setShareAccess(nextAccess);
+      setShareGuideToast(
+        nextAccess === 'workspace'
+          ? t('fileViewer.workspaceShareSuccess')
+          : t('fileViewer.workspaceUnshareSuccess'),
+      );
+    } catch (error) {
+      console.warn('[FileViewer] failed to update workspace project sharing', error);
+      setShareGuideToast(
+        nextAccess === 'workspace'
+          ? t('fileViewer.workspaceShareFailed')
+          : t('fileViewer.workspaceUnshareFailed'),
+      );
+    } finally {
+      setShareAccessBusy(false);
+    }
   }
   const [inTabPresent, setInTabPresent] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -9324,13 +9409,12 @@ function HtmlViewer({
   const showImageExport = canShare;
   // Read-only viewer of a team-shared project: comment-only copy for the
   // disabled edit/export controls and the comment composer's send-to-chat path.
-  const viewerOnlyDisabledTitle = '共享项目只读：可以评论，不能编辑或导出';
+  const viewerOnlyDisabledTitle = t('fileViewer.readonlySharedNoExport');
 
   // If viewerOnly flips on while an edit surface / export menu is open, close it
   // so the read-only viewer never lands in an editing mode it can't act on.
   useEffect(() => {
     if (!viewerOnly) return;
-    setDeployMenuOpen(false);
     setDrawOverlayOpen(false);
     setInspectMode(false);
     if (mode === 'source') setMode('preview');
@@ -9414,12 +9498,11 @@ function HtmlViewer({
   // Share tab when the artifact is shareable, otherwise open straight on Export
   // (e.g. markdown, which is downloadable but not publishable).
   const openDeployMenu = () => {
-    if (viewerOnly) return; // read-only viewer cannot share/publish/export
     fireArtifactHeaderClick('share_dropdown');
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
     setDeployMenuOpen((v) => {
-      if (!v) setUnifiedActionTab(canShare ? 'share' : 'export');
+      if (!v) setUnifiedActionTab(rawCanShare ? 'share' : 'export');
       return !v;
     });
   };
@@ -10528,7 +10611,7 @@ function HtmlViewer({
                     {mode === id ? <Icon name="check" size={13} /> : null}
                   </button>
                 ))}
-                {versioningAvailable && !viewerOnly ? (
+                {versioningAvailable ? (
                   <button
                     type="button"
                     className="viewer-toolbar-more-item"
@@ -10727,7 +10810,7 @@ function HtmlViewer({
               ) : null}
             </div>
           ) : null}
-          {versioningAvailable && !viewerOnly && (rawCanShare || rawCanDownload) ? (
+          {versioningAvailable && (rawCanShare || rawCanDownload) ? (
             <button
               type="button"
               className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only"
@@ -10755,20 +10838,19 @@ function HtmlViewer({
                   aria-haspopup="menu"
                   aria-expanded={deployMenuOpen}
                   aria-label={shareMenuLabel}
-                  disabled={viewerOnly}
                   title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                   onClick={openDeployMenu}
                 >
                   <RemixIcon name="share-forward-line" size={15} />
                   <span>{shareMenuLabel}</span>
                 </button>
-                {deployMenuOpen && (canShare || canDownload) ? (
+                {deployMenuOpen && (rawCanShare || rawCanDownload) ? (
                   <div className="share-menu-popover chrome-unified-popover" role="menu">
-                    <div className="chrome-unified-tabs" role="tablist" aria-label="分享和导出操作">
+                    <div className="chrome-unified-tabs" role="tablist" aria-label={t('fileViewer.unifiedShareAria')}>
                       {([
-                        ...(canShare ? [['share', '分享'] as const] : []),
-                        ...(canDownload ? [['export', '导出'] as const] : []),
-                        ['send', '发送到...'] as const,
+                        ...(rawCanShare ? [['share', t('fileViewer.unifiedShareTab')] as const] : []),
+                        ...(rawCanDownload ? [['export', t('fileViewer.unifiedExportTab')] as const] : []),
+                        ['send', t('fileViewer.unifiedSendTab')] as const,
                       ]).map(([tab, label]) => (
                         <button
                           key={tab}
@@ -10782,17 +10864,17 @@ function HtmlViewer({
                         </button>
                       ))}
                     </div>
-                    {unifiedActionTab === 'share' && canShare ? (
+                    {unifiedActionTab === 'share' && rawCanShare ? (
                       <div className="chrome-unified-panel chrome-unified-panel--share">
                       <div className="chrome-share-card">
                         <div className="chrome-share-card__header">
                           <span className="share-menu-icon"><RemixIcon name="team-line" size={16} /></span>
                           <span className="share-menu-text">
-                            <span>在工作空间中分享项目</span>
+                            <span>{t('fileViewer.workspaceShareTitle')}</span>
                             <small>
                               {shareAccess === 'private'
-                                ? '仅你可以访问此项目。选择工作空间成员后，即可分享给团队。'
-                                : '此工作空间的成员可以访问此项目。'}
+                                ? t('fileViewer.workspaceSharePrivateDescription')
+                                : t('fileViewer.workspaceShareWorkspaceDescription')}
                             </small>
                           </span>
                         </div>
@@ -10802,6 +10884,7 @@ function HtmlViewer({
                             className="chrome-access-trigger"
                             aria-haspopup="listbox"
                             aria-expanded={shareAccessMenuOpen}
+                            disabled={shareAccessBusy || viewerOnly}
                             onClick={() => setShareAccessMenuOpen((v) => !v)}
                           >
                             <span className="share-menu-icon">
@@ -10816,16 +10899,16 @@ function HtmlViewer({
                             </span>
                             <span>
                               {shareAccess === 'private'
-                                ? '仅自己'
-                                : '工作空间成员'}
+                                ? t('fileViewer.workspaceAccessPrivate')
+                                : t('fileViewer.workspaceAccessMembers')}
                             </span>
                             <RemixIcon name="arrow-down-s-line" size={16} />
                           </button>
                           {shareAccessMenuOpen ? (
                             <div className="chrome-access-options" role="listbox">
                               {([
-                                ['private', 'lock-line', '仅自己'],
-                                ['workspace', 'team-line', '工作空间成员'],
+                                ['private', 'lock-line', t('fileViewer.workspaceAccessPrivate')],
+                                ['workspace', 'team-line', t('fileViewer.workspaceAccessMembers')],
                               ] as const).map(([value, icon, label]) => (
                                 <button
                                   key={value}
@@ -10833,10 +10916,8 @@ function HtmlViewer({
                                   role="option"
                                   aria-selected={shareAccess === value}
                                   className={shareAccess === value ? 'is-active' : undefined}
-                                  onClick={() => {
-                                    setShareAccess(value);
-                                    setShareAccessMenuOpen(false);
-                                  }}
+                                  disabled={shareAccessBusy || viewerOnly}
+                                  onClick={() => void setWorkspaceShareAccess(value)}
                                 >
                                   <span className="share-menu-icon"><RemixIcon name={icon} size={16} /></span>
                                   <span>{label}</span>
@@ -10851,8 +10932,8 @@ function HtmlViewer({
                         <div className="chrome-share-card__header">
                           <span className="share-menu-icon"><RemixIcon name="broadcast-line" size={16} /></span>
                           <span className="share-menu-text">
-                            <span>发布单个文件给所有人</span>
-                            <small>将当前单个文件设为外部可见。任何获得发布链接的人都可以在线查看。</small>
+                            <span>{t('fileViewer.publishSingleFileTitle')}</span>
+                            <small>{t('fileViewer.publishSingleFileDescription')}</small>
                           </span>
                         </div>
                         {filePublished ? (
@@ -10873,14 +10954,14 @@ function HtmlViewer({
                                   ? t('fileViewer.copied')
                                   : publishLinkFeedback === 'failed'
                                     ? t('useEverywhere.copyFailed')
-                                    : '复制链接'}
+                                    : t('fileViewer.copyShareLink')}
                               </button>
                               <button
                                 type="button"
                                 className="chrome-publish-button chrome-publish-button--ghost"
                                 onClick={() => setFilePublished(false)}
                               >
-                                取消发布
+                                {t('common.cancel')}
                               </button>
                             </div>
                           </>
@@ -10888,155 +10969,25 @@ function HtmlViewer({
                           <button
                             type="button"
                             className="chrome-publish-primary"
+                            disabled={viewerOnly}
+                            title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                             onClick={() => setFilePublished(true)}
                           >
                             <RemixIcon name="upload-cloud-2-line" size={15} />
-                            发布文件
+                            {t('fileViewer.publishFile')}
                           </button>
                         )}
                       </div>
-                      <div className="share-menu-divider" />
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('fileViewer.shareMenuShareLink')}
-                      </div>
-                      {sharePageUrl ? (
-                        <>
-                          <button
-                            type="button"
-                            className="share-menu-item"
-                            role="menuitem"
-                            disabled={!canCopyShareLink}
-                            title={!canCopyShareLink ? shareUnavailableHint : shareLinkStatusHint || undefined}
-                            onClick={() => {
-                              if (!canCopyShareLink || !sharePageUrl) return;
-                              fireShareExport('share_link', async () => {
-                                const ok = await copyShareLink(sharePageUrl);
-                                if (!ok) throw new Error('copy_share_link_failed');
-                              });
-                            }}
-                          >
-                            <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
-                            <span className="share-menu-text">
-                              <span>{copyShareLinkLabel}</span>
-                              {shareLinkStatusHint ? (
-                                <small>{shareLinkStatusHint}</small>
-                              ) : null}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className="share-menu-item"
-                            role="menuitem"
-                            disabled={!canOpenSharePage}
-                            title={!canOpenSharePage ? shareLinkStatusHint || shareUnavailableHint : shareLinkStatusHint || undefined}
-                            onClick={() => {
-                              if (!canOpenSharePage || !sharePageUrl) return;
-                              setDeployMenuOpen(false);
-                              fireShareExport('share_page', () => {
-                                window.open(sharePageUrl, '_blank', 'noopener');
-                              });
-                            }}
-                          >
-                            <span className="share-menu-icon"><RemixIcon name="external-link-line" size={15} /></span>
-                            <span className="share-menu-text">
-                              <span>{t('fileViewer.openSharePage')}</span>
-                              {shareLinkStatusHint ? (
-                                <small>{shareLinkStatusHint}</small>
-                              ) : null}
-                            </span>
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="share-menu-item share-menu-guide"
-                          role="menuitem"
-                          title={shareUnavailableHint}
-                          onClick={() => {
-                            // Share-intent-but-blocked signal: user wants a
-                            // share link but nothing is deployed yet.
-                            trackShareOptionPopoverClick(
-                              analytics.track,
-                              {
-                                page_name: 'artifact',
-                                area: 'share_option_popover',
-                                artifact_id: anonymizeArtifactId({ projectId, fileName: file.name }),
-                                artifact_kind: artifactKindToTracking({ fileKind: file.kind ?? null }),
-                                element: 'publish_required_guide',
-                                project_id: projectId,
-                                project_kind: projectKind,
-                              },
-                              { requestId: analytics.newRequestId() },
-                            );
-                            setShareGuideToast(shareUnavailableHint);
-                          }}
-                        >
-                          <span className="share-menu-icon"><RemixIcon name="link" size={15} /></span>
-                          <span className="share-menu-text">
-                            <span>
-                              {streaming
-                                ? t('fileViewer.shareAfterGenerationComplete')
-                                : t('fileViewer.shareLinkPublishGuide')}
-                            </span>
-                          </span>
-                        </button>
-                      )}
-                      <div className="share-menu-divider" />
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('fileViewer.shareMenuPublishOnline')}
-                      </div>
-                      {DEPLOY_PROVIDER_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className="share-menu-item"
-                          role="menuitem"
-                          onClick={() => {
-                            // Just open the deploy modal. The real publish is
-                            // tracked by artifact_deploy_result from
-                            // deployToSelectedProvider — no "popover opened"
-                            // export event here.
-                            void openDeployModal(option.id);
-                          }}
-                        >
-                          <span className="share-menu-icon">
-                            <RemixIcon name={deployActionIconFor(option.id)} size={15} />
-                          </span>
-                          <span>{deployActionLabelFor(option.id)}</span>
-                        </button>
-                      ))}
-                      <div className="share-menu-divider" />
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('socialShare.projectSection')}
-                      </div>
-                      <button
-                        type="button"
-                        className="share-menu-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setDeployMenuOpen(false);
-                          // Deploy-then-share also routes through the deploy
-                          // modal; the real publish is tracked by
-                          // artifact_deploy_result, not an export event.
-                          void openSocialShareFlow();
-                        }}
-                      >
-                        <span className="share-menu-icon">
-                          <RemixIcon
-                            name={activeProjectSocialShare ? 'share-forward-line' : 'upload-cloud-line'}
-                            size={15}
-                          />
-                        </span>
-                        <span>{socialShareMenuLabel}</span>
-                      </button>
                       </div>
                     ) : null}
-                    {unifiedActionTab === 'export' && canDownload ? (
+                    {unifiedActionTab === 'export' && rawCanDownload ? (
                       <div className="chrome-unified-panel">
                   <button
                     type="button"
                     className="share-menu-item"
                     role="menuitem"
+                    disabled={viewerOnly}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                     onClick={() => {
                       setDeployMenuOpen(false);
                       // Pixel-perfect screenshot PDF (matches the preview, same
@@ -11117,6 +11068,8 @@ function HtmlViewer({
                     type="button"
                     className="share-menu-item"
                     role="menuitem"
+                    disabled={viewerOnly}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                     onClick={() => {
                       setDeployMenuOpen(false);
                       fireShareExport('zip', () => exportProjectAsZip({
@@ -11134,6 +11087,8 @@ function HtmlViewer({
                     type="button"
                     className="share-menu-item"
                     role="menuitem"
+                    disabled={viewerOnly}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                     onClick={() => {
                       setDeployMenuOpen(false);
                       fireShareExport('html', () => exportProjectAsHtml({
@@ -11169,7 +11124,8 @@ function HtmlViewer({
                     type="button"
                     className="share-menu-item"
                     role="menuitem"
-                    disabled={savingTemplate}
+                    disabled={savingTemplate || viewerOnly}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
                     onClick={() => {
                       openSaveAsTemplateModal();
                     }}

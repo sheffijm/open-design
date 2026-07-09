@@ -53,7 +53,15 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
 
   const active = Boolean(enabled && projectId && member);
   // Restart only on identity changes, not on every render of a fresh member object.
-  const memberKey = member ? JSON.stringify([member.memberId, member.name ?? '', member.role ?? '']) : '';
+  const memberKey = member
+    ? JSON.stringify([
+        member.memberId,
+        member.name ?? '',
+        member.role ?? '',
+        member.filePath ?? '',
+        member.activity ?? null,
+      ])
+    : '';
 
   useEffect(() => {
     if (!active || !projectId || !member) {

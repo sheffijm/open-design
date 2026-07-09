@@ -36,6 +36,8 @@ export interface ResourceHubPublishAdapterOptions {
   getPrincipal: () => ResourceHubPrincipal | null | Promise<ResourceHubPrincipal | null>;
   /** The project's source directory to publish (managed-project root). */
   resolveProjectDir: (projectId: string) => string | Promise<string>;
+  /** Optional resource-index metadata for team project discovery/cards. */
+  describeProject?: (projectId: string) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
   /** Where a member materializes pulled content. Defaults to the project dir. */
   resolvePullDir?: (projectId: string) => string | Promise<string>;
   /** projectId → hub resourceId. Colon-free (the hub routes it as a path param). */
@@ -82,12 +84,20 @@ export function createResourceHubPublishAdapter(
   // publish idempotent across the first and later shares of a project.
   async function ensureResourceId(principal: ResourceHubPrincipal, projectId: string): Promise<string> {
     const resourceId = resourceIdFor(projectId);
+    const metadata = await options.describeProject?.(projectId);
     try {
       const existing = await client.getResource(principal, resourceId);
+      if (metadata && Object.keys(metadata).length > 0) {
+        await client.createResource(principal, { kind, resourceId, metadata });
+      }
       return existing.id;
     } catch (error) {
       if (!(error instanceof ResourceHubError) || error.status !== 404) throw error;
-      const created = await client.createResource(principal, { kind, resourceId });
+      const created = await client.createResource(principal, {
+        kind,
+        resourceId,
+        ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
+      });
       return created.id;
     }
   }
@@ -140,6 +150,7 @@ export function createResourceHubPublishAdapter(
 export function createResourceHubPublishAdapterFromEnv(
   resolveProjectDir: (projectId: string) => string | Promise<string>,
   getPrincipal?: () => ResourceHubPrincipal | null | Promise<ResourceHubPrincipal | null>,
+  describeProject?: (projectId: string) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>,
   env: NodeJS.ProcessEnv = process.env,
 ): ResourcePublishAdapter | null {
   if (!env.OD_RESOURCE_HUB_URL?.trim()) return null;
@@ -147,6 +158,7 @@ export function createResourceHubPublishAdapterFromEnv(
   return createResourceHubPublishAdapter({
     client,
     resolveProjectDir,
+    ...(describeProject ? { describeProject } : {}),
     getPrincipal: getPrincipal ?? (() => readResourceHubPrincipal(env)),
   });
 }

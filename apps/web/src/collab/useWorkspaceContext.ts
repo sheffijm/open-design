@@ -90,12 +90,10 @@ export interface TeamProjectsState {
  * surfaces them so a member can discover + open them. Empty off-team or when the
  * hub is not configured — the daemon degrades to `{ projects: [] }` there.
  */
-// Poll cadence for the team-shared list. ~15s is fast enough that two teammates
-// see each other's shares without refreshing. Today the read is daemon-local
-// (fast) so the poll just refetches the whole list; if this becomes a slow vela
-// proxy, add a cheap change probe first (see team-projects.ts TODO) so the poll
-// only pulls the full list when it changed.
-const TEAM_PROJECTS_POLL_MS = 15_000;
+// Poll cadence for the team-shared list. Match the foreground collab cadence so
+// a teammate sees a newly shared project within a few seconds, while focus and
+// visibility changes still refresh immediately.
+const TEAM_PROJECTS_POLL_MS = 5_000;
 
 export function useTeamProjects(): TeamProjectsState {
   const [projects, setProjects] = useState<TeamProject[]>([]);
@@ -151,6 +149,24 @@ export function useTeamProjects(): TeamProjectsState {
       void loadFull();
     }, TEAM_PROJECTS_POLL_MS);
     return () => clearInterval(interval);
+  }, [loadFull]);
+
+  // Demo and real team usage often switch between two browser windows after a
+  // teammate shares a project. Refresh immediately on focus/visibility instead
+  // of making the member wait for the next poll tick.
+  useEffect(() => {
+    const onFocus = () => {
+      void loadFull();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void loadFull();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [loadFull]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import http from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -29,9 +29,13 @@ function fakeProjectStore(): PulledProjectStore & {
   const store = {
     projects,
     registerCalls: 0,
+    get: (projectId: string) => projects.get(projectId) ?? null,
     has: (projectId: string) => projects.has(projectId),
     register(input: RegisterPulledProjectInput) {
       store.registerCalls += 1;
+      projects.set(input.id, input);
+    },
+    update(input: RegisterPulledProjectInput) {
       projects.set(input.id, input);
     },
   };
@@ -169,6 +173,26 @@ describe('collab sync routes', () => {
     expect((await api.json('/api/projects/p1/collab/status')).body.publishedVersion).toBe(1);
   });
 
+  it('moves a team-shared project back to local_only on unshare intent', async () => {
+    const api = await startSyncServer();
+    await api.json('/api/projects/p1/collab/sync-intent', {
+      method: 'POST',
+      body: { event: 'project_team_share_requested', projectId: 'p1' },
+    });
+    await api.awaitPublishedVersion('/api/projects/p1/collab/status', null);
+
+    const unshare = await api.json('/api/projects/p1/collab/sync-intent', {
+      method: 'POST',
+      body: { event: 'project_team_unshare_requested', projectId: 'p1' },
+    });
+
+    expect(unshare.status).toBe(200);
+    expect(unshare.body.syncState).toBe('local_only');
+    const status = await api.json('/api/projects/p1/collab/status');
+    expect(status.body.syncState).toBe('local_only');
+    expect(status.body.publishedVersion).toBeNull();
+  });
+
   it('accepts a visibility-changed intent as a no-op signal', async () => {
     const api = await startSyncServer();
     const res = await api.json('/api/projects/p1/collab/sync-intent', {
@@ -241,6 +265,36 @@ describe('collab sync routes', () => {
     expect(store.projects.get('shared-1')?.name).toBe('共享项目');
   });
 
+  it('prefers the hub project name and metadata when registering a pulled project', async () => {
+    const store = fakeProjectStore();
+    const api = await startSyncServer(undefined, {
+      projectStore: store,
+      resolvePullDir: (projectId) => `/does/not/exist/${projectId}`,
+      resolveSharedProject: async (projectId) => ({
+        projectId,
+        ownerMemberId: 'wm-owner',
+        sharedAt: '2026-07-09T00:00:00.000Z',
+        name: 'Emerald Editorial',
+        skillId: 'deck-builder',
+        designSystemId: 'ds-emerald',
+        createdAt: 123,
+        updatedAt: 456,
+        metadata: { kind: 'deck', entryFile: 'index.html' },
+      }),
+    });
+
+    const pull = await api.json('/api/projects/shared-from-hub/collab/pull', { method: 'POST' });
+    expect(pull.status).toBe(200);
+
+    const registered = store.projects.get('shared-from-hub');
+    expect(registered?.name).toBe('Emerald Editorial');
+    expect(registered?.skillId).toBe('deck-builder');
+    expect(registered?.designSystemId).toBe('ds-emerald');
+    expect(registered?.createdAt).toBe(123);
+    expect(registered?.updatedAt).toBe(456);
+    expect(registered?.metadata).toEqual({ kind: 'deck', entryFile: 'index.html' });
+  });
+
   it('registers a pulled shared project under its real name from the manifest', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'od-pull-'));
     tempDirs.push(dir);
@@ -269,6 +323,54 @@ describe('collab sync routes', () => {
     expect(registered?.designSystemId).toBe('ds-9');
     expect(registered?.createdAt).toBe(111);
     expect(registered?.updatedAt).toBe(222);
+  });
+
+  it('infers a pulled shared project name from the bundled skill manifest when no project manifest exists', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'od-pull-'));
+    tempDirs.push(dir);
+    await mkdir(path.join(dir, '.od-skills', 'fs-emerald'), { recursive: true });
+    await writeFile(
+      path.join(dir, '.od-skills', 'fs-emerald', 'open-design.json'),
+      JSON.stringify({ title: 'Emerald Editorial', name: 'example-fs-emerald-editorial' }),
+    );
+
+    const store = fakeProjectStore();
+    const api = await startSyncServer(undefined, {
+      projectStore: store,
+      resolvePullDir: () => dir,
+    });
+
+    await api.json('/api/projects/shared-skill/collab/pull', { method: 'POST' });
+    expect(store.projects.get('shared-skill')?.name).toBe('Emerald Editorial');
+  });
+
+  it('repairs an existing placeholder pulled project name once pulled files expose a title', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'od-pull-'));
+    tempDirs.push(dir);
+    await mkdir(path.join(dir, '.od-skills', 'fs-emerald'), { recursive: true });
+    await writeFile(
+      path.join(dir, '.od-skills', 'fs-emerald', 'open-design.json'),
+      JSON.stringify({ title: 'Emerald Editorial' }),
+    );
+
+    const store = fakeProjectStore();
+    store.register({
+      id: 'shared-placeholder',
+      name: '共享项目',
+      skillId: null,
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    const api = await startSyncServer(undefined, {
+      projectStore: store,
+      resolvePullDir: () => dir,
+    });
+
+    await api.json('/api/projects/shared-placeholder/collab/pull', { method: 'POST' });
+    expect(store.registerCalls).toBe(1);
+    expect(store.projects.get('shared-placeholder')?.name).toBe('Emerald Editorial');
   });
 
   it('is idempotent — a pull for an already-local project does not re-register it', async () => {

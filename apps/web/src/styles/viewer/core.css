@@ -41,6 +41,12 @@
 .viewer-toolbar-actions { gap: 2px; flex: 0 0 auto; }
 .viewer-toolbar-inline-actions { gap: 2px; }
 .viewer-preview-toolbar-inline { gap: 8px; }
+.viewer-toolbar-presence {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  margin-right: 6px;
+}
 .file-version-trigger {
   width: 30px;
   min-width: 30px;

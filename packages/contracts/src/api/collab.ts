@@ -1,4 +1,5 @@
 import type { OkResponse } from '../common.js';
+import type { ProjectMetadata } from './projects.js';
 import type { ProjectSyncState } from './project-sync.js';
 import type {
   PreviewAnnotationStyle,
@@ -21,6 +22,10 @@ export interface CollabPresenceMember {
   memberId: string;
   name?: string;
   role?: CollabMemberRole;
+  avatarUrl?: string | null;
+  filePath?: string | null;
+  activity?: string | { label?: string } | Record<string, unknown> | null;
+  heartbeatAt?: string;
 }
 
 /** GET /api/projects/:id/presence and the heartbeat response body. */
@@ -33,11 +38,15 @@ export interface CollabPresenceHeartbeatRequest {
   memberId: string;
   name?: string;
   role?: CollabMemberRole;
+  clientId?: string;
+  filePath?: string | null;
+  activity?: string | { label?: string } | Record<string, unknown> | null;
 }
 
 /** POST /api/projects/:id/presence/leave request body. */
 export interface CollabPresenceLeaveRequest {
   memberId: string;
+  clientId?: string;
 }
 
 export interface CollabPresenceLeaveResponse extends OkResponse {
@@ -88,6 +97,14 @@ export interface TeamProject {
   projectId: string;
   ownerMemberId: string;
   sharedAt: string;
+  /** Display name stored on the team resource index; avoids pulling the tree just
+   *  to render the team project card. */
+  name?: string;
+  skillId?: string | null;
+  designSystemId?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+  metadata?: ProjectMetadata;
 }
 
 /**

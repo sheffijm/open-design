@@ -1,5 +1,7 @@
 import type { Express } from 'express';
-import type { ProjectSyncIntentEvent } from '@open-design/contracts';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { ProjectMetadata, ProjectSyncIntentEvent, TeamProject } from '@open-design/contracts';
 import type { CollabRuntime } from '../collab/runtime.js';
 import { readProjectManifest } from '../project-locations.js';
 
@@ -22,6 +24,7 @@ export interface RegisterPulledProjectInput {
   name: string;
   skillId: string | null;
   designSystemId: string | null;
+  metadata?: ProjectMetadata;
   createdAt: number;
   updatedAt: number;
 }
@@ -29,10 +32,14 @@ export interface RegisterPulledProjectInput {
 /** Local project-store seam for register-on-pull. Kept behind an interface so the
  *  route stays free of `db`/SQLite while the daemon wires it to the real store. */
 export interface PulledProjectStore {
+  /** Read an existing local project record, when available. */
+  get?: (projectId: string) => { name?: string | null } | null;
   /** Whether a project is already registered locally (idempotency guard). */
   has(projectId: string): boolean;
   /** Register a freshly pulled shared project as a local project record. */
   register(input: RegisterPulledProjectInput): void;
+  /** Update a placeholder pulled project once the materialized tree yields a real name. */
+  update?: (input: RegisterPulledProjectInput) => void;
 }
 
 export interface RegisterCollabSyncRoutesDeps {
@@ -44,6 +51,7 @@ export interface RegisterCollabSyncRoutesDeps {
     | 'projectSyncState'
     | 'projectOwnerMemberId'
     | 'requestTeamShare'
+    | 'requestTeamUnshare'
     | 'pullLatest'
     | 'workspaceContext'
   >;
@@ -56,6 +64,13 @@ export interface RegisterCollabSyncRoutesDeps {
    * in which case the project is a normal editable local project.
    */
   resolveSharedProjectOwner?: (projectId: string) => Promise<string | null>;
+  /**
+   * Resolve the full team-project discovery record from the hub. Pull
+   * registration uses this before manifest/title inference so a member's local
+   * project card preserves the real shared project name and metadata without
+   * needing a manifest in the pulled tree.
+   */
+  resolveSharedProject?: (projectId: string) => Promise<TeamProject | null>;
   /**
    * Resolve a member id to their {displayName, role} from the collab-cloud
    * member directory, so `/collab/status` can hand the client the owner's name
@@ -88,7 +103,65 @@ export interface RegisterCollabSyncRoutesDeps {
 const SYNC_INTENT_EVENTS: ReadonlySet<ProjectSyncIntentEvent> = new Set([
   'project_visibility_changed',
   'project_team_share_requested',
+  'project_team_unshare_requested',
 ]);
+const PULLED_PROJECT_PLACEHOLDER_NAME = '共享项目';
+
+function cleanPulledProjectName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (!trimmed || trimmed === 'index.html') return null;
+  return trimmed;
+}
+
+async function readJsonObject(filePath: string): Promise<Record<string, unknown> | null> {
+  try {
+    const parsed = JSON.parse(await readFile(filePath, 'utf8')) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function inferNameFromSkillManifest(projectDir: string): Promise<string | null> {
+  const skillsDir = path.join(projectDir, '.od-skills');
+  let entries: string[];
+  try {
+    entries = await readdir(skillsDir);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const manifest = await readJsonObject(path.join(skillsDir, entry, 'open-design.json'));
+    const title = cleanPulledProjectName(manifest?.title);
+    if (title) return title;
+    const name = cleanPulledProjectName(manifest?.name);
+    if (name) return name;
+  }
+  return null;
+}
+
+async function inferNameFromHtmlTitle(projectDir: string): Promise<string | null> {
+  try {
+    const html = await readFile(path.join(projectDir, 'index.html'), 'utf8');
+    const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    return cleanPulledProjectName(match?.[1]?.replace(/<[^>]*>/g, ''));
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePulledProjectName(
+  projectDir: string,
+  manifest: PulledProjectManifest | null,
+): Promise<string> {
+  return cleanPulledProjectName(manifest?.name)
+    ?? await inferNameFromSkillManifest(projectDir)
+    ?? await inferNameFromHtmlTitle(projectDir)
+    ?? PULLED_PROJECT_PLACEHOLDER_NAME;
+}
 
 /**
  * Team collaboration sync trigger, exposed as a client-driven capability . The client is authoritative about whether it is in a shared context, so
@@ -104,10 +177,17 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
     projectSyncState,
     projectOwnerMemberId,
     requestTeamShare,
+    requestTeamUnshare,
     pullLatest,
     workspaceContext,
   } = deps.collab;
-  const { projectStore, resolvePullDir, resolveSharedProjectOwner, resolveOwnerDisplayName } = deps;
+  const {
+    projectStore,
+    resolvePullDir,
+    resolveSharedProjectOwner,
+    resolveSharedProject,
+    resolveOwnerDisplayName,
+  } = deps;
   const readManifest = deps.readManifest ?? readProjectManifest;
 
   // Register a freshly pulled shared project as a local project record so it
@@ -118,23 +198,45 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
   // it registers under a placeholder ("共享项目") until a manifest is present.
   async function registerPulledProject(projectId: string): Promise<void> {
     if (!projectStore || !resolvePullDir) return;
-    if (projectStore.has(projectId)) return;
+    const existing = projectStore.get?.(projectId);
+    if (!existing && projectStore.has(projectId)) return;
+    if (existing && cleanPulledProjectName(existing.name) !== PULLED_PROJECT_PLACEHOLDER_NAME) return;
+    const projectDir = resolvePullDir(projectId);
     let manifest: PulledProjectManifest | null = null;
     try {
-      manifest = await readManifest(resolvePullDir(projectId));
+      manifest = await readManifest(projectDir);
     } catch {
       manifest = null;
     }
+    let teamProject: TeamProject | null = null;
+    try {
+      teamProject = await resolveSharedProject?.(projectId) ?? null;
+    } catch {
+      teamProject = null;
+    }
     const now = Date.now();
-    const name = manifest?.name?.trim() || '共享项目';
-    projectStore.register({
+    const input = {
       id: projectId,
-      name,
-      skillId: manifest?.skillId ?? null,
-      designSystemId: manifest?.designSystemId ?? null,
-      createdAt: typeof manifest?.createdAt === 'number' ? manifest.createdAt : now,
-      updatedAt: typeof manifest?.updatedAt === 'number' ? manifest.updatedAt : now,
-    });
+      name: cleanPulledProjectName(teamProject?.name) ?? await resolvePulledProjectName(projectDir, manifest),
+      skillId: teamProject?.skillId ?? manifest?.skillId ?? null,
+      designSystemId: teamProject?.designSystemId ?? manifest?.designSystemId ?? null,
+      ...(teamProject?.metadata ? { metadata: teamProject.metadata } : {}),
+      createdAt: typeof teamProject?.createdAt === 'number'
+        ? teamProject.createdAt
+        : typeof manifest?.createdAt === 'number'
+          ? manifest.createdAt
+          : now,
+      updatedAt: typeof teamProject?.updatedAt === 'number'
+        ? teamProject.updatedAt
+        : typeof manifest?.updatedAt === 'number'
+          ? manifest.updatedAt
+          : now,
+    };
+    if (existing) {
+      projectStore.update?.(input);
+      return;
+    }
+    projectStore.register(input);
   }
 
   // An author-side edit landed. The publish is coalesced within the scheduler's
@@ -176,6 +278,14 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
         return res.status(403).json({ error: 'WORKSPACE_PROJECT_SHARE_DENIED' });
       }
       requestTeamShare(req.params.id, context?.workspaceMemberId);
+    } else if (event === 'project_team_unshare_requested') {
+      const context = await workspaceContext.current({
+        authorization: req.headers.authorization,
+      });
+      if (context && !context.permissions.canShareProjects) {
+        return res.status(403).json({ error: 'WORKSPACE_PROJECT_SHARE_DENIED' });
+      }
+      await requestTeamUnshare(req.params.id);
     }
     res.json({ ok: true, syncState: projectSyncState(req.params.id) });
   });

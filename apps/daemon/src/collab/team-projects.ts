@@ -3,10 +3,10 @@
 // team: those live on the resource hub as `kind: 'project'` resources until the
 // member pulls one down. This reads the hub's resource index for the caller's
 // team and maps each shared project back to the local projectId a member pulls +
-// opens. It reuses the same principal-from-context + env-configured hub client
-// the team-resource share path uses, and degrades to an empty list when there is
-// no team identity or the hub is not configured — the single identity gate shared
-// with the rest of the collab surface.
+// opens. In the Vela 收口 path, the read shells out to `vela resource shared`
+// instead of the daemon holding backend credentials; the SDK path is retained for
+// tests and non-CLI local fixtures. Both paths degrade to an empty list when
+// there is no team identity or the hub is not configured.
 //
 // OWNERSHIP / TEMPORARY: the source of truth for team project visibility (which
 // projects are in the team space) is the D-lane directory service on vela, NOT
@@ -17,7 +17,8 @@
 // and this hub-derived read becomes the offline fallback. Keep the data source
 // swap contained to this file + the version helper below.
 
-import type { TeamProject } from '@open-design/contracts';
+import { execFile } from 'node:child_process';
+import type { ProjectMetadata, TeamProject } from '@open-design/contracts';
 import {
   createResourceHubClient,
   readResourceHubConfig,
@@ -25,6 +26,10 @@ import {
   type ResourceRecord,
 } from '../integrations/resource-hub.js';
 import { contextToResourceHubPrincipal } from './resource-hub-publish-adapter.js';
+import {
+  buildVelaResourceEnv,
+  shouldUseVelaCliResourceTransport,
+} from './vela-cli-resource-adapter.js';
 import type { WorkspaceContextProvider } from './workspace-context.js';
 
 const PROJECT_KIND = 'project';
@@ -40,11 +45,42 @@ const PROJECT_ID_PREFIX = /^project-/;
  *  hub id namespaces projects under a `project-` prefix; strip it back to the
  *  local projectId a member pulls then opens. */
 export function toTeamProject(record: ResourceRecord): TeamProject {
-  return {
+  const metadata = objectMetadata(record.metadata) ?? {};
+  const projectMetadata = objectMetadata(metadata.metadata);
+  const createdAt = numberMetadata(metadata.createdAt);
+  const updatedAt = numberMetadata(metadata.updatedAt);
+  const project: TeamProject = {
     projectId: record.id.replace(PROJECT_ID_PREFIX, ''),
     ownerMemberId: record.ownerMemberId,
     sharedAt: record.createdAt,
   };
+  const name = stringMetadata(metadata.name);
+  if (name) project.name = name;
+  const skillId = stringMetadata(metadata.skillId);
+  if (metadata.skillId === null || skillId) project.skillId = skillId ?? null;
+  const designSystemId = stringMetadata(metadata.designSystemId);
+  if (metadata.designSystemId === null || designSystemId) {
+    project.designSystemId = designSystemId ?? null;
+  }
+  if (createdAt != null) project.createdAt = createdAt;
+  if (updatedAt != null) project.updatedAt = updatedAt;
+  if (projectMetadata) project.metadata = projectMetadata as unknown as ProjectMetadata;
+  return project;
+}
+
+function objectMetadata(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function stringMetadata(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function numberMetadata(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return value;
 }
 
 export interface CreateTeamProjectsListerOptions {
@@ -53,6 +89,8 @@ export interface CreateTeamProjectsListerOptions {
   workspaceContext: WorkspaceContextProvider;
   /** Injectable client for tests; built from env (OD_RESOURCE_HUB_URL) otherwise. */
   client?: ResourceHubClient;
+  /** Injectable CLI runner for tests; defaults to spawning `vela resource`. */
+  runVelaResource?: (args: string[]) => Promise<string>;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -66,11 +104,20 @@ export function createTeamProjectsLister(
   options: CreateTeamProjectsListerOptions,
 ): () => Promise<TeamProject[]> {
   const env = options.env ?? process.env;
+  const runVelaResource = options.runVelaResource ?? defaultRunVelaResource(env);
   return async () => {
     const principal = contextToResourceHubPrincipal(
       await options.workspaceContext.current({}),
     );
     if (!principal) return [];
+
+    if (shouldUseVelaCliResourceTransport(env)) {
+      const stdout = await runVelaResource(['shared', '--json']);
+      return parseVelaSharedResources(stdout)
+        .filter((record) => record.kind === PROJECT_KIND && record.deletedAt == null)
+        .map(toTeamProject);
+    }
+
     const client =
       options.client ??
       (env.OD_RESOURCE_HUB_URL?.trim()
@@ -83,3 +130,39 @@ export function createTeamProjectsLister(
       .map(toTeamProject);
   };
 }
+
+function parseVelaSharedResources(stdout: string): ResourceRecord[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+  const payload = JSON.parse(trimmed) as { resources?: unknown };
+  if (!Array.isArray(payload.resources)) return [];
+  return payload.resources.filter(isResourceRecord);
+}
+
+function isResourceRecord(value: unknown): value is ResourceRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Partial<ResourceRecord>;
+  return (
+    typeof record.id === 'string' &&
+    typeof record.teamId === 'string' &&
+    typeof record.kind === 'string' &&
+    typeof record.ownerMemberId === 'string' &&
+    typeof record.createdAt === 'string' &&
+    (record.metadata === undefined || (record.metadata != null && typeof record.metadata === 'object' && !Array.isArray(record.metadata))) &&
+    (typeof record.deletedAt === 'string' || record.deletedAt === null || record.deletedAt === undefined)
+  );
+}
+
+const defaultRunVelaResource = (env: NodeJS.ProcessEnv) => (args: string[]): Promise<string> =>
+  new Promise<string>((resolve, reject) => {
+    const bin = env.OD_VELA_BIN?.trim() || 'vela';
+    execFile(
+      bin,
+      ['resource', ...args],
+      { env: buildVelaResourceEnv(env), maxBuffer: 16 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(stdout);
+      },
+    );
+  });
