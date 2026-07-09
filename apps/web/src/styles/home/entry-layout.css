@@ -4944,7 +4944,7 @@
   cursor: pointer;
   transition: filter 120ms;
 }
-.credits-panel__upgrade:hover { filter: brightness(1.15); }
+.credits-panel__upgrade:hover { background: #1a1a1a; color: #fff; filter: brightness(1.15); }
 .credits-panel__divider {
   height: 0;
   border-top: 1px dashed var(--border);
