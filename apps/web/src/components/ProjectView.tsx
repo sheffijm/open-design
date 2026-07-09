@@ -8083,6 +8083,7 @@ export function ProjectView({
               // A read-only viewer of a team-shared project cannot drive artifact
               // changes through chat (comments go through the separate overlay).
               sendDisabled={currentConversationSendDisabled || projectCollab.viewerOnly}
+              viewerOnly={projectCollab.viewerOnly}
               composerPlaceholder={projectCollab.viewerOnly ? t('workspace.readonlyNotice') : undefined}
               queuedItems={currentConversationQueuedItems}
               error={conversationLoadError ?? error}
