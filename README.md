@@ -37,7 +37,6 @@ Open Design is what you get when the **agent-native** loop Anthropic shipped wit
 
 It's also the **Figma alternative for the agent era** — instead of pushing pixels on a canvas, it delivers single-page artifacts in real CSS, real fonts, real components, exported straight to HTML / PDF / PPTX / MP4 — already shaped by your design system, already runnable inside the agent you use every day.
 
-
 ---
 
 ## Product tour
