@@ -3821,6 +3821,11 @@ export async function startServer({
   // directory under its own hub kind.
   const teamShareGetPrincipal = async () =>
     contextToResourceHubPrincipal(await collab.workspaceContext.current({}));
+  // Only a member who may manage shared resources (owner/admin on a writable
+  // workspace) can share; the gate reads the same permission bit the web surface
+  // hides the action behind, so the route cannot be bypassed directly.
+  const teamShareGetCanShare = async () =>
+    (await collab.workspaceContext.current({}))?.permissions.canManageSharedResources ?? false;
   registerTeamResourceShareRoutes(app, {
     basePath: 'design-systems',
     share: createTeamResourceShareService({
@@ -3829,6 +3834,7 @@ export async function startServer({
       resolveDir: (id) =>
         path.join(USER_DESIGN_SYSTEMS_DIR, stripPrefixAndValidateId(id, 'user:') ?? '__invalid__'),
       getPrincipal: teamShareGetPrincipal,
+      getCanShare: teamShareGetCanShare,
     }),
   });
   registerTeamResourceShareRoutes(app, {
@@ -3842,6 +3848,7 @@ export async function startServer({
         return plugin.fsPath;
       },
       getPrincipal: teamShareGetPrincipal,
+      getCanShare: teamShareGetCanShare,
     }),
   });
   registerTeamResourceShareRoutes(app, {
@@ -3855,6 +3862,7 @@ export async function startServer({
         return skill.dir;
       },
       getPrincipal: teamShareGetPrincipal,
+      getCanShare: teamShareGetCanShare,
     }),
   });
 

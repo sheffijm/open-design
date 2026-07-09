@@ -15,6 +15,14 @@ import {
 } from '../integrations/resource-hub.js';
 import { createResourceHubPublishAdapter } from './resource-hub-publish-adapter.js';
 
+/** Thrown when a team member without share rights attempts to share a resource. */
+export class TeamResourceShareForbiddenError extends Error {
+  constructor() {
+    super('workspace_resource_share_denied');
+    this.name = 'TeamResourceShareForbiddenError';
+  }
+}
+
 export interface TeamResourceShareService {
   /** Share a resource to the team. Returns the published version, or null off-team. */
   share(resourceId: string): Promise<{ version: number } | null>;
@@ -37,6 +45,13 @@ export interface CreateTeamResourceShareOptions {
   resolveDir: (resourceId: string) => string | Promise<string>;
   /** Resolve the current principal (null = no team identity → share no-ops). */
   getPrincipal: () => ResourceHubPrincipal | null | Promise<ResourceHubPrincipal | null>;
+  /**
+   * Whether the current member may manage shared resources (`canManageShared
+   * Resources`). When it resolves false but the member IS on a team, the share is
+   * refused (a non-owner/admin cannot share). Omitted → no permission gate (the
+   * caller is trusted to have pre-checked).
+   */
+  getCanShare?: () => boolean | Promise<boolean>;
   /** Injectable client for tests; built from env when omitted. */
   client?: ResourceHubClient;
   env?: NodeJS.ProcessEnv;
@@ -78,6 +93,14 @@ export function createTeamResourceShareService(
 
   return {
     async share(resourceId) {
+      // Permission gate: only a member who can manage shared resources may
+      // promote one to the team. No team identity stays a silent no-op
+      // (shared:false); a team member who lacks the permission is refused so the
+      // gate cannot be bypassed by calling the route directly.
+      if (options.getCanShare && !(await options.getCanShare())) {
+        if (await options.getPrincipal()) throw new TeamResourceShareForbiddenError();
+        return null;
+      }
       const result = await adapter.publish({ projectId: resourceId, reason: 'share' });
       if (result) shared.add(resourceId);
       return result;

@@ -1,5 +1,8 @@
 import type { Express } from 'express';
-import type { TeamResourceShareService } from '../collab/team-resource-share.js';
+import {
+  TeamResourceShareForbiddenError,
+  type TeamResourceShareService,
+} from '../collab/team-resource-share.js';
 
 export interface RegisterTeamResourceShareRoutesDeps {
   /** URL segment for this resource kind: `design-systems` | `plugins` | `skills`. */
@@ -36,6 +39,9 @@ export function registerTeamResourceShareRoutes(
       if (!result) return res.json({ shared: false });
       res.json({ shared: true, version: result.version });
     } catch (error) {
+      if (error instanceof TeamResourceShareForbiddenError) {
+        return res.status(403).json({ error: 'WORKSPACE_RESOURCE_SHARE_DENIED' });
+      }
       res.status(500).json({ error: error instanceof Error ? error.message : 'share failed' });
     }
   });

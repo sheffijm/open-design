@@ -82,7 +82,7 @@ const TEMPLATE_TYPE_COUNTS: Record<TemplateDemo['type'], number> = {
 };
 
 const TEMPLATE_PREVIEW_SRC: Record<string, string> = {
-  'electric-studio': '/community-templates/open-design-landing.png',
+  'electric-studio': '/community-templates/open-design-landing.webp',
   'launch-landing': '/community-templates/kanban-board.webp',
   'founder-memo': '/community-templates/social-carousel.jpg',
   'growth-dashboard': '/community-templates/blog-post.webp',
@@ -96,7 +96,7 @@ const TEMPLATE_PREVIEW_SRC: Record<string, string> = {
   'fintech-dashboard': '/community-templates/dashboard.webp',
   'healthcare-intake': '/community-templates/wireframe-sketch.webp',
   'developer-docs': '/community-templates/blog-post.webp',
-  'pricing-test': '/community-templates/open-design-landing.png',
+  'pricing-test': '/community-templates/open-design-landing.webp',
   'admin-console': '/community-templates/kanban-board.webp',
   'education-course': '/community-templates/workspace-cover.webp',
   'restaurant-booking': '/community-templates/wireframe-greybox.webp',
