@@ -4595,3 +4595,312 @@
     flex: 1 1 180px;
   }
 }
+
+/* ============================================================
+   Team-edition nav-rail: account section, credits chip, inline
+   team switcher, and account/team dropdown menus.
+   Ported verbatim from origin/demo/workspace-team-features
+   (apps/web/src/styles/home/entry-layout.css). Only structural
+   classes live here; EntryNavRail.tsx wires them to the REAL
+   workspace context. Do NOT duplicate the existing __btn /
+   __group / __btn-icon / __btn-label rules defined above.
+   ============================================================ */
+/* Search box */
+.entry-nav-rail__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  margin: 4px 0 10px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-subtle) 78%, var(--bg-panel));
+  color: var(--text-soft);
+}
+.entry-nav-rail__search input {
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  cursor: default;
+}
+.entry-nav-rail__search input::placeholder { color: var(--text-faint); }
+
+/* Team switcher row */
+.entry-nav-rail__team {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin: 18px 0 4px;
+  padding: 0 10px;
+  color: var(--text-strong);
+}
+.entry-nav-rail__team::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -9px;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 76%, transparent);
+  transform: scaleY(0.5);
+  transform-origin: center;
+}
+.entry-nav-rail__team-avatar {
+  width: 19px;
+  height: 19px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-panel);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex: 0 0 19px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 78%, transparent);
+}
+.entry-nav-rail__team-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.entry-nav-rail__team-name {
+  font-size: 13px;
+  font-weight: 400;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry-nav-rail__team svg { color: var(--text-soft); }
+
+/* Section label (e.g. 更多) */
+.entry-nav-rail__section {
+  margin: 15px 0 5px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: color-mix(in srgb, var(--text-muted) 84%, transparent);
+}
+.entry-nav-rail__section-divider {
+  width: calc(100% - 20px);
+  height: 1px;
+  margin: 15px 10px 5px;
+  background: var(--border-soft, rgba(0, 0, 0, 0.08));
+}
+
+.entry-nav-rail__account {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.entry-nav-rail__account-trigger {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font: inherit;
+  color: var(--text-strong);
+}
+.entry-nav-rail__account-trigger:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.entry-nav-rail__account-avatar {
+  width: 25px;
+  height: 25px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, #c96442, #8a3f28);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex: 0 0 24px;
+}
+.entry-nav-rail__account-name {
+  font-size: 13px;
+  font-weight: 400;
+  flex: 0 1 auto;
+  margin-right: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry-nav-rail__account-trigger svg { color: var(--text-soft); }
+
+.entry-nav-rail__local-logo {
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  margin: 0 0 12px 2px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
+}
+
+.entry-nav-rail__local-logo:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.entry-nav-rail__local-logo:active {
+  transform: scale(0.96);
+}
+
+.entry-nav-rail__local-logo:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.entry-nav-rail__local-logo img {
+  width: 27px;
+  height: 27px;
+  display: block;
+}
+
+/* ── Credits chip (✨ N) — separate region from the account dropdown ── */
+.entry-nav-rail__credits-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 3px 8px;
+  margin-left: 2px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.entry-nav-rail__credits-chip:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border-color: color-mix(in srgb, var(--border-strong) 72%, var(--border));
+}
+.entry-nav-rail__credits-chip svg { color: #c96442; }
+.entry-nav-rail__credits-tier { font-weight: 650; }
+.entry-nav-rail__credits-sep { color: var(--text-faint); }
+
+/* ---- Dropdown menus (account + team) ---- */
+.entry-nav-rail__menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.entry-nav-rail__account-menu,
+.entry-nav-rail__team-menu {
+  position: absolute;
+  z-index: 41;
+  left: 0;
+  top: calc(100% + 4px);
+  padding: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+.entry-nav-rail__account-menu { min-width: 236px; }
+.entry-nav-rail__team-menu { min-width: 220px; }
+.entry-nav-rail__account-head {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 12px 8px 10px;
+}
+.entry-nav-rail__account-head-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, #c96442, #8a3f28);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.entry-nav-rail__account-head-name { font-size: 13.5px; font-weight: 600; color: var(--text-strong); }
+.entry-nav-rail__account-head-email { font-size: 12px; color: var(--text-muted); }
+.entry-nav-rail__menu-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  text-decoration: none;
+}
+.entry-nav-rail__menu-item:hover { background: var(--bg-subtle); }
+.entry-nav-rail__menu-item svg { color: var(--text-soft); flex: 0 0 auto; }
+.entry-nav-rail__menu-item.is-primary { background: var(--selected); color: #fff; }
+.entry-nav-rail__menu-item.is-primary svg { color: #fff; }
+.entry-nav-rail__menu-chevron { margin-left: auto; display: inline-flex; }
+.entry-nav-rail__menu-meta {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.entry-nav-rail__menu-section {
+  padding: 8px 9px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.03em;
+}
+.entry-nav-rail__menu-divider { height: 1px; background: var(--border-soft); margin: 5px 4px; }
+
+/* ---- Team switcher button + menu ---- */
+.entry-nav-rail__team-wrap { position: relative; }
+.entry-nav-rail__team {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+.entry-nav-rail__team:hover { background: var(--bg-subtle); border-radius: var(--radius); }
+.entry-nav-rail__team-avatar--alt { background: #6c3aa6; }
+.entry-nav-rail__team-plan {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+.entry-nav-rail__menu-item.is-current { font-weight: 600; }
+.entry-nav-rail__menu-item.is-current svg { color: var(--accent); }
+
+.entry-nav-rail__menu-item.is-current svg { margin-left: auto; }

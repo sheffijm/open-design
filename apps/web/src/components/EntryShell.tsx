@@ -513,6 +513,14 @@ export function EntryShell({
   const { context: workspaceContext, loading: workspaceLoading } = useWorkspaceContext();
   const isTeamWorkspace =
     Boolean(workspaceContext) && workspaceContext!.workspaceType === 'team';
+  // Resolve the effective light/dark theme so the rail's account-menu theme toggle
+  // flips to the opposite of what's actually shown (system → resolved).
+  const activeTheme: AppTheme = config.theme ?? 'system';
+  const resolvedDark =
+    activeTheme === 'dark' ||
+    (activeTheme === 'system' &&
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches);
   // Team-only destinations. In the local state the rail never links to these; a
   // deep link to one (or losing team access) falls back to home once the context
   // has resolved. `community` is allowed in both states, so it is not guarded.
@@ -841,6 +849,7 @@ export function EntryShell({
           onClose={() => setRailOpen(false)}
           context={workspaceContext}
           onOpenSettings={onOpenSettings}
+          onToggleTheme={() => onThemeChange(resolvedDark ? 'light' : 'dark')}
           onInvite={() => changeView('members')}
           onSignInCloud={() => navigate({ kind: 'home', view: 'onboarding' })}
         />
