@@ -13,7 +13,6 @@ import {
   type RunResultPackageResponse,
 } from '@open-design/contracts';
 import {
-  agentIdToTracking,
   deriveConfigureGlobals,
   modelIdForTracking,
   sessionModeToTracking,
@@ -60,6 +59,7 @@ import {
 } from '../projects.js';
 import {
   amrUserIdForRunAnalytics,
+  agentProviderIdForRunAnalytics,
   hasExplicitRequestedModelForAnalytics,
   runtimeTypeForRunAnalytics,
   scanRunEventsForUsageAnalytics,
@@ -950,9 +950,10 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
         model_id: modelIdForTracking(
           typeof reqBody.model === 'string' ? reqBody.model : null,
         ),
-        agent_provider_id: agentIdToTracking(
-          typeof reqBody.agentId === 'string' ? reqBody.agentId : null,
-        ),
+        agent_provider_id: agentProviderIdForRunAnalytics({
+          agentId: reqBody.agentId,
+          byokProvider: reqBody.byokProvider,
+        }),
         skill_id: typeof reqBody.skillId === 'string' ? reqBody.skillId : null,
         ...(!isDesignSystemRun && typeof reqBody.sessionMode === 'string'
           ? { session_mode: sessionModeToTracking(reqBody.sessionMode) }

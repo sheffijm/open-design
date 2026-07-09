@@ -239,6 +239,8 @@ export function byokProtocolToTracking(
       return 'ollama_cloud';
     case 'senseaudio':
       return 'senseaudio';
+    case 'aihubmix':
+      return 'aihubmix';
     case 'bedrock':
       return null;
     default:
@@ -479,4 +481,3 @@ export function normalizeCustomReason(
 ): string {
   return (text ?? '').trim();
 }
-

@@ -124,7 +124,8 @@ export type TrackingByokProviderId =
   | 'azure_openai'
   | 'google_gemini'
   | 'ollama_cloud'
-  | 'senseaudio';
+  | 'senseaudio'
+  | 'aihubmix';
 
 // v2 CLI provider catalogue (CSV row 63 + image 59). Adds `qoder_cli` and
 // `kilo` over v1, plus `amr` (the vela CLI runtime) so AMR runs no longer
@@ -418,4 +419,3 @@ export type TrackingFileSizeBucket =
   | '1_10mb'
   | '10_100mb'
   | '100mb_plus';
-
