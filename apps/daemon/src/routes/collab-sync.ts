@@ -56,6 +56,17 @@ export interface RegisterCollabSyncRoutesDeps {
    */
   resolveSharedProjectOwner?: (projectId: string) => Promise<string | null>;
   /**
+   * Resolve a member id to their {displayName, role} from the collab-cloud
+   * member directory, so `/collab/status` can hand the client the owner's name
+   * (for a "这是 麻薯 创建的共享项目" banner) instead of only an opaque id.
+   * Returns null when the directory is unconfigured / the member is unknown, in
+   * which case the status simply omits the name. STUB source: B's roster is the
+   * real name source; the collab-cloud directory stands in until B exposes it.
+   */
+  resolveOwnerDisplayName?: (
+    memberId: string,
+  ) => Promise<{ displayName: string; role: 'owner' | 'admin' | 'member' } | null>;
+  /**
    * Optional project-store seam. When present, `POST /api/projects/:id/collab/pull`
    * registers the pulled shared project locally (idempotently) so a member can
    * open it like any other project. Omitted in unit contexts that only exercise
@@ -94,7 +105,7 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
     pullLatest,
     workspaceContext,
   } = deps.collab;
-  const { projectStore, resolvePullDir, resolveSharedProjectOwner } = deps;
+  const { projectStore, resolvePullDir, resolveSharedProjectOwner, resolveOwnerDisplayName } = deps;
   const readManifest = deps.readManifest ?? readProjectManifest;
 
   // Register a freshly pulled shared project as a local project record so it
@@ -209,10 +220,28 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
         // Hub unavailable: fall back to the local (editable) state.
       }
     }
+    // Resolve the owner's display name + role from the collab-cloud directory so
+    // the client can render a named "shared project" banner. Best-effort — a
+    // directory miss/outage just omits the name, keeping the status usable.
+    let ownerDisplayName: string | undefined;
+    let ownerRole: 'owner' | 'admin' | 'member' | undefined;
+    if (ownerMemberId && resolveOwnerDisplayName) {
+      try {
+        const entry = await resolveOwnerDisplayName(ownerMemberId);
+        if (entry) {
+          ownerDisplayName = entry.displayName;
+          ownerRole = entry.role;
+        }
+      } catch {
+        /* directory unavailable: omit the name */
+      }
+    }
     res.json({
       publishedVersion: publishedVersion(projectId),
       syncState,
       ownerMemberId,
+      ...(ownerDisplayName ? { ownerDisplayName } : {}),
+      ...(ownerRole ? { ownerRole } : {}),
     });
   });
 }

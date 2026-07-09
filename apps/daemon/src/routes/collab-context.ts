@@ -1,5 +1,7 @@
 import type { Express } from 'express';
 import type {
+  CollabCloudMemberDirectoryEntry,
+  CollabCloudMembersResponse,
   TeamProject,
   WorkspaceBillingCheckoutResponse,
   WorkspaceBillingResponse,
@@ -40,6 +42,13 @@ export interface RegisterCollabContextRoutesDeps {
    *  built from the same workspace context + env-configured hub client the share
    *  path uses. */
   listTeamProjects?: () => Promise<TeamProject[]>;
+  /**
+   * The team's collab-cloud member directory (memberId → {displayName, role}),
+   * so the web client can resolve comment authors + the shared-project owner to
+   * a name + role. Empty off-team / when the collab cloud is unconfigured. STUB:
+   * B's roster is the real source; the collab-cloud directory stands in for it.
+   */
+  listMembers?: () => Promise<CollabCloudMemberDirectoryEntry[]>;
 }
 
 const ASSIGNABLE_ROLES = new Set<WorkspaceInviteRole>(['admin', 'member']);
@@ -92,6 +101,7 @@ export function registerCollabContextRoutes(app: Express, deps: RegisterCollabCo
     deps.startCheckout ?? ((input: { seats?: number }) => fetchBillingCheckoutUrl(input));
   const listTeamProjects =
     deps.listTeamProjects ?? createTeamProjectsLister({ workspaceContext });
+  const listMembers = deps.listMembers ?? (async () => []);
 
   // Desktop invite hand-off ("桌面唤起和本地恢复"): the desktop app parses the
   // opendesign:// invite deeplink and POSTs the nonce here. The daemon consumes
@@ -161,6 +171,21 @@ export function registerCollabContextRoutes(app: Express, deps: RegisterCollabCo
       projects = [];
     }
     const body: WorkspaceTeamProjectsResponse = { projects };
+    res.json(body);
+  });
+
+  // Member directory: the web client resolves comment authors (authorMemberId →
+  // "琼羽 · Owner") and the shared-project owner name from this. Read from the
+  // collab-cloud directory; empty off-team / hub-unconfigured, and a directory
+  // outage degrades to [] rather than a 500. STUB: stands in for B's roster.
+  app.get('/api/workspace/members', async (_req, res) => {
+    let members: CollabCloudMemberDirectoryEntry[] = [];
+    try {
+      members = await listMembers();
+    } catch {
+      members = [];
+    }
+    const body: CollabCloudMembersResponse = { members };
     res.json(body);
   });
 

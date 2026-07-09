@@ -6,6 +6,7 @@ import {
   defaultScenarioPluginIdForProjectMetadata,
   type ChatSessionMode,
   type PluginManifest,
+  type PreviewComment,
   type ProjectFile,
   type ProjectFileVersion,
   type ProjectFileVersionPromptSource,
@@ -54,7 +55,16 @@ import { auditDesignSystemPackage } from '../../tools-connectors-cli.js';
 import { parseOrchestratorWorkspace } from '../../workspace-contract.js';
 import { registerProjectConversationRoutes } from './conversations.js';
 
-export interface RegisterProjectRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'paths' | 'projectStore' | 'projectFiles' | 'conversations' | 'templates' | 'status' | 'events' | 'ids' | 'telemetry' | 'appConfig' | 'agents' | 'validation'> {}
+export interface RegisterProjectRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'paths' | 'projectStore' | 'projectFiles' | 'conversations' | 'templates' | 'status' | 'events' | 'ids' | 'telemetry' | 'appConfig' | 'agents' | 'validation'> {
+  /**
+   * Collab-cloud comment seams, threaded to the nested preview-comment routes.
+   * `resolveAuthorMemberId` stamps the server-authoritative author on a new
+   * comment; `onCommentCreated` pushes it to the cross-daemon relay. Both are
+   * optional and no-op off-team / when the collab cloud is unconfigured.
+   */
+  resolveAuthorMemberId?: (authorization: string | undefined) => Promise<string | undefined>;
+  onCommentCreated?: (comment: PreviewComment) => void;
+}
 
 function projectDetailResolvedDir(
   projectsRoot: string,

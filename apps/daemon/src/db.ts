@@ -8,7 +8,11 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import type { ProjectBrowserWorkspaceTab, ProjectTabsState } from '@open-design/contracts';
+import type {
+  CollabCloudComment,
+  ProjectBrowserWorkspaceTab,
+  ProjectTabsState,
+} from '@open-design/contracts';
 import { migrateCritique } from './critique/persistence.js';
 import { migrateMediaTasks } from './media/tasks.js';
 import { migrateLibrary } from './library-store.js';
@@ -1794,6 +1798,104 @@ export function deletePreviewComment(db: SqliteDb, projectId: string, conversati
         WHERE id = ? AND project_id = ? AND conversation_id = ?`,
     )
     .run(id, projectId, conversationId);
+  return result.changes > 0;
+}
+
+/**
+ * Pick a local conversation to re-home cross-daemon synced comments onto.
+ * Conversation ids do not cross daemons and preview_comments carries a
+ * conversation FK, so a comment pulled from the collab cloud must land under one
+ * of THIS daemon's conversations for the project. Returns the most-recently
+ * updated conversation id, or null when the project has none yet.
+ */
+export function getLatestConversationIdForProject(
+  db: SqliteDb,
+  projectId: string,
+): string | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM conversations
+        WHERE project_id = ?
+        ORDER BY updated_at DESC, rowid DESC
+        LIMIT 1`,
+    )
+    .get(projectId) as DbRow | undefined;
+  return row && typeof row.id === 'string' ? row.id : null;
+}
+
+/**
+ * Merge one collab-cloud comment into local `preview_comments`, idempotently.
+ * The cloud comment's id is used verbatim as the local id (it is the author
+ * daemon's own id — a global dedup key), so `INSERT OR IGNORE` makes a re-pull
+ * of the same comment (id conflict) — or a natural-key collision with an
+ * existing local comment — a silent no-op. `conversationId` is a LOCAL
+ * conversation (see getLatestConversationIdForProject); the cloud comment's own
+ * conversationId is not a valid FK here. `author_member_id` is set from the
+ * cloud comment's `memberId` (the author), for cross-member attribution.
+ * Returns true when a new row was inserted.
+ */
+export function mergeSyncedPreviewComment(
+  db: SqliteDb,
+  projectId: string,
+  conversationId: string,
+  comment: CollabCloudComment,
+): boolean {
+  const now = Date.now();
+  const slideIndex = Number.isFinite(comment.slideIndex)
+    ? Math.max(0, Math.round(comment.slideIndex as number))
+    : null;
+  const slideKey = slideIndex ?? -1;
+  const selectionKind = comment.selectionKind === 'pod' ? 'pod' : 'element';
+  const podMembers = selectionKind === 'pod' && Array.isArray(comment.podMembers)
+    ? comment.podMembers
+    : null;
+  const memberCount = selectionKind === 'pod'
+    ? (podMembers?.length ?? (Number.isFinite(comment.memberCount) ? comment.memberCount : 0))
+    : null;
+  const status = PREVIEW_COMMENT_STATUSES.has(comment.status) ? comment.status : 'open';
+  const attachments = Array.isArray(comment.attachments) && comment.attachments.length > 0
+    ? comment.attachments
+    : null;
+  const anchorState = typeof comment.anchorState === 'string' ? comment.anchorState : null;
+  const anchoredVersion = Number.isFinite(comment.anchoredVersion)
+    ? Math.max(0, Math.round(comment.anchoredVersion as number))
+    : null;
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO preview_comments
+         (id, project_id, conversation_id, file_path, element_id, selector, label,
+          text, position_json, html_hint, selection_kind, member_count, pod_members_json,
+          style_json, attachments_json, slide_index, slide_key, note, status, created_at, updated_at,
+          anchor_state, anchored_version, author_member_id, last_good_position_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      comment.id,
+      projectId,
+      conversationId,
+      comment.filePath,
+      comment.elementId,
+      comment.selector,
+      comment.label,
+      typeof comment.text === 'string' ? comment.text : '',
+      JSON.stringify(comment.position ?? { x: 0, y: 0, width: 0, height: 0 }),
+      typeof comment.htmlHint === 'string' ? comment.htmlHint : '',
+      selectionKind,
+      memberCount,
+      podMembers ? JSON.stringify(podMembers) : null,
+      comment.style ? JSON.stringify(comment.style) : null,
+      attachments ? JSON.stringify(attachments) : null,
+      slideIndex,
+      slideKey,
+      typeof comment.note === 'string' ? comment.note : '',
+      status,
+      Number.isFinite(comment.createdAt) ? comment.createdAt : now,
+      Number.isFinite(comment.updatedAt) ? comment.updatedAt : now,
+      anchorState,
+      anchoredVersion,
+      typeof comment.memberId === 'string' ? comment.memberId : null,
+      comment.lastGoodPosition ? JSON.stringify(comment.lastGoodPosition) : null,
+    );
   return result.changes > 0;
 }
 

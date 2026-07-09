@@ -478,6 +478,7 @@ import {
   getConversation,
   getDeployment,
   getDeploymentById,
+  getLatestConversationIdForProject,
   getMessageTelemetryFinalizationState,
   getProject,
   getTemplate,
@@ -502,6 +503,7 @@ import {
   listTemplates,
   getLatestRoutineRun,
   getRoutine,
+  mergeSyncedPreviewComment,
   normalizeConversationSessionMode,
   deleteRoutine as dbDeleteRoutine,
   openDatabase,
@@ -579,6 +581,8 @@ import { createCollabRuntime } from './collab/runtime.js';
 import { createTeamProjectsLister } from './collab/team-projects.js';
 import { createTeamResourceShareService } from './collab/team-resource-share.js';
 import { contextToResourceHubPrincipal } from './collab/resource-hub-publish-adapter.js';
+import { createCollabCloudClientFromEnv } from './integrations/collab-cloud.js';
+import { createCollabCloudService } from './collab/collab-cloud-service.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import {
   assembleExample,
@@ -3811,6 +3815,30 @@ export async function startServer({
     resolveProjectDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
   });
   registerCollabPresenceRoutes(app, { collab });
+
+  // Collab cloud (C-lane §D2.5/§D4): cross-daemon comment sync + member
+  // directory. The client is null (all calls degrade to no-op) unless
+  // OD_COLLAB_CLOUD_URL is set. The service ties it to the one workspace context
+  // so a single identity drives member registration, comment push, and the
+  // pull+merge poller. Kept out of collab/runtime.ts to avoid colliding with the
+  // team-project-catalog work also editing that file.
+  const collabCloudClient = createCollabCloudClientFromEnv();
+  const collabCloud = collabCloudClient
+    ? createCollabCloudService({
+        client: collabCloudClient,
+        workspaceContext: collab.workspaceContext,
+        listProjectIds: () => listProjects(db).map((project: { id: string }) => project.id),
+        resolveLocalConversationId: (projectId) =>
+          getLatestConversationIdForProject(db, projectId),
+        mergeComment: ({ projectId, conversationId, comment }) =>
+          mergeSyncedPreviewComment(db, projectId, conversationId, comment),
+        onError: (error) => console.warn('[od] collab cloud poll error:', error),
+      })
+    : null;
+  // Register this member in the directory now, then keep the poller refreshing it
+  // every cycle (so a context set after startup still surfaces a name).
+  collabCloud?.registerSelf().catch(() => {});
+  collabCloud?.start();
   // Server-authoritative owner lookup for register-on-pull: read the shared
   // project's owner from the team hub (the same list the discovery endpoint
   // serves) rather than trusting a client-supplied id, so a pulled project is
@@ -3839,8 +3867,23 @@ export async function startServer({
       const list = await teamProjectsLister();
       return list.find((entry) => entry.projectId === projectId)?.ownerMemberId ?? null;
     },
+    // Resolve the owner's display name + role from the collab-cloud directory so
+    // /collab/status can hand the client a named "shared project" banner.
+    ...(collabCloud
+      ? {
+          resolveOwnerDisplayName: async (memberId: string) => {
+            const entry = await collabCloud.resolveMember(memberId);
+            return entry ? { displayName: entry.displayName, role: entry.role } : null;
+          },
+        }
+      : {}),
   });
-  registerCollabContextRoutes(app, { workspaceContext: collab.workspaceContext });
+  registerCollabContextRoutes(app, {
+    workspaceContext: collab.workspaceContext,
+    // Expose the collab-cloud member directory so the web client can resolve
+    // comment authors + owner names to a name + role.
+    ...(collabCloud ? { listMembers: () => collabCloud.listMembers() } : {}),
+  });
   registerTeamResourceRoutes(app, { teamResources: collab.teamResources });
 
   // Team resource sharing: promote a personal design system, plugin, or skill
@@ -4370,6 +4413,17 @@ export async function startServer({
     appConfig: appConfigDeps,
     agents: agentDeps,
     validation: validationDeps,
+    // Collab-cloud comment seams (no-op off-team / when unconfigured): stamp the
+    // server-authoritative author and push a new comment to the cross-daemon relay.
+    resolveAuthorMemberId: async (authorization) =>
+      (await collab.workspaceContext.current({ authorization }))?.workspaceMemberId,
+    ...(collabCloud
+      ? {
+          onCommentCreated: (comment) => {
+            void collabCloud.pushComment(comment).catch(() => {});
+          },
+        }
+      : {}),
   });
   registerTerminalRoutes(app, {
     db,
