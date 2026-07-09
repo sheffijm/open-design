@@ -543,7 +543,7 @@ export const zhCN: Dict = {
   "settings.privacyConsentLead":
     "Open Design 可以将使用数据共享给我们的团队以协助改进。包括:",
   "settings.privacyConsentFooter":
-    "分享这些数据可以帮助我们更快发现崩溃、慢请求和常见失败。你可以随时在 设置 → 隐私 中修改这些选项。",
+    "分享后，我们能更了解 Open Design 在真实工作流里的表现，并优先改进真正影响体验的地方。你可以随时在 设置 → 隐私 中修改这些选项。",
   "settings.privacyConsentShare": "分享",
   "settings.privacyConsentDecline": "不分享",
   "settings.privacyConsentAccept": "我知道了",

@@ -11,29 +11,30 @@ const PRIVACY_POLICY_HREF = 'https://github.com/nexu-io/open-design/blob/main/PR
 function renderModal(overrides?: { onShare?: () => void; onDecline?: () => void }) {
   const onShare = overrides?.onShare ?? vi.fn();
   const onDecline = overrides?.onDecline ?? vi.fn();
-  render(
+  const result = render(
     <I18nProvider initial="en">
       <PrivacyConsentModal onShare={onShare} onDecline={onDecline} />
     </I18nProvider>,
   );
-  return { onShare, onDecline };
+  return { ...result, onShare, onDecline };
 }
 
 describe('PrivacyConsentModal', () => {
   afterEach(cleanup);
 
   it('renders explicit share and decline choices', () => {
-    renderModal();
+    const { container } = renderModal();
     const share = screen.getByRole('button', { name: 'Share' });
     expect(share.className).toContain('privacy-consent-action--primary');
     expect(screen.getByRole('button', { name: "Don't share" }).className)
       .not.toContain('privacy-consent-action--primary');
     expect(screen.queryByRole('button', { name: 'I get it' })).toBeNull();
+    expect(container.querySelector('.privacy-consent-banner-head .kicker')).toBeNull();
   });
 
   it('tells the user choices are changeable in Settings', () => {
     renderModal();
-    const footer = screen.getByText(/Sharing this data helps us find crashes/i);
+    const footer = screen.getByText(/Sharing helps us understand how Open Design performs/i);
     expect(footer.textContent ?? '').toMatch(/You can change these any time/i);
     expect(footer.textContent ?? '').toMatch(/Settings/);
     expect(footer.textContent ?? '').toMatch(/Privacy/);

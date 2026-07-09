@@ -34,7 +34,6 @@ export function PrivacyConsentModal({ onShare, onDecline }: Props): JSX.Element 
   return (
     <div className="privacy-consent-banner" role="region" aria-labelledby="privacy-consent-title">
       <div className="privacy-consent-banner-head">
-        <span className="kicker">{t('settings.privacy')}</span>
         <h3 id="privacy-consent-title">{t('settings.privacyConsentKicker')}</h3>
       </div>
 
