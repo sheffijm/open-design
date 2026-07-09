@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Dialog } from '@open-design/components';
 import {
   PLUGIN_SHARE_ACTION_PLUGIN_IDS,
@@ -43,6 +43,7 @@ import {
   uploadPluginZip,
 } from '../state/projects';
 import { Icon } from './Icon';
+import { Toast } from './Toast';
 import { PluginDetailsModal } from './PluginDetailsModal';
 import { PluginsHomeSection } from './PluginsHomeSection';
 import { TrustBadge } from './TrustBadge';
@@ -625,6 +626,549 @@ export function PluginsView({
         />
       ) : null}
     </section>
+  );
+}
+
+// ============================================================================
+// ExtensionsMarketplace — the "扩展" surface.
+//
+// Faithfully mirrors the `PluginMarketplaceDemo` UX (专家套件/技能 top tabs, a
+// 官方/团队/个人 scope filter, the `plugin-marketplace` card grid, and a
+// share-to-team action) but every scope is wired to REAL daemon data instead
+// of the demo's hardcoded catalog:
+//
+//   专家套件 (plugins)      技能 (skills)
+//   ─────────────────────  ─────────────────────────────────
+//   官方  → marketplace     官方  → fetchSkills() source!=='user'
+//           registry list           (built-in skills)
+//   团队  → GET /api/workspace/plugins/team   /skills/team  ({ ids })
+//   个人  → listPlugins() user kinds   fetchSkills() source==='user'
+//
+// The share-to-team action reuses the same POST /api/workspace/:kind/:id/share
+// endpoint TeamPanel uses; on success the id joins the local team set, so the
+// item immediately appears under the 团队 scope. There is no un-share endpoint,
+// so (matching the real API) we only expose the promote-to-team direction.
+// ============================================================================
+
+type MarketMode = 'plugins' | 'skills';
+type MarketScope = 'official' | 'team' | 'personal';
+
+const MARKET_SCOPES: ReadonlyArray<{ id: MarketScope; label: string }> = [
+  { id: 'official', label: 'Open Design 官方' },
+  { id: 'team', label: '团队' },
+  { id: 'personal', label: '个人的' },
+];
+
+// Stable card accents/initials so real resources (which don't carry a brand
+// color) still read as the demo's colorful tile grid.
+const MARKET_ACCENTS = [
+  '#7c3aed', '#2563eb', '#16a34a', '#ea580c', '#db2777',
+  '#0891b2', '#f59e0b', '#0f766e', '#dc2626', '#4f46e5',
+];
+
+function marketAccent(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return MARKET_ACCENTS[hash % MARKET_ACCENTS.length] ?? '#7c3aed';
+}
+
+function marketInitials(title: string): string {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  const first = words[0] ?? '';
+  if (!first) return '··';
+  const second = words[1];
+  if (second) return `${first[0] ?? ''}${second[0] ?? ''}`.toUpperCase();
+  return first.slice(0, 2).toUpperCase() || '··';
+}
+
+type MarketCardAction =
+  | { kind: 'try'; record: InstalledPluginRecord }
+  | { kind: 'install'; plugin: AvailableMarketplacePlugin }
+  | { kind: 'none' };
+
+interface MarketCard {
+  id: string;
+  title: string;
+  description: string;
+  accent: string;
+  action: MarketCardAction;
+  // present only for a personal resource that is not yet shared to the team
+  share: { kind: MarketMode; id: string } | null;
+  isShared: boolean;
+}
+
+interface ExtensionsMarketplaceProps {
+  onCreatePlugin?: (goal?: string) => void;
+  onUsePlugin?: (record: InstalledPluginRecord, action: PluginUseAction) => void;
+}
+
+export function ExtensionsMarketplace({
+  onCreatePlugin,
+  onUsePlugin,
+}: ExtensionsMarketplaceProps) {
+  const { locale } = useI18n();
+  const analytics = useAnalytics();
+  const pageViewFiredRef = useRef(false);
+  useEffect(() => {
+    if (pageViewFiredRef.current) return;
+    pageViewFiredRef.current = true;
+    trackPageView(analytics.track, { page_name: 'plugins' });
+  }, [analytics.track]);
+
+  const [mode, setMode] = useState<MarketMode>('plugins');
+  const [scope, setScope] = useState<MarketScope>('official');
+  const [query, setQuery] = useState('');
+  const [menuId, setMenuId] = useState<string | null>(null);
+
+  const [plugins, setPlugins] = useState<InstalledPluginRecord[]>([]);
+  const [allInstalledPlugins, setAllInstalledPlugins] = useState<InstalledPluginRecord[]>([]);
+  const [marketplaces, setMarketplaces] = useState<PluginMarketplace[]>([]);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [sharedPluginIds, setSharedPluginIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [sharedSkillIds, setSharedSkillIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [sharingId, setSharingId] = useState<string | null>(null);
+  const [installingKey, setInstallingKey] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    const [rows, allRows, catalogs, skillRows] = await Promise.all([
+      listPlugins(),
+      listPlugins({ includeHidden: true }),
+      listPluginMarketplaces(),
+      fetchSkills(),
+    ]);
+    setPlugins(rows);
+    setAllInstalledPlugins(allRows);
+    setMarketplaces(catalogs);
+    setSkills(skillRows);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    void refresh();
+    window.addEventListener('open-design:plugins-changed', refresh);
+    return () => window.removeEventListener('open-design:plugins-changed', refresh);
+  }, []);
+
+  // Team-shared ids per kind. Off-team / offline just leaves the set empty so
+  // the 团队 scope shows a clean empty state instead of erroring.
+  useEffect(() => {
+    let cancelled = false;
+    const loadShared = async (
+      basePath: string,
+      setter: (ids: ReadonlySet<string>) => void,
+    ) => {
+      try {
+        const res = await fetch(`/api/workspace/${basePath}/team`);
+        if (!res.ok) return;
+        const body = (await res.json()) as { ids?: unknown };
+        if (!cancelled && Array.isArray(body.ids)) {
+          setter(new Set(body.ids.filter((id): id is string => typeof id === 'string')));
+        }
+      } catch {
+        // Off-team / offline → empty collection.
+      }
+    };
+    void loadShared('plugins', setSharedPluginIds);
+    void loadShared('skills', setSharedSkillIds);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const userPlugins = useMemo(
+    () => plugins.filter((plugin) => USER_SOURCE_KINDS.has(plugin.sourceKind)),
+    [plugins],
+  );
+  const availablePlugins = useMemo(
+    () => buildAvailablePlugins(marketplaces, allInstalledPlugins),
+    [marketplaces, allInstalledPlugins],
+  );
+  const userSkills = useMemo(() => skills.filter((skill) => skill.source === 'user'), [skills]);
+  const officialSkills = useMemo(
+    () => skills.filter((skill) => skill.source !== 'user'),
+    [skills],
+  );
+
+  async function shareResource(kind: MarketMode, id: string, title: string) {
+    if (sharingId) return;
+    setSharingId(id);
+    setMenuId(null);
+    const basePath = kind === 'plugins' ? 'plugins' : 'skills';
+    const setShared = kind === 'plugins' ? setSharedPluginIds : setSharedSkillIds;
+    try {
+      const res = await fetch(`/api/workspace/${basePath}/${encodeURIComponent(id)}/share`, {
+        method: 'POST',
+      });
+      const body = (await res.json().catch(() => ({}))) as { shared?: boolean };
+      if (res.ok && body.shared) {
+        setShared((prev) => new Set(prev).add(id));
+        setToast({ message: `已将「${title}」共享给团队，团队成员即可使用`, tone: 'success' });
+      } else {
+        setToast({ message: `暂时无法共享「${title}」，请确认你在团队工作区内。`, tone: 'error' });
+      }
+    } catch {
+      setToast({ message: `共享「${title}」失败，请稍后重试。`, tone: 'error' });
+    } finally {
+      setSharingId(null);
+    }
+  }
+
+  async function installAvailable(plugin: AvailableMarketplacePlugin, title: string) {
+    if (installingKey) return;
+    setInstallingKey(plugin.key);
+    try {
+      const outcome = await installPluginSource(plugin.installSource ?? plugin.entry.name);
+      if (outcome.ok) {
+        await refresh();
+        setToast({ message: `已安装「${title}」`, tone: 'success' });
+      } else {
+        setToast({ message: outcome.message || `安装「${title}」失败`, tone: 'error' });
+      }
+    } finally {
+      setInstallingKey(null);
+    }
+  }
+
+  const cards = useMemo<MarketCard[]>(() => {
+    const pluginRecordCard = (record: InstalledPluginRecord, personal: boolean): MarketCard => {
+      const title = localizePluginTitle(locale, record);
+      const shared = sharedPluginIds.has(record.id);
+      return {
+        id: record.id,
+        title,
+        description: localizePluginDescription(locale, record) || '',
+        accent: marketAccent(record.id),
+        action: { kind: 'try', record },
+        share: personal && !shared ? { kind: 'plugins', id: record.id } : null,
+        isShared: shared,
+      };
+    };
+    const skillCard = (skill: SkillSummary, personal: boolean): MarketCard => {
+      const title = localizeSkillName(locale, skill);
+      const shared = sharedSkillIds.has(skill.id);
+      return {
+        id: skill.id,
+        title,
+        description: skill.description || '',
+        accent: marketAccent(skill.id),
+        action: { kind: 'none' },
+        share: personal && !shared ? { kind: 'skills', id: skill.id } : null,
+        isShared: shared,
+      };
+    };
+
+    if (mode === 'plugins') {
+      if (scope === 'personal') return userPlugins.map((record) => pluginRecordCard(record, true));
+      if (scope === 'official') {
+        return availablePlugins.map((plugin) => {
+          const title = availablePluginTitle(plugin.entry, locale);
+          const installed = plugin.installedRecord ?? null;
+          return {
+            id: plugin.key,
+            title,
+            description: availablePluginDescription(plugin.entry, locale) || '',
+            accent: marketAccent(plugin.entry.name),
+            action: installed
+              ? { kind: 'try', record: installed }
+              : { kind: 'install', plugin },
+            share: null,
+            isShared: false,
+          } satisfies MarketCard;
+        });
+      }
+      // team
+      return [...sharedPluginIds].map((id) => {
+        const record =
+          allInstalledPlugins.find((plugin) => plugin.id === id) ??
+          userPlugins.find((plugin) => plugin.id === id) ??
+          null;
+        const title = record ? localizePluginTitle(locale, record) : id;
+        return {
+          id,
+          title,
+          description: record ? localizePluginDescription(locale, record) || '' : '',
+          accent: marketAccent(id),
+          action: record ? { kind: 'try', record } : { kind: 'none' },
+          share: null,
+          isShared: true,
+        } satisfies MarketCard;
+      });
+    }
+
+    // skills
+    if (scope === 'personal') return userSkills.map((skill) => skillCard(skill, true));
+    if (scope === 'official') return officialSkills.map((skill) => skillCard(skill, false));
+    return [...sharedSkillIds].map((id) => {
+      const skill = skills.find((row) => row.id === id) ?? null;
+      const title = skill ? localizeSkillName(locale, skill) : id;
+      return {
+        id,
+        title,
+        description: skill?.description ?? '',
+        accent: marketAccent(id),
+        action: { kind: 'none' },
+        share: null,
+        isShared: true,
+      } satisfies MarketCard;
+    });
+  }, [
+    mode,
+    scope,
+    locale,
+    userPlugins,
+    availablePlugins,
+    sharedPluginIds,
+    allInstalledPlugins,
+    userSkills,
+    officialSkills,
+    sharedSkillIds,
+    skills,
+  ]);
+
+  const visibleCards = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return cards;
+    return cards.filter((card) => `${card.title} ${card.description}`.toLowerCase().includes(q));
+  }, [cards, query]);
+
+  const modeNote =
+    mode === 'plugins'
+      ? '专家套件是面向角色行业的工具套件，在对话框中输入 @ 或斜杠即可使用。'
+      : '技能是可复用的任务流程和审查规则，可独立使用，也可以被专家套件组合调用。';
+
+  return (
+    <section className="plugin-marketplace" aria-labelledby="plugin-marketplace-title">
+      <header className="plugin-marketplace__hero">
+        <div>
+          <h1 id="plugin-marketplace-title" className="entry-section__title">
+            扩展
+          </h1>
+          <p>安装专家套件、技能和连接器，为 Open Design 增加新的工作能力。</p>
+        </div>
+        {onCreatePlugin ? (
+          <div className="plugin-marketplace__hero-actions">
+            <button
+              type="button"
+              className="plugin-marketplace__create"
+              onClick={() => onCreatePlugin()}
+            >
+              <Icon name="plus" size={15} />
+              新增
+            </button>
+          </div>
+        ) : null}
+      </header>
+
+      <div className="plugin-marketplace__toolbar">
+        <div className="plugin-marketplace__switch" aria-label="Marketplace mode">
+          <button
+            type="button"
+            className={mode === 'plugins' ? 'is-active' : ''}
+            onClick={() => {
+              setMode('plugins');
+              setMenuId(null);
+            }}
+          >
+            专家套件
+          </button>
+          <button
+            type="button"
+            className={mode === 'skills' ? 'is-active' : ''}
+            onClick={() => {
+              setMode('skills');
+              setMenuId(null);
+            }}
+          >
+            技能
+          </button>
+        </div>
+      </div>
+
+      <p className="plugin-marketplace__mode-note">{modeNote}</p>
+
+      <div className="plugin-marketplace__filter-block">
+        <div className="plugin-marketplace__filters" aria-label="Marketplace source filters">
+          {MARKET_SCOPES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={scope === item.id ? 'is-active' : ''}
+              onClick={() => {
+                setScope(item.id);
+                setMenuId(null);
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+          <label className="plugin-marketplace__search">
+            <Icon name="search" size={16} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={mode === 'plugins' ? 'Search expert suites' : 'Search skills'}
+              aria-label={mode === 'plugins' ? 'Search expert suites' : 'Search skills'}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="plugin-marketplace__catalog">
+        {loading ? (
+          <div className="plugin-marketplace__empty">
+            <Icon name="spinner" size={18} />
+            <strong>正在加载…</strong>
+          </div>
+        ) : visibleCards.length === 0 ? (
+          <MarketEmptyState mode={mode} scope={scope} filtered={query.trim().length > 0} />
+        ) : (
+          <div className="plugin-marketplace__rows">
+            {visibleCards.map((card) => {
+              const busy =
+                card.action.kind === 'install'
+                  ? installingKey === card.action.plugin.key
+                  : sharingId === card.id;
+              return (
+                <article
+                  key={card.id}
+                  className={`plugin-marketplace__item${mode === 'skills' ? ' plugin-marketplace__item--skill' : ''}`}
+                >
+                  <div className="plugin-marketplace__row">
+                    <span
+                      className="plugin-marketplace__icon"
+                      style={{ '--plugin-accent': card.accent } as CSSProperties}
+                      aria-hidden
+                    >
+                      {marketInitials(card.title)}
+                    </span>
+                    <span className="plugin-marketplace__row-main">
+                      <span className="plugin-marketplace__name-row">
+                        <strong>{card.title}</strong>
+                        {scope === 'personal' && card.isShared ? (
+                          <span className="plugin-marketplace__team-badge">
+                            <Icon name="users" size={11} />
+                            团队共享
+                          </span>
+                        ) : null}
+                      </span>
+                      {card.description ? <small>{card.description}</small> : null}
+                    </span>
+
+                    {card.action.kind === 'try' && onUsePlugin ? (
+                      <button
+                        type="button"
+                        className="plugin-marketplace__row-action"
+                        onClick={() => {
+                          const action = card.action as { kind: 'try'; record: InstalledPluginRecord };
+                          onUsePlugin(action.record, 'use');
+                        }}
+                      >
+                        Try it
+                      </button>
+                    ) : card.action.kind === 'install' ? (
+                      <button
+                        type="button"
+                        className="plugin-marketplace__row-action"
+                        disabled={busy}
+                        onClick={() => {
+                          const action = card.action as { kind: 'install'; plugin: AvailableMarketplacePlugin };
+                          void installAvailable(action.plugin, card.title);
+                        }}
+                      >
+                        {busy ? '安装中…' : '安装'}
+                      </button>
+                    ) : card.share ? (
+                      <button
+                        type="button"
+                        className="plugin-marketplace__row-action"
+                        disabled={busy}
+                        onClick={() => {
+                          const share = card.share!;
+                          void shareResource(share.kind, share.id, card.title);
+                        }}
+                      >
+                        {busy ? '共享中…' : '转为团队共享'}
+                      </button>
+                    ) : null}
+
+                    {card.share && card.action.kind !== 'none' ? (
+                      <span className="plugin-marketplace__menu-wrap">
+                        <button
+                          type="button"
+                          className="plugin-marketplace__more"
+                          onClick={() => setMenuId(menuId === card.id ? null : card.id)}
+                          aria-expanded={menuId === card.id}
+                          aria-label={`${card.title} more actions`}
+                        >
+                          <Icon name="more-horizontal" size={16} />
+                        </button>
+                        {menuId === card.id ? (
+                          <span className="plugin-marketplace__menu" role="menu">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={busy}
+                              onClick={() => {
+                                const share = card.share!;
+                                void shareResource(share.kind, share.id, card.title);
+                              }}
+                            >
+                              <Icon name="users" size={14} />
+                              转为团队共享
+                            </button>
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {toast ? (
+        <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
+      ) : null}
+    </section>
+  );
+}
+
+function MarketEmptyState({
+  mode,
+  scope,
+  filtered,
+}: {
+  mode: MarketMode;
+  scope: MarketScope;
+  filtered: boolean;
+}) {
+  let title: string;
+  let hint: string;
+  if (filtered) {
+    title = '没有匹配的结果';
+    hint = '换个关键词试试。';
+  } else if (scope === 'team') {
+    title = '还没有共享到团队的内容';
+    hint = '在「个人的」里把专家套件或技能共享给团队后，会出现在这里。';
+  } else if (scope === 'personal') {
+    title = mode === 'plugins' ? '还没有个人专家套件' : '还没有个人技能';
+    hint = '从「Open Design 官方」安装，或点击右上角「新增」来创建。';
+  } else {
+    title = mode === 'plugins' ? '暂无可用的官方专家套件' : '暂无可用的官方技能';
+    hint = '稍后再来看看，或在插件来源中添加一个市场。';
+  }
+  return (
+    <div className="plugin-marketplace__empty">
+      <Icon name="search" size={18} />
+      <strong>{title}</strong>
+      <span>{hint}</span>
+    </div>
   );
 }
 
