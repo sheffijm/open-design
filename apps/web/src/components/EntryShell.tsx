@@ -101,6 +101,7 @@ import {
   useDiscordPresence,
 } from './useDiscordPresence';
 import { HomeView, seedHomeComposerPrompt } from './HomeView';
+import { EntryBlankState } from './EntryBlankState';
 import { RecentProjectsStrip } from './RecentProjectsStrip';
 import {
   createPluginAuthoringHandoff,
@@ -1167,10 +1168,20 @@ export function EntryShell({
                 project spaces / workspace settings), rendered as a placeholder
                 until those land. */}
             {view === 'drafts' ? (
-              <div className="entry-section">
-                {projectsLoading ? (
+              projectsLoading ? (
+                <div className="entry-section">
                   <CenteredLoader label={t('common.loading')} />
-                ) : (
+                </div>
+              ) : projects.length === 0 ? (
+                <EntryBlankState
+                  heading={t('entry.navDrafts')}
+                  title={t('entry.blankDraftsTitle')}
+                  description={t('entry.blankDraftsDescription')}
+                  actionLabel={t('entry.blankCreate')}
+                  onCreate={() => startBlankProjectFromRail()}
+                />
+              ) : (
+                <div className="entry-section">
                   <RecentProjectsStrip
                     projects={projects}
                     designSystems={designSystems}
@@ -1185,14 +1196,24 @@ export function EntryShell({
                     onDelete={onDeleteProject}
                     onRename={onRenameProject}
                   />
-                )}
-              </div>
+                </div>
+              )
             ) : null}
             {view === 'all-projects' ? (
-              <div className="entry-section">
-                {projectsLoading ? (
+              projectsLoading ? (
+                <div className="entry-section">
                   <CenteredLoader label={t('common.loading')} />
-                ) : (
+                </div>
+              ) : allProjectsList.length === 0 ? (
+                <EntryBlankState
+                  heading={t('entry.navAllProjects')}
+                  title={t('entry.blankAllProjectsTitle')}
+                  description={t('entry.blankAllProjectsDescription')}
+                  actionLabel={t('entry.blankCreate')}
+                  onCreate={() => startBlankProjectFromRail()}
+                />
+              ) : (
+                <div className="entry-section">
                   <RecentProjectsStrip
                     projects={allProjectsList}
                     designSystems={designSystems}
@@ -1209,8 +1230,8 @@ export function EntryShell({
                     canAssignInviteRoles={workspaceContext?.permissions.canInviteMembers === true}
                     canManageProjectCollection={workspaceContext?.permissions.canShareProjects === true}
                   />
-                )}
-              </div>
+                </div>
+              )
             ) : null}
             {view === 'members' ? (
               <TeamSlotPlaceholder icon="users" title={t('entry.navMembers')} />

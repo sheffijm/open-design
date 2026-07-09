@@ -9417,6 +9417,7 @@ function HtmlViewer({
     if (!viewerOnly) return;
     setDrawOverlayOpen(false);
     setInspectMode(false);
+    setVersionModalOpen(false);
     if (mode === 'source') setMode('preview');
     if (manualEditMode) {
       void exitManualEditModeAfterFlush();
@@ -10611,7 +10612,7 @@ function HtmlViewer({
                     {mode === id ? <Icon name="check" size={13} /> : null}
                   </button>
                 ))}
-                {versioningAvailable ? (
+                {versioningAvailable && !viewerOnly ? (
                   <button
                     type="button"
                     className="viewer-toolbar-more-item"
@@ -10810,7 +10811,7 @@ function HtmlViewer({
               ) : null}
             </div>
           ) : null}
-          {versioningAvailable && (rawCanShare || rawCanDownload) ? (
+          {versioningAvailable && !viewerOnly && (rawCanShare || rawCanDownload) ? (
             <button
               type="button"
               className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only"
@@ -11523,7 +11524,7 @@ function HtmlViewer({
         </div>,
         document.body,
       ) : null}
-      {versionModalOpen && versioningAvailable && typeof document !== 'undefined' ? (
+      {versionModalOpen && versioningAvailable && !viewerOnly && typeof document !== 'undefined' ? (
         <FileVersionManagerModal
           projectId={projectId}
           projectKind={projectKind}

@@ -2757,16 +2757,18 @@ export function FileWorkspace({
           >
             {!activeFile ? (
               <>
-                <button
-                  type="button"
-                  className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified"
-                  disabled
-                  title={t('fileViewer.openFileForHistory')}
-                  aria-label={t('fileViewer.versions.entryFull')}
-                >
-                  <Icon name="history" size={15} />
-                  <span>{t('fileViewer.versions.entryFull')}</span>
-                </button>
+                {!viewerOnly ? (
+                  <button
+                    type="button"
+                    className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified"
+                    disabled
+                    title={t('fileViewer.openFileForHistory')}
+                    aria-label={t('fileViewer.versions.entryFull')}
+                  >
+                    <Icon name="history" size={15} />
+                    <span>{t('fileViewer.versions.entryFull')}</span>
+                  </button>
+                ) : null}
                 <div
                   ref={projectShareRef}
                   className="share-menu chrome-share-menu chrome-share-menu--unified"

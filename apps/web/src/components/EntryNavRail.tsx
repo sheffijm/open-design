@@ -115,14 +115,14 @@ function teamConsoleUrl(base: string, section: 'members' | 'dashboard' | 'settin
 }
 
 /** Map a raw vela membership tier to a display label for the credits chip. */
-function formatBillingTier(tier: string): string {
+function formatBillingTier(tier: string, t: ReturnType<typeof useI18n>['t']): string {
   switch (tier) {
     case 'team':
-      return '团队版';
+      return t('entry.billingTierTeam');
     case 'free':
-      return '免费';
+      return t('entry.billingTierFree');
     case 'pro':
-      return '专业版';
+      return t('entry.billingTierPro');
     default:
       return tier;
   }
@@ -166,8 +166,8 @@ export function EntryNavRail({
   // 收口); fall back to the context plan-tier hint with no balance when billing
   // hasn't loaded / no session.
   const tierLabel = billing?.membershipTier
-    ? formatBillingTier(billing.membershipTier)
-    : context?.planId?.trim() || (isTeam ? '团队版' : '免费');
+    ? formatBillingTier(billing.membershipTier, t)
+    : context?.planId?.trim() || (isTeam ? t('entry.billingTierTeam') : t('entry.billingTierFree'));
   const creditsBalance = billing ? billing.totalAvailableCredits : null;
 
   const [accountOpen, setAccountOpen] = useState(false);
@@ -226,7 +226,7 @@ export function EntryNavRail({
     <nav
       ref={railRef}
       className={`entry-nav-rail${open ? ' is-open' : ''}`}
-      aria-label="Primary"
+      aria-label={t('entry.primaryNavAria')}
       aria-hidden={open ? undefined : true}
     >
       <div className="entry-nav-rail__group">
@@ -250,8 +250,8 @@ export function EntryNavRail({
               aria-expanded={creditsOpen}
               aria-label={
                 creditsBalance != null
-                  ? `${tierLabel} · 剩余积分 ${creditsBalance}`
-                  : `${tierLabel} · 剩余积分`
+                  ? t('entry.creditsAriaWithBalance', { tier: tierLabel, balance: creditsBalance.toLocaleString(locale) })
+                  : t('entry.creditsAria', { tier: tierLabel })
               }
               data-testid="entry-nav-credits"
             >
@@ -268,7 +268,7 @@ export function EntryNavRail({
                 tierLabel,
                 showUpgrade: canUpgrade,
                 balance: creditsBalance,
-                grantTip: '团队版按订阅额度发放积分，可在计费中查看用量。',
+                grantTip: t('entry.creditsGrantTip'),
               }}
               onUpgrade={() => {
                 // First step: the chip's 升级 opens the plan-picker dialog; the
@@ -296,7 +296,7 @@ export function EntryNavRail({
                         onToggleTheme();
                       }}
                     >
-                      <Icon name="layout" size={15} /> 切换主题
+                      <Icon name="layout" size={15} /> {t('entry.accountToggleTheme')}
                       <span className="entry-nav-rail__menu-chevron"><Icon name="chevron-right" size={13} /></span>
                     </button>
                   ) : null}
@@ -310,8 +310,8 @@ export function EntryNavRail({
                     }}
                   >
                     <Icon name="languages" size={15} />
-                    切换语言
-                    <span className="entry-nav-rail__menu-meta">中文 / English</span>
+                    {t('entry.accountSwitchLanguage')}
+                    <span className="entry-nav-rail__menu-meta">{t('entry.accountLanguageMeta')}</span>
                   </button>
                   <button
                     type="button"
@@ -322,7 +322,7 @@ export function EntryNavRail({
                       onOpenSettings?.();
                     }}
                   >
-                    <Icon name="settings" size={15} /> 设置
+                    <Icon name="settings" size={15} /> {t('settings.title')}
                   </button>
                   <div className="entry-nav-rail__menu-divider" />
                   <a
@@ -332,7 +332,7 @@ export function EntryNavRail({
                     {...externalLinkProps}
                     onClick={() => setAccountOpen(false)}
                   >
-                    <Icon name="comment" size={15} /> 在 GitHub 上获取帮助
+                    <Icon name="comment" size={15} /> {t('entry.accountGithubHelp')}
                   </a>
                   <a
                     className="entry-nav-rail__menu-item"
@@ -341,7 +341,7 @@ export function EntryNavRail({
                     {...externalLinkProps}
                     onClick={() => setAccountOpen(false)}
                   >
-                    <Icon name="sparkles" size={15} /> 提交功能建议
+                    <Icon name="sparkles" size={15} /> {t('entry.accountFeatureRequest')}
                   </a>
                   <div className="entry-nav-rail__menu-divider" />
                   <button
@@ -353,7 +353,7 @@ export function EntryNavRail({
                       setAccountOpen(false);
                     }}
                   >
-                    <Icon name="plus" size={15} /> 添加账号
+                    <Icon name="plus" size={15} /> {t('entry.accountAddAccount')}
                   </button>
                   <button
                     type="button"
@@ -364,7 +364,7 @@ export function EntryNavRail({
                       setAccountOpen(false);
                     }}
                   >
-                    <Icon name="log-out" size={15} /> 退出登录
+                    <Icon name="log-out" size={15} /> {t('entry.accountSignOut')}
                   </button>
                 </div>
               </>
@@ -389,8 +389,8 @@ export function EntryNavRail({
 
         <NavButton
           active={isHome}
-          ariaLabel="Recents"
-          tooltip="最近"
+          ariaLabel={t('entry.navRecents')}
+          tooltip={t('entry.navRecents')}
           onClick={() => selectView('home')}
           testId="entry-nav-home"
         >
@@ -440,7 +440,7 @@ export function EntryNavRail({
                           setInviteOpen(true);
                         }}
                       >
-                        <Icon name="share" size={15} /> 邀请同事
+                        <Icon name="share" size={15} /> {t('workspaceSwitcher.invite')}
                       </button>
                     ) : null}
                     <button
@@ -452,7 +452,7 @@ export function EntryNavRail({
                         setTeamOpen(false);
                       }}
                     >
-                      <Icon name="plus" size={15} /> 新建团队
+                      <Icon name="plus" size={15} /> {t('workspaceSwitcher.createTeam')}
                     </button>
                   </div>
                 </>
@@ -461,7 +461,7 @@ export function EntryNavRail({
             <NavButton
               active={view === 'drafts'}
               ariaLabel={t('entry.navDrafts')}
-              tooltip="草稿"
+              tooltip={t('workspaceSwitcher.draftsTooltip')}
               onClick={() => selectView('drafts')}
               testId="entry-nav-drafts"
             >
@@ -470,7 +470,7 @@ export function EntryNavRail({
             <NavButton
               active={view === 'all-projects'}
               ariaLabel={t('entry.navAllProjects')}
-              tooltip="全部项目"
+              tooltip={t('workspaceSwitcher.allProjectsTooltip')}
               onClick={() => selectView('all-projects')}
               testId="entry-nav-all-projects"
             >
@@ -485,11 +485,10 @@ export function EntryNavRail({
             >
               <Icon name="palette" size={18} />
             </NavButton>
-            {/* Label MUST read 扩展 (not 插件) — literal to avoid touching 18 locale files. */}
             <NavButton
               active={view === 'plugins'}
-              ariaLabel="扩展"
-              tooltip="扩展"
+              ariaLabel={t('entry.navExtensions')}
+              tooltip={t('entry.navExtensions')}
               onClick={() => selectView('plugins')}
               testId="entry-nav-plugins"
             >
@@ -502,14 +501,14 @@ export function EntryNavRail({
                 className="entry-nav-rail__btn"
                 href={teamConsoleUrl(workspaceSettingsUrl, 'members')}
                 {...externalLinkProps}
-                aria-label="成员"
-                data-tooltip="成员"
+                aria-label={t('entry.navMembers')}
+                data-tooltip={t('entry.navMembers')}
                 data-testid="entry-nav-members"
               >
                 <span className="entry-nav-rail__btn-icon" aria-hidden>
                   <Icon name="users" size={18} />
                 </span>
-                <span className="entry-nav-rail__btn-label">成员</span>
+                <span className="entry-nav-rail__btn-label">{t('entry.navMembers')}</span>
               </a>
             ) : null}
             {canManageMembers && workspaceSettingsUrl ? (
@@ -517,14 +516,14 @@ export function EntryNavRail({
                 className="entry-nav-rail__btn"
                 href={teamConsoleUrl(workspaceSettingsUrl, 'dashboard')}
                 {...externalLinkProps}
-                aria-label="数据大盘"
-                data-tooltip="数据大盘"
+                aria-label={t('entry.navDashboard')}
+                data-tooltip={t('entry.navDashboard')}
                 data-testid="entry-nav-dashboard"
               >
                 <span className="entry-nav-rail__btn-icon" aria-hidden>
                   <Icon name="kanban" size={18} />
                 </span>
-                <span className="entry-nav-rail__btn-label">数据大盘</span>
+                <span className="entry-nav-rail__btn-label">{t('entry.navDashboard')}</span>
               </a>
             ) : null}
             {canViewWorkspaceSettings && workspaceSettingsUrl ? (
@@ -555,11 +554,10 @@ export function EntryNavRail({
             >
               <Icon name="palette" size={18} />
             </NavButton>
-            {/* Label MUST read 扩展 (not 插件) — literal to avoid touching 18 locale files. */}
             <NavButton
               active={view === 'plugins'}
-              ariaLabel="扩展"
-              tooltip="扩展"
+              ariaLabel={t('entry.navExtensions')}
+              tooltip={t('entry.navExtensions')}
               onClick={() => selectView('plugins')}
               testId="entry-nav-plugins"
             >

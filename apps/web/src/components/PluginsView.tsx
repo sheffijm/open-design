@@ -658,10 +658,10 @@ export function PluginsView({
 type MarketMode = 'plugins' | 'skills';
 type MarketScope = 'official' | 'team' | 'personal';
 
-const MARKET_SCOPES: ReadonlyArray<{ id: MarketScope; label: string }> = [
-  { id: 'official', label: 'Open Design 官方' },
-  { id: 'team', label: '团队' },
-  { id: 'personal', label: '个人的' },
+const MARKET_SCOPES: ReadonlyArray<{ id: MarketScope; labelKey: 'pluginsView.scope.official' | 'pluginsView.scope.team' | 'pluginsView.scope.personal' }> = [
+  { id: 'official', labelKey: 'pluginsView.scope.official' },
+  { id: 'team', labelKey: 'pluginsView.scope.team' },
+  { id: 'personal', labelKey: 'pluginsView.scope.personal' },
 ];
 
 // Stable card accents/initials so real resources (which don't carry a brand
@@ -711,7 +711,7 @@ export function ExtensionsMarketplace({
   onCreatePlugin,
   onUsePlugin,
 }: ExtensionsMarketplaceProps) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const analytics = useAnalytics();
   const pageViewFiredRef = useRef(false);
   useEffect(() => {
@@ -779,7 +779,7 @@ export function ExtensionsMarketplace({
     // from a public URL.
     if (createKind === 'skill') {
       setToast({
-        message: '技能暂不支持从链接导入，请改用「上传本地文件夹」。',
+        message: t('pluginsView.skillUrlUnsupported'),
         tone: 'error',
       });
       return;
@@ -790,9 +790,9 @@ export function ExtensionsMarketplace({
       if (outcome.ok) {
         await refresh();
         setCreateOpen(false);
-        setToast({ message: '已导入并上传专家套件', tone: 'success' });
+        setToast({ message: t('pluginsView.importPluginSuccess'), tone: 'success' });
       } else {
-        setToast({ message: outcome.message || '导入失败，请检查链接后重试。', tone: 'error' });
+        setToast({ message: outcome.message || t('pluginsView.importFailed'), tone: 'error' });
       }
     } finally {
       setCreateBusy(null);
@@ -808,16 +808,16 @@ export function ExtensionsMarketplace({
         if (outcome.ok) {
           await refresh();
           setCreateOpen(false);
-          setToast({ message: '已上传专家套件', tone: 'success' });
+          setToast({ message: t('pluginsView.uploadPluginSuccess'), tone: 'success' });
         } else {
-          setToast({ message: outcome.message || '上传失败，请检查文件夹内容。', tone: 'error' });
+          setToast({ message: outcome.message || t('pluginsView.uploadFailed'), tone: 'error' });
         }
         return;
       }
       // Skill: read SKILL.md out of the picked folder and import it through the
       // existing /api/skills/import endpoint (importSkill). Imports to the user
       // (个人的) registry; promoting to the team is the existing 转为团队共享 action.
-      const input = await readSkillImportInputFromFolder(createFolderFiles);
+      const input = await readSkillImportInputFromFolder(createFolderFiles, t);
       if ('error' in input) {
         setToast({ message: input.error.message, tone: 'error' });
         return;
@@ -830,7 +830,7 @@ export function ExtensionsMarketplace({
       await refresh();
       setCreateOpen(false);
       setToast({
-        message: `已导入 Skill「${localizeSkillName(locale, result.skill)}」，可在「个人的」中转为团队共享。`,
+        message: t('pluginsView.importSkillSuccess', { name: localizeSkillName(locale, result.skill) }),
         tone: 'success',
       });
     } finally {
@@ -912,12 +912,12 @@ export function ExtensionsMarketplace({
       const body = (await res.json().catch(() => ({}))) as { shared?: boolean };
       if (res.ok && body.shared) {
         setShared((prev) => new Set(prev).add(id));
-        setToast({ message: `已将「${title}」共享给团队，团队成员即可使用`, tone: 'success' });
+        setToast({ message: t('pluginsView.shareSuccess', { title }), tone: 'success' });
       } else {
-        setToast({ message: `暂时无法共享「${title}」，请确认你在团队工作区内。`, tone: 'error' });
+        setToast({ message: t('pluginsView.shareUnavailable', { title }), tone: 'error' });
       }
     } catch {
-      setToast({ message: `共享「${title}」失败，请稍后重试。`, tone: 'error' });
+      setToast({ message: t('pluginsView.shareFailed', { title }), tone: 'error' });
     } finally {
       setSharingId(null);
     }
@@ -930,9 +930,9 @@ export function ExtensionsMarketplace({
       const outcome = await installPluginSource(plugin.installSource ?? plugin.entry.name);
       if (outcome.ok) {
         await refresh();
-        setToast({ message: `已安装「${title}」`, tone: 'success' });
+        setToast({ message: t('pluginsView.installSuccess', { title }), tone: 'success' });
       } else {
-        setToast({ message: outcome.message || `安装「${title}」失败`, tone: 'error' });
+        setToast({ message: outcome.message || t('pluginsView.installFailed', { title }), tone: 'error' });
       }
     } finally {
       setInstallingKey(null);
@@ -1043,17 +1043,17 @@ export function ExtensionsMarketplace({
 
   const modeNote =
     mode === 'plugins'
-      ? '专家套件是面向角色行业的工具套件，在对话框中输入 @ 或斜杠即可使用。'
-      : '技能是可复用的任务流程和审查规则，可独立使用，也可以被专家套件组合调用。';
+      ? t('pluginsView.modeNote.plugins')
+      : t('pluginsView.modeNote.skills');
 
   return (
     <section className="plugin-marketplace" aria-labelledby="plugin-marketplace-title">
       <header className="plugin-marketplace__hero">
         <div>
           <h1 id="plugin-marketplace-title" className="entry-section__title">
-            扩展
+            {t('entry.navExtensions')}
           </h1>
-          <p>安装专家套件、技能和连接器，为 Open Design 增加新的工作能力。</p>
+          <p>{t('pluginsView.marketplaceBody')}</p>
         </div>
         {onCreatePlugin ? (
           <div className="plugin-marketplace__hero-actions">
@@ -1063,14 +1063,14 @@ export function ExtensionsMarketplace({
               onClick={openCreateDialog}
             >
               <Icon name="plus" size={15} />
-              新增
+              {t('pluginsView.create')}
             </button>
           </div>
         ) : null}
       </header>
 
       <div className="plugin-marketplace__toolbar">
-        <div className="plugin-marketplace__switch" aria-label="Marketplace mode">
+        <div className="plugin-marketplace__switch" aria-label={t('pluginsView.marketplaceModeAria')}>
           <button
             type="button"
             className={mode === 'plugins' ? 'is-active' : ''}
@@ -1079,7 +1079,7 @@ export function ExtensionsMarketplace({
               setMenuId(null);
             }}
           >
-            专家套件
+            {t('pluginsView.kind.plugins')}
           </button>
           <button
             type="button"
@@ -1089,7 +1089,7 @@ export function ExtensionsMarketplace({
               setMenuId(null);
             }}
           >
-            技能
+            {t('pluginsView.kind.skills')}
           </button>
         </div>
       </div>
@@ -1097,7 +1097,7 @@ export function ExtensionsMarketplace({
       <p className="plugin-marketplace__mode-note">{modeNote}</p>
 
       <div className="plugin-marketplace__filter-block">
-        <div className="plugin-marketplace__filters" aria-label="Marketplace source filters">
+        <div className="plugin-marketplace__filters" aria-label={t('pluginsView.marketplaceSourceFiltersAria')}>
           {MARKET_SCOPES.map((item) => (
             <button
               key={item.id}
@@ -1108,7 +1108,7 @@ export function ExtensionsMarketplace({
                 setMenuId(null);
               }}
             >
-              {item.label}
+              {t(item.labelKey)}
             </button>
           ))}
           <label className="plugin-marketplace__search">
@@ -1116,8 +1116,8 @@ export function ExtensionsMarketplace({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={mode === 'plugins' ? 'Search expert suites' : 'Search skills'}
-              aria-label={mode === 'plugins' ? 'Search expert suites' : 'Search skills'}
+              placeholder={mode === 'plugins' ? t('pluginsView.searchPlugins') : t('pluginsView.searchSkills')}
+              aria-label={mode === 'plugins' ? t('pluginsView.searchPlugins') : t('pluginsView.searchSkills')}
             />
           </label>
         </div>
@@ -1127,10 +1127,10 @@ export function ExtensionsMarketplace({
         {loading ? (
           <div className="plugin-marketplace__empty">
             <Icon name="spinner" size={18} />
-            <strong>正在加载…</strong>
+            <strong>{t('pluginsView.loading')}</strong>
           </div>
         ) : visibleCards.length === 0 ? (
-          <MarketEmptyState mode={mode} scope={scope} filtered={query.trim().length > 0} />
+          <MarketEmptyState mode={mode} scope={scope} filtered={query.trim().length > 0} t={t} />
         ) : (
           <div className="plugin-marketplace__rows">
             {visibleCards.map((card) => {
@@ -1157,7 +1157,7 @@ export function ExtensionsMarketplace({
                         {scope === 'personal' && card.isShared ? (
                           <span className="plugin-marketplace__team-badge">
                             <Icon name="users" size={11} />
-                            团队共享
+                            {t('pluginsView.teamSharedBadge')}
                           </span>
                         ) : null}
                       </span>
@@ -1185,7 +1185,7 @@ export function ExtensionsMarketplace({
                           void installAvailable(action.plugin, card.title);
                         }}
                       >
-                        {busy ? '安装中…' : '安装'}
+                        {busy ? t('pluginsView.installing') : t('pluginsView.install')}
                       </button>
                     ) : card.share ? (
                       <button
@@ -1197,7 +1197,7 @@ export function ExtensionsMarketplace({
                           void shareResource(share.kind, share.id, card.title);
                         }}
                       >
-                        {busy ? '共享中…' : '转为团队共享'}
+                        {busy ? t('pluginsView.sharing') : t('pluginsView.shareToTeam')}
                       </button>
                     ) : null}
 
@@ -1208,7 +1208,7 @@ export function ExtensionsMarketplace({
                           className="plugin-marketplace__more"
                           onClick={() => setMenuId(menuId === card.id ? null : card.id)}
                           aria-expanded={menuId === card.id}
-                          aria-label={`${card.title} more actions`}
+                          aria-label={t('pluginsView.moreActions', { title: card.title })}
                         >
                           <Icon name="more-horizontal" size={16} />
                         </button>
@@ -1224,7 +1224,7 @@ export function ExtensionsMarketplace({
                               }}
                             >
                               <Icon name="users" size={14} />
-                              转为团队共享
+                              {t('pluginsView.shareToTeam')}
                             </button>
                           </span>
                         ) : null}
@@ -1253,18 +1253,20 @@ export function ExtensionsMarketplace({
           >
             <header className="plugin-marketplace__create-head">
               <div>
-                <h2 id="plugin-create-title">新增 {createKind === 'plugin' ? 'Plugin' : 'Skill'}</h2>
+                <h2 id="plugin-create-title">
+                  {t('pluginsView.createTitle', { kind: pluginKindLabel(createKind, t) })}
+                </h2>
                 <p>
                   {createKind === 'plugin'
-                    ? '从 GitHub 或本地文件夹导入一个插件，上传后即可在团队内使用。'
-                    : '创建一个可复用的任务流程或审查规则，之后可以被 Plugin 复用。'}
+                    ? t('pluginsView.createPluginBody')
+                    : t('pluginsView.createSkillBody')}
                 </p>
               </div>
-              <button type="button" aria-label="关闭新增面板" onClick={closeCreateDialog}>
+              <button type="button" aria-label={t('pluginsView.createClose')} onClick={closeCreateDialog}>
                 <Icon name="close" size={15} />
               </button>
             </header>
-            <div className="plugin-marketplace__create-tabs" aria-label="Create type">
+            <div className="plugin-marketplace__create-tabs" aria-label={t('pluginsView.createTypeAria')}>
               <button
                 type="button"
                 className={createKind === 'plugin' ? 'is-active' : ''}
@@ -1286,11 +1288,8 @@ export function ExtensionsMarketplace({
                   <Icon name="external-link" size={20} />
                 </span>
                 <div>
-                  <h3>从链接导入</h3>
-                  <p>
-                    粘贴 {createKind === 'plugin' ? '专家套件' : 'Skill'} 的公开链接，
-                    Open Design 会拉取清单、校验能力并上传到团队空间。
-                  </p>
+                  <h3>{t('pluginsView.importFromUrl')}</h3>
+                  <p>{t('pluginsView.importUrlBody', { kind: pluginKindLabel(createKind, t) })}</p>
                   <label>
                     <span>URL</span>
                     <input
@@ -1306,7 +1305,7 @@ export function ExtensionsMarketplace({
                   disabled={createBusy !== null || createUrl.trim().length === 0}
                   onClick={() => void handleCreateImportUrl()}
                 >
-                  {createBusy === 'import' ? '导入中…' : '导入并上传'}
+                  {createBusy === 'import' ? t('pluginsView.importing') : t('pluginsView.importAndUpload')}
                 </button>
               </article>
               <article>
@@ -1314,10 +1313,12 @@ export function ExtensionsMarketplace({
                   <Icon name="folder" size={20} />
                 </span>
                 <div>
-                  <h3>上传本地文件夹</h3>
+                  <h3>{t('pluginsView.uploadFolder')}</h3>
                   <p>
-                    选择包含 {createKind === 'plugin' ? 'open-design.json / SKILL.md' : 'SKILL.md'} 的本地目录，
-                    校验通过后上传为团队 {createKind === 'plugin' ? '专家套件' : 'Skill'}。
+                    {t('pluginsView.uploadFolderBody', {
+                      kind: pluginKindLabel(createKind, t),
+                      manifest: createKind === 'plugin' ? 'open-design.json / SKILL.md' : 'SKILL.md',
+                    })}
                   </p>
                   <input
                     ref={createFolderInputRef}
@@ -1338,8 +1339,8 @@ export function ExtensionsMarketplace({
                   >
                     <Icon name="folder" size={15} />
                     {createFolderFiles.length > 0
-                      ? `已选择 ${createFolderFiles.length} 个文件`
-                      : '选择文件夹'}
+                      ? t('pluginsView.filesSelected', { count: createFolderFiles.length })
+                      : t('pluginsView.chooseFolder')}
                   </button>
                 </div>
                 <button
@@ -1348,8 +1349,8 @@ export function ExtensionsMarketplace({
                   onClick={() => void handleCreateUploadFolder()}
                 >
                   {createBusy === 'upload'
-                    ? '上传中…'
-                    : `上传 ${createKind === 'plugin' ? '专家套件' : 'Skill'}`}
+                    ? t('pluginsView.uploading')
+                    : t('pluginsView.uploadKind', { kind: pluginKindLabel(createKind, t) })}
                 </button>
               </article>
             </div>
@@ -1369,26 +1370,27 @@ export function ExtensionsMarketplace({
 // tagged error (never throws) so the caller can surface a toast.
 async function readSkillImportInputFromFolder(
   files: File[],
+  t: ReturnType<typeof useI18n>['t'],
 ): Promise<SkillImportInput | { error: SkillImportError }> {
   const skillFile = files.find((file) =>
     /(^|\/)SKILL\.md$/i.test(file.webkitRelativePath || file.name),
   );
   if (!skillFile) {
-    return { error: { message: '所选文件夹中未找到 SKILL.md。' } };
+    return { error: { message: t('pluginsView.skillMissingFile') } };
   }
   let text: string;
   try {
     text = await skillFile.text();
   } catch {
-    return { error: { message: '无法读取 SKILL.md，请重试。' } };
+    return { error: { message: t('pluginsView.skillReadFailed') } };
   }
   const fallbackName = deriveSkillFolderName(skillFile);
   const { name, description, body } = parseSkillMarkdown(text, fallbackName);
   if (!name) {
-    return { error: { message: 'SKILL.md 缺少 name 字段。' } };
+    return { error: { message: t('pluginsView.skillMissingName') } };
   }
   if (!body.trim()) {
-    return { error: { message: 'SKILL.md 内容为空。' } };
+    return { error: { message: t('pluginsView.skillEmptyBody') } };
   }
   return { name, description, body, triggers: [] };
 }
@@ -1416,29 +1418,35 @@ function parseSkillMarkdown(
   return { name, description, body };
 }
 
+function pluginKindLabel(kind: 'plugin' | 'skill', t: ReturnType<typeof useI18n>['t']): string {
+  return kind === 'plugin' ? t('pluginsView.kind.plugins') : t('pluginsView.kind.skills');
+}
+
 function MarketEmptyState({
   mode,
   scope,
   filtered,
+  t,
 }: {
   mode: MarketMode;
   scope: MarketScope;
   filtered: boolean;
+  t: ReturnType<typeof useI18n>['t'];
 }) {
   let title: string;
   let hint: string;
   if (filtered) {
-    title = '没有匹配的结果';
-    hint = '换个关键词试试。';
+    title = t('pluginsView.emptyNoMatchTitle');
+    hint = t('pluginsView.emptyNoMatchHint');
   } else if (scope === 'team') {
-    title = '还没有共享到团队的内容';
-    hint = '在「个人的」里把专家套件或技能共享给团队后，会出现在这里。';
+    title = t('pluginsView.emptyTeamTitle');
+    hint = t('pluginsView.emptyTeamHint');
   } else if (scope === 'personal') {
-    title = mode === 'plugins' ? '还没有个人专家套件' : '还没有个人技能';
-    hint = '从「Open Design 官方」安装，或点击右上角「新增」来创建。';
+    title = mode === 'plugins' ? t('pluginsView.emptyPersonalPluginsTitle') : t('pluginsView.emptyPersonalSkillsTitle');
+    hint = t('pluginsView.emptyPersonalHint');
   } else {
-    title = mode === 'plugins' ? '暂无可用的官方专家套件' : '暂无可用的官方技能';
-    hint = '稍后再来看看，或在插件来源中添加一个市场。';
+    title = mode === 'plugins' ? t('pluginsView.emptyOfficialPluginsTitle') : t('pluginsView.emptyOfficialSkillsTitle');
+    hint = t('pluginsView.emptyOfficialHint');
   }
   return (
     <div className="plugin-marketplace__empty">

@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import type { WorkspaceInviteRole } from '@open-design/contracts';
 import { Icon } from './Icon';
+import { useI18n } from '../i18n';
 
 export interface InviteRow {
   email: string;
@@ -31,17 +32,18 @@ interface Props {
   canAssignRoles?: boolean;
 }
 
-// Default invited role, aligned to the PRD matrix (管理员/成员 are assignable;
-// 所有者 is the workspace creator only and never assignable).
-const DEFAULT_ROLE = '成员';
+// Default invited role, aligned to the PRD matrix (admin/member are assignable;
+// owner is the workspace creator only and never assignable).
+const DEFAULT_ROLE = 'member';
 
-// Map the dialog's Chinese role labels to the canonical assignable role B
-// expects (never 'owner'). An unknown label falls back to 'member'.
+// Map the dialog role value to the canonical assignable role B expects
+// (never 'owner'). Legacy Chinese labels are accepted for existing state.
 function toCanonicalRole(role: string): WorkspaceInviteRole {
-  return role === '管理员' ? 'admin' : 'member';
+  return role === 'admin' || role === '管理员' ? 'admin' : 'member';
 }
 
 export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAssignRoles = true }: Props) {
+  const { t } = useI18n();
   const [rows, setRows] = useState<InviteRow[]>([{ email: '', role: DEFAULT_ROLE }]);
   const [visibilityOpen, setVisibilityOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -112,36 +114,36 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
         setSubmitting(false);
       }, 1000);
     } catch {
-      setError('邀请发送失败，请稍后重试。');
+      setError(t('workspaceInvite.submitFailed'));
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="entry-invite" role="dialog" aria-modal="true" aria-label="邀请成员">
+    <div className="entry-invite" role="dialog" aria-modal="true" aria-label={t('workspaceInvite.dialogAria')}>
       <div className="entry-invite__backdrop" onClick={onClose} />
       <div className="entry-invite__panel entry-invite__panel--split">
         <button
           type="button"
           className="entry-invite__close"
           onClick={onClose}
-          aria-label="关闭"
+          aria-label={t('common.close')}
         >
           <Icon name="close" size={16} />
         </button>
 
         <div className="entry-invite__form">
-          <h2 className="entry-invite__title">邀请成员加入你的团队</h2>
+          <h2 className="entry-invite__title">{t('workspaceInvite.title')}</h2>
           <p className="entry-invite__teamsize">
             {freePlan
-              ? '免费版含 1 个席位，邀请同事后将引导你升级到团队版。'
-              : '邀请同事加入团队，一起共享项目、设计系统与插件。'}
+              ? t('workspaceInvite.freePlanBody')
+              : t('workspaceInvite.teamPlanBody')}
           </p>
 
           <div className="entry-invite__field-labels">
-            <span className="entry-invite__label">通过电子邮件邀请成员</span>
+            <span className="entry-invite__label">{t('workspaceInvite.emailLabel')}</span>
             <span className="entry-invite__label entry-invite__label--role">
-              {canAssignRoles ? '分配角色' : '默认身份'}
+              {canAssignRoles ? t('workspaceInvite.roleLabel') : t('workspaceInvite.defaultRoleLabel')}
             </span>
           </div>
           <div className="entry-invite__rows">
@@ -150,7 +152,7 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
                 <input
                   className="entry-invite__input"
                   type="email"
-                  placeholder="输入电子邮件地址……"
+                  placeholder={t('workspaceInvite.emailPlaceholder')}
                   value={row.email}
                   onChange={(e) => updateRow(i, { email: e.target.value })}
                 />
@@ -159,17 +161,17 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
                   value={canAssignRoles ? row.role : DEFAULT_ROLE}
                   onChange={(e) => updateRow(i, { role: e.target.value })}
                   disabled={!canAssignRoles}
-                  aria-label={canAssignRoles ? '分配角色' : '默认身份'}
+                  aria-label={canAssignRoles ? t('workspaceInvite.roleLabel') : t('workspaceInvite.defaultRoleLabel')}
                 >
-                  <option value="管理员">管理员</option>
-                  <option value="成员">成员</option>
+                  <option value="admin">{t('invite.role.admin')}</option>
+                  <option value="member">{t('invite.role.member')}</option>
                 </select>
                 {rows.length > 1 ? (
                   <button
                     type="button"
                     className="entry-invite__row-remove"
                     onClick={() => removeRow(i)}
-                    aria-label="移除"
+                    aria-label={t('workspaceInvite.removeRow')}
                   >
                     <Icon name="close" size={15} />
                   </button>
@@ -178,7 +180,7 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
             ))}
           </div>
           <button type="button" className="entry-invite__add-row" onClick={addRow}>
-            <Icon name="plus" size={14} /> 添加成员
+            <Icon name="plus" size={14} /> {t('workspaceInvite.addMember')}
           </button>
 
           <button
@@ -187,7 +189,7 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
             onClick={() => setVisibilityOpen((v) => !v)}
             aria-expanded={visibilityOpen}
           >
-            团队成员会看到我的设计吗?
+            {t('workspaceInvite.visibilityQuestion')}
             <Icon
               name="chevron-down"
               size={16}
@@ -196,7 +198,7 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
           </button>
           {visibilityOpen ? (
             <p className="entry-invite__collapse-body">
-              团队成员可以看到你共享到团队空间的设计；保存在「草稿」中的私人设计不会对其他人可见。
+              {t('workspaceInvite.visibilityAnswer')}
             </p>
           ) : null}
 
@@ -212,7 +214,11 @@ export function InviteDialog({ open, onClose, freePlan = false, onSubmit, canAss
             onClick={handleConfirm}
             disabled={!hasValidEmail || submitting || success}
           >
-            {success ? '已发送邀请' : submitting ? '邀请中……' : '确认并邀请'}
+            {success
+              ? t('workspaceInvite.sent')
+              : submitting
+                ? t('workspaceInvite.sending')
+                : t('workspaceInvite.confirm')}
           </button>
         </div>
 
