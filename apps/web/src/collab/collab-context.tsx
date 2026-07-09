@@ -19,6 +19,8 @@ const DISABLED: CollabContextValue = {
   publishedVersion: null,
   syncState: null,
   viewerOnly: false,
+  ownerDisplayName: null,
+  ownerRole: null,
   reportChange: () => {},
   requestPublish: () => {},
 };

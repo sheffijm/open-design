@@ -2341,6 +2341,7 @@ export const ar: Dict = {
   'workspace.closeTab': 'إغلاق علامة التبويب',
   'workspace.deleteFileConfirm': 'حذف "{name}" من مجلد المشروع؟',
   'workspace.readonlyNotice': 'هذا مشروع مشترك — يمكنك عرضه والتعليق عليه، لكن لا يمكنك تعديل العناصر عبر الدردشة أو أدوات التحرير.',
+  'workspace.readonlyNoticeBy': 'هذا مشروع مشترك أنشأه {owner} — يمكنك عرضه والتعليق عليه، لكن لا يمكنك تعديل العناصر عبر الدردشة أو أدوات التحرير.',
   'workspace.deleteSelectedFilesConfirm': 'حذف {n} ملف(ات) محددة من مجلد المشروع؟',
   'workspace.deleteSelectedFilesPartial': 'فشل حذف {n} ملف(ات).',
   'workspace.openFromDesignFiles': 'فتح ملف من',

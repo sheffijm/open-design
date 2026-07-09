@@ -1934,12 +1934,27 @@
   flex: 1;
   min-width: 0;
 }
+.comment-side-author-copy {
+  display: inline-flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
 .comment-side-author strong {
   font-size: 13px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.comment-side-author small {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.2;
 }
 .comment-side-avatar {
   width: 20px;

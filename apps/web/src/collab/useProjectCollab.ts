@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CollabPresenceMember, WorkspaceCollabContext } from '@open-design/contracts';
+import type { CollabMemberRole, CollabPresenceMember, WorkspaceCollabContext } from '@open-design/contracts';
 import { resolveCollabSession } from './collab-session';
 import { useCollab } from './useCollab';
 
@@ -63,6 +63,16 @@ export interface ProjectCollab {
    * A personal / unshared project in a writable workspace is never read-only.
    */
   viewerOnly: boolean;
+  /**
+   * Display name of the member who shared this project (its owner), resolved
+   * server-side from the collab-cloud member directory. Drives the "这是 {owner}
+   * 创建的共享项目" read-only banner. Null when the project is unshared, off-team,
+   * or the owner is not in the directory — the banner then falls back to its
+   * name-less copy.
+   */
+  ownerDisplayName: string | null;
+  /** The owner's team role (owner/admin/member); null when unresolved. */
+  ownerRole: CollabMemberRole | null;
   reportChange: () => void;
   requestPublish: () => void;
 }
@@ -113,6 +123,8 @@ export function useProjectCollab(
     publishedVersion: collab.publishedVersion,
     syncState: collab.syncState,
     viewerOnly,
+    ownerDisplayName: collab.ownerDisplayName,
+    ownerRole: collab.ownerRole,
     reportChange: collab.reportChange,
     requestPublish: collab.requestPublish,
   };

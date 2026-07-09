@@ -23,11 +23,20 @@ export interface UseCollabResult {
   publishedVersion: number | null;
   syncState: CollabSnapshot['syncState'];
   ownerMemberId: CollabSnapshot['ownerMemberId'];
+  ownerDisplayName: CollabSnapshot['ownerDisplayName'];
+  ownerRole: CollabSnapshot['ownerRole'];
   reportChange: () => void;
   requestPublish: () => void;
 }
 
-const EMPTY: CollabSnapshot = { present: [], publishedVersion: null, syncState: null, ownerMemberId: null };
+const EMPTY: CollabSnapshot = {
+  present: [],
+  publishedVersion: null,
+  syncState: null,
+  ownerMemberId: null,
+  ownerDisplayName: null,
+  ownerRole: null,
+};
 
 /**
  * React seam over {@link CollabClient} (C lane). Starts a presence heartbeat +
@@ -85,6 +94,8 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
     publishedVersion: snapshot.publishedVersion,
     syncState: snapshot.syncState,
     ownerMemberId: snapshot.ownerMemberId,
+    ownerDisplayName: snapshot.ownerDisplayName,
+    ownerRole: snapshot.ownerRole,
     reportChange,
     requestPublish,
   };

@@ -1323,6 +1323,14 @@ export function ProjectView({
   // renders nothing) unless the workspace context marks the viewer an active
   // team member — safe to mount unconditionally.
   const projectCollab = useProjectCollab(project?.id ?? null);
+  // Read-only banner copy: when the collab cloud resolved who shared this project,
+  // name them ("这是 麻薯 创建的共享项目…"); otherwise fall back to the name-less
+  // notice. Only computed when the viewer is actually read-only.
+  const readonlyNoticeText = projectCollab.viewerOnly
+    ? projectCollab.ownerDisplayName
+      ? t('workspace.readonlyNoticeBy', { owner: projectCollab.ownerDisplayName })
+      : t('workspace.readonlyNotice')
+    : undefined;
   const handleThemeChange = onThemeChange ?? (() => {});
   const projectDetail = useProjectDetail(project.id);
   const detailedProject = projectDetail.project?.id === project.id ? projectDetail.project : null;
@@ -3380,6 +3388,29 @@ export function ProjectView({
         .filter((comment): comment is PreviewComment => Boolean(comment)),
     );
   }, [project.id, activeConversationId]);
+
+  // Cross-daemon comment sync: the daemon merges teammates' comments into the
+  // local store on a background poll, but the web panel only shows what it last
+  // fetched. Re-pull on a ~5s cadence (matching the daemon's collab poll) plus on
+  // tab re-focus so the owner sees a member's freshly-synced comment appear
+  // without a manual refresh. Gated on `projectCollab.enabled` so a personal /
+  // off-team project never polls. This only replaces the loaded comment LIST —
+  // the composer / create-form drafts are separate local state, so an in-flight
+  // comment the user is typing is never clobbered.
+  useEffect(() => {
+    if (!projectCollab.enabled || !activeConversationId) return undefined;
+    const interval = setInterval(() => {
+      void refreshPreviewComments();
+    }, 5_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshPreviewComments();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [projectCollab.enabled, activeConversationId, refreshPreviewComments]);
 
   const savePreviewComment = useCallback(
     async (target: PreviewCommentTarget, note: string, attachAfterSave: boolean, images: File[] = []) => {
@@ -8283,7 +8314,7 @@ export function ProjectView({
         <FileWorkspace
           projectId={project.id}
           viewerOnly={projectCollab.viewerOnly}
-          readonlyNotice={projectCollab.viewerOnly ? t('workspace.readonlyNotice') : undefined}
+          readonlyNotice={readonlyNoticeText}
           projectKind={projectKindFromMetadataToTracking(currentProject.metadata) ?? 'prototype'}
           rootDirName={(() => {
             const baseDir = currentProject.metadata?.baseDir;

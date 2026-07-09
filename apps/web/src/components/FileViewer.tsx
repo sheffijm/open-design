@@ -5,6 +5,7 @@ import { APP_CHROME_FILE_ACTIONS_ID, APP_CHROME_FILE_ACTIONS_SELECTOR } from './
 import {
   buildSocialSharePayload,
   OPEN_DESIGN_GITHUB_REPO_URL,
+  type CollabMemberRole,
   type ProjectFileVersion,
   type SocialShareRequest,
   type SocialShareResponse,
@@ -149,6 +150,7 @@ import {
   type PreviewCommentSnapshot,
 } from '../comments';
 import { useProjectCollabContext } from '../collab/collab-context';
+import { useTeamMembers } from '../collab/useTeamMembers';
 import { applyPodMemberRemoval } from '../lib/pod-members';
 import { AnnotationHoverPopover, BoardComposerPopover } from './BoardComposerPopover';
 import {
@@ -3313,6 +3315,43 @@ function commentTargetIntersectsPreview(
   );
 }
 
+// Stable avatar palette for comment authors — a member always gets the same
+// swatch (hash of their id), so the same person reads consistently across cards
+// and sessions. The demo's orange circle lives here as the first entry.
+const COMMENT_AUTHOR_AVATAR_COLORS = [
+  '#f97316',
+  '#e11d48',
+  '#7c3aed',
+  '#2563eb',
+  '#0891b2',
+  '#059669',
+  '#ca8a04',
+  '#db2777',
+  '#4f46e5',
+  '#0d9488',
+] as const;
+
+function commentAuthorAvatarColor(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return COMMENT_AUTHOR_AVATAR_COLORS[hash % COMMENT_AUTHOR_AVATAR_COLORS.length] ?? COMMENT_AUTHOR_AVATAR_COLORS[0];
+}
+
+// First glyph of the display name (code-point aware so a CJK name shows its
+// first character and an emoji is not split). Falls back to '?'.
+function commentAuthorInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  const [first] = Array.from(trimmed);
+  return (first ?? '?').toUpperCase();
+}
+
+function commentAuthorRoleLabel(role: CollabMemberRole): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
 function commentDisplayLabel(comment: PreviewComment, t: TranslateFn): string {
   if (comment.elementId.startsWith('pin-')) return t('chat.comments.pin');
   const label = String(comment.label || '').trim().toLowerCase();
@@ -3374,6 +3413,10 @@ export function CommentSidePanel({
 }) {
   const [newCommentDraft, setNewCommentDraft] = useState('');
   const [dragState, setDragState] = useState<CommentSideDragState | null>(null);
+  // Collab-cloud member directory: turns a comment's authorMemberId into a
+  // display name + role for the author line + avatar. Empty (off-team) → the
+  // card renders without an author line, exactly as before.
+  const { resolve: resolveCommentAuthor } = useTeamMembers();
   const sorted = comments;
   const visibleSelectedIds = new Set(comments.filter((comment) => selectedIds.has(comment.id)).map((comment) => comment.id));
   const selectedCount = visibleSelectedIds.size;
@@ -3525,6 +3568,7 @@ export function CommentSidePanel({
         ) : sorted.map((comment, index) => {
           const selected = visibleSelectedIds.has(comment.id);
           const active = comment.id === activeCommentId;
+          const author = resolveCommentAuthor(comment.authorMemberId);
           const isDragging = dragState?.draggingId === comment.id;
           const dropClass = dragState?.overId === comment.id &&
             dragState.draggingId !== comment.id &&
@@ -3564,7 +3608,25 @@ export function CommentSidePanel({
                   <Icon name="grip-vertical" size={13} />
                 </button>
                 <span className="comment-side-author">
-                  <strong>{`${index + 1}. ${commentDisplayLabel(comment, t)}`}</strong>
+                  {author ? (
+                    <span
+                      className="comment-side-avatar"
+                      style={{ background: commentAuthorAvatarColor(comment.authorMemberId ?? author.memberId) }}
+                      aria-hidden="true"
+                    >
+                      {commentAuthorInitials(author.displayName)}
+                    </span>
+                  ) : null}
+                  <span className="comment-side-author-copy">
+                    <strong>{`${index + 1}. ${commentDisplayLabel(comment, t)}`}</strong>
+                    {author ? (
+                      <small>
+                        {author.displayName}
+                        {' · '}
+                        {commentAuthorRoleLabel(author.role)}
+                      </small>
+                    ) : null}
+                  </span>
                 </span>
                 <span className="comment-side-time">{formatCommentTime(commentActivityAt(comment), t)}</span>
                 <button

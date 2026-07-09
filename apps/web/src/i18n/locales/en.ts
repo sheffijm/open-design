@@ -2341,6 +2341,7 @@ export const en: Dict = {
   'workspace.closeTab': 'Close tab',
   'workspace.deleteFileConfirm': 'Delete "{name}" from the project folder?',
   'workspace.readonlyNotice': 'This is a shared project — you can view and comment, but not change artifacts through Chat or the editing tools.',
+  'workspace.readonlyNoticeBy': 'This is a shared project created by {owner} — you can view and comment, but not change artifacts through Chat or the editing tools.',
   'workspace.deleteSelectedFilesConfirm': 'Delete {n} selected file(s) from the project folder?',
   'workspace.deleteSelectedFilesPartial': 'Failed to delete {n} file(s).',
   'workspace.openFromDesignFiles': 'Open a file from',

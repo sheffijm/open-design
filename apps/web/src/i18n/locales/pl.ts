@@ -2341,6 +2341,7 @@ export const pl: Dict = {
   'workspace.closeTab': 'Zamknij kartę',
   'workspace.deleteFileConfirm': 'Usunąć „{name}” z folderu projektu?',
   'workspace.readonlyNotice': 'To projekt udostępniony — możesz go przeglądać i komentować, ale nie możesz zmieniać artefaktów przez Chat ani narzędzia edycji.',
+  'workspace.readonlyNoticeBy': 'To projekt udostępniony utworzony przez {owner} — możesz go przeglądać i komentować, ale nie możesz zmieniać artefaktów przez Chat ani narzędzia edycji.',
   'workspace.deleteSelectedFilesConfirm': 'Usunąć {n} wybranych plików z folderu projektu?',
   'workspace.deleteSelectedFilesPartial': 'Nie udało się usunąć {n} plików.',
   'workspace.openFromDesignFiles': 'Otwórz plik z',

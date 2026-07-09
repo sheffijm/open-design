@@ -2341,6 +2341,7 @@ export const tr: Dict = {
   'workspace.closeTab': 'Sekmeyi kapat',
   'workspace.deleteFileConfirm': '"{name}"ı proje klasöründen sil?',
   'workspace.readonlyNotice': 'Bu paylaşılan bir proje — görüntüleyip yorum yapabilirsiniz, ancak Chat veya düzenleme araçlarıyla yapıtları değiştiremezsiniz.',
+  'workspace.readonlyNoticeBy': 'Bu, {owner} tarafından oluşturulan paylaşılan bir proje — görüntüleyip yorum yapabilirsiniz, ancak Chat veya düzenleme araçlarıyla yapıtları değiştiremezsiniz.',
   'workspace.deleteSelectedFilesConfirm': 'Seçili {n} dosya proje klasöründen silinsin mi?',
   'workspace.deleteSelectedFilesPartial': '{n} dosya silinemedi.',
   'workspace.openFromDesignFiles': 'bir dosya aç',

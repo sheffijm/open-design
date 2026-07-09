@@ -3123,6 +3123,7 @@ export interface Dict {
   'workspace.closeTab': string;
   'workspace.deleteFileConfirm': string;
   'workspace.readonlyNotice': string;
+  'workspace.readonlyNoticeBy': string;
   'workspace.deleteSelectedFilesConfirm': string;
   'workspace.deleteSelectedFilesPartial': string;
   'workspace.openFromDesignFiles': string;

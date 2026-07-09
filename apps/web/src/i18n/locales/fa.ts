@@ -2341,6 +2341,7 @@ export const fa: Dict = {
   'workspace.closeTab': 'بستن تب',
   'workspace.deleteFileConfirm': 'آیا «{name}» از پوشه پروژه حذف شود؟',
   'workspace.readonlyNotice': 'این یک پروژه‌ی اشتراکی است — می‌توانید مشاهده و نظر بدهید، اما نمی‌توانید Artifact را از طریق چت یا ابزارهای ویرایش تغییر دهید.',
+  'workspace.readonlyNoticeBy': 'این پروژه‌ی اشتراکی را {owner} ایجاد کرده — می‌توانید مشاهده و نظر بدهید، اما نمی‌توانید Artifact را از طریق چت یا ابزارهای ویرایش تغییر دهید.',
   'workspace.deleteSelectedFilesConfirm': 'آیا {n} فایل انتخاب‌شده از پوشه پروژه حذف شوند؟',
   'workspace.deleteSelectedFilesPartial': 'حذف {n} فایل ناموفق بود.',
   'workspace.openFromDesignFiles': 'باز کردن یک فایل از',
