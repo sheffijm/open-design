@@ -1,5 +1,7 @@
 # Contributing to Open Design
 
+This guide explains how to contribute to Open Design.
+
 Thanks for thinking about contributing. OD is small on purpose — most of the value lives in **files** (skills, design systems, prompt fragments) rather than framework code. That means the highest-leverage contributions are usually one folder, one Markdown file, or one PR-sized adapter.
 
 This guide tells you exactly where to look for each type of contribution and what bar a PR has to clear before we merge it.
