@@ -5,6 +5,7 @@ import { recordAmrEntry } from '../../src/analytics/amr-attribution';
 import {
   readOnboardingProfile,
   saveOnboardingProfile,
+  type OnboardingProfile,
 } from '../../src/state/onboarding-profile';
 
 vi.mock('../../src/analytics/client', () => ({
@@ -46,50 +47,28 @@ describe('source attribution person properties', () => {
     });
   });
 
-  it('persists the free-text detail only for the "other" bucket', () => {
+  it('never persists raw "other" free-text to the stored profile', () => {
+    // Even if a caller supplies a free-text detail, it must never be written to
+    // the persisted attribution profile — only the enumerated bucket survives.
     saveOnboardingProfile(
-      { source: 'other', sourceOther: '  Design podcast  ' },
+      { source: 'other', sourceOther: 'Design podcast' } as unknown as OnboardingProfile,
       new Date('2026-07-02T08:00:00.000Z'),
     );
-    expect(readOnboardingProfile()).toEqual(
-      expect.objectContaining({ source: 'other', sourceOther: 'Design podcast' }),
-    );
-
-    window.localStorage.clear();
-    saveOnboardingProfile(
-      { source: 'github', sourceOther: 'leftover' },
-      new Date('2026-07-02T08:00:00.000Z'),
-    );
-    expect(readOnboardingProfile()).not.toHaveProperty('sourceOther');
+    const stored = readOnboardingProfile();
+    expect(stored).toMatchObject({ source: 'other' });
+    expect(stored).not.toHaveProperty('sourceOther');
   });
 
-  it('captures the free-text detail behind the "other" source bucket', () => {
+  it('never carries raw "other" free-text into analytics person properties', () => {
+    // Analytics profile state must stay free-text/PII-free: the enumerated
+    // bucket is bound, but the raw channel the user typed is never surfaced.
     setOnboardingAttributionPersonProperties(
-      {
-        source: 'other',
-        sourceOther: 'Design podcast',
-      },
-      new Date('2026-07-02T08:00:00.000Z'),
-    );
-
-    expect(setAnalyticsPersonProperties).toHaveBeenCalledWith(
-      expect.objectContaining({
-        od_onboarding_source: 'other',
-        od_onboarding_source_other: 'Design podcast',
-      }),
-    );
-  });
-
-  it('drops a stale free-text detail when the source is not "other"', () => {
-    setOnboardingAttributionPersonProperties(
-      {
-        source: 'github',
-        sourceOther: 'leftover text',
-      },
+      { source: 'other', sourceOther: 'Design podcast' } as unknown as OnboardingProfile,
       new Date('2026-07-02T08:00:00.000Z'),
     );
 
     const props = vi.mocked(setAnalyticsPersonProperties).mock.calls[0]?.[0] ?? {};
+    expect(props).toMatchObject({ od_onboarding_source: 'other' });
     expect(props).not.toHaveProperty('od_onboarding_source_other');
   });
 

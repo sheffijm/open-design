@@ -1701,13 +1701,12 @@ function OnboardingView({
         use_cases: liveProfile.useCase.length > 0
           ? liveProfile.useCase
           : ['unknown'],
+        // Only the enumerated bucket ships to analytics. The raw "Other"
+        // free-text is deliberately NOT forwarded here: analytics events must
+        // stay free-text/PII-free (see the contract note on OnboardingClickProps),
+        // and the scrubber does not sanitize arbitrary event properties. The
+        // typed detail lives only in app-owned local storage (Memory note).
         discovery_source: liveProfile.source || 'unknown',
-        // Keep the raw "Other" channel in parity with `about_you_submit`;
-        // without this the fallback carrier would preserve `discovery_source:
-        // 'other'` but lose what the user actually typed.
-        ...(liveProfile.source === 'other' && liveProfile.sourceOther.trim()
-          ? { discovery_source_other: liveProfile.sourceOther.trim() }
-          : {}),
       } : {}),
     });
   }
@@ -2219,14 +2218,15 @@ function OnboardingView({
     aboutYouReportedRef.current = true;
     const snapshot = profileRef.current;
     const submittedAt = new Date();
-    const sourceOther =
-      snapshot.source === 'other' ? snapshot.sourceOther.trim() : '';
+    // The raw "Other" free-text is intentionally excluded from the attribution
+    // profile: it flows into analytics (person properties) and AMR, which must
+    // stay free-text/PII-free. Only the enumerated `source` bucket is carried.
+    // The typed detail is preserved solely in the app-owned Memory note below.
     const attributionProfile = {
       role: snapshot.role,
       orgSize: snapshot.orgSize,
       useCase: snapshot.useCase,
       source: snapshot.source,
-      ...(sourceOther ? { sourceOther } : {}),
       completedAt: submittedAt.toISOString(),
     };
     // Persist the survey so later AMR entries (outside onboarding) can forward
@@ -2256,7 +2256,6 @@ function OnboardingView({
       organization_size: snapshot.orgSize || 'unknown',
       use_cases: snapshot.useCase.length > 0 ? snapshot.useCase : ['unknown'],
       discovery_source: snapshot.source || 'unknown',
-      ...(sourceOther ? { discovery_source_other: sourceOther } : {}),
     });
   }
 

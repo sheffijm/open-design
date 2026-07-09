@@ -1071,7 +1071,7 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     });
   });
 
-  it('keeps the "Other" free-text in parity across both survey-snapshot carriers', async () => {
+  it('never ships the "Other" free-text to analytics on either survey-snapshot carrier', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({
         loggedIn: true,
@@ -1106,18 +1106,20 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Build a design system' }));
 
     // Both carriers of the survey snapshot — the about_you_submit click and
-    // the onboarding_complete_result fallback — must preserve the raw channel
-    // typed behind "Other", not just `discovery_source: 'other'`.
-    expect(
-      findTrackedEvent('ui_click', (payload) => payload.element === 'about_you_submit'),
-    ).toMatchObject({
-      discovery_source: 'other',
-      discovery_source_other: 'Design podcast',
-    });
-    expect(latestTrackedEvent('onboarding_complete_result')).toMatchObject({
-      discovery_source: 'other',
-      discovery_source_other: 'Design podcast',
-    });
+    // the onboarding_complete_result fallback — carry only the enumerated
+    // `other` bucket. The raw channel the user typed must NEVER reach analytics
+    // (it lives solely in the app-owned Memory note); analytics events stay
+    // free-text/PII-free.
+    const submit = findTrackedEvent(
+      'ui_click',
+      (payload) => payload.element === 'about_you_submit',
+    );
+    expect(submit).toMatchObject({ discovery_source: 'other' });
+    expect(submit).not.toHaveProperty('discovery_source_other');
+
+    const complete = latestTrackedEvent('onboarding_complete_result');
+    expect(complete).toMatchObject({ discovery_source: 'other' });
+    expect(complete).not.toHaveProperty('discovery_source_other');
   });
 
   it('submits the optional newsletter email when finishing onboarding', async () => {

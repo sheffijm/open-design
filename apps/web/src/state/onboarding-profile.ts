@@ -20,11 +20,6 @@ export interface OnboardingProfile {
   orgSize?: string;
   useCase?: string[];
   source?: string;
-  // Free-text channel the visitor typed when `source === 'other'`. Kept
-  // separate so attribution can still aggregate on the 'other' bucket while
-  // preserving the raw self-reported answer. Only meaningful when
-  // `source === 'other'`.
-  sourceOther?: string;
   completedAt?: string;
 }
 
@@ -59,8 +54,6 @@ function compact(
   const orgSize = sanitize(profile.orgSize);
   const useCase = sanitizeList(profile.useCase);
   const source = sanitize(profile.source);
-  // Only carry the free-text detail when the bucket is actually 'other'.
-  const sourceOther = source === 'other' ? sanitize(profile.sourceOther) : undefined;
   const completedAt =
     sanitizeTimestamp(profile.completedAt) ??
     options.defaultCompletedAt?.toISOString();
@@ -70,7 +63,6 @@ function compact(
     ...(orgSize ? { orgSize } : {}),
     ...(useCase ? { useCase } : {}),
     ...(source ? { source } : {}),
-    ...(sourceOther ? { sourceOther } : {}),
     ...(completedAt ? { completedAt } : {}),
   };
 }

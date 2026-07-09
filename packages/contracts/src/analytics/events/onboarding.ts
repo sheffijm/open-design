@@ -211,9 +211,6 @@ export interface OnboardingClickProps {
   // the final selection at Finish-setup time without firing N rows.
   use_cases?: TrackingOnboardingUseCase[];
   discovery_source?: TrackingOnboardingDiscoverySource;
-  // Free-text detail the user typed when `discovery_source === 'other'`.
-  // Open string, capped client-side; absent for the named channels.
-  discovery_source_other?: string;
   source_type?: TrackingOnboardingSourceType;
   has_brand_description?: boolean;
   source_count?: number;
@@ -260,10 +257,6 @@ export interface OnboardingCompleteResultProps {
   organization_size?: TrackingOnboardingOrganizationSize;
   use_cases?: TrackingOnboardingUseCase[];
   discovery_source?: TrackingOnboardingDiscoverySource;
-  // Free-text detail behind `discovery_source === 'other'`, mirrored from
-  // `about_you_submit` so the completion carrier keeps the raw channel string
-  // when the individual click was dropped on navigation. Absent otherwise.
-  discovery_source_other?: string;
 }
 
 // Fired once when Studio mounts with the recommended first request pre-filled
