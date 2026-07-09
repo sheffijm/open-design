@@ -578,6 +578,7 @@ export function BoardComposerPopover({
           ) : null}
           <Textarea
             data-testid="comment-popover-input"
+            className={!canEditComment ? 'composer-note--readonly' : undefined}
             value={draft}
             autoFocus={canEditComment}
             readOnly={!canEditComment}

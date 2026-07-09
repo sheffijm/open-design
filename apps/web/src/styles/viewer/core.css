@@ -1593,6 +1593,17 @@
   overflow-y: auto;
   resize: none;
 }
+/* Non-author comment composer. The textarea keeps `readOnly` (instead of the
+   native `disabled`) so the existing note text renders at full legibility
+   rather than being dimmed by the browser. On top of that we present a
+   disabled affordance purely with CSS: a muted fill, a not-allowed cursor,
+   and suppressed text selection/caret so the field reads as untouchable. */
+.comment-popover textarea.composer-note--readonly {
+  cursor: not-allowed;
+  user-select: none;
+  -webkit-user-select: none;
+  background: var(--bg-muted);
+}
 .comment-popover-actions {
   display: flex;
   justify-content: space-between;
