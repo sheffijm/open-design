@@ -1,5 +1,9 @@
 import type { Express } from 'express';
-import type { WorkspaceContextResponse } from '@open-design/contracts';
+import type {
+  WorkspaceBillingResponse,
+  WorkspaceBillingSummary,
+  WorkspaceContextResponse,
+} from '@open-design/contracts';
 import {
   parseWorkspaceCollabContext,
   type WorkspaceContextProvider,
@@ -8,11 +12,14 @@ import {
   consumeInviteContinuation,
   type InviteContinueOutcome,
 } from '../collab/invite-continue.js';
+import { fetchVelaBillingSummary } from '../integrations/vela-billing.js';
 
 export interface RegisterCollabContextRoutesDeps {
   workspaceContext: WorkspaceContextProvider;
   /** Injectable for tests; defaults to consuming against B with the vela session. */
   consumeInvite?: (nonce: string) => Promise<InviteContinueOutcome>;
+  /** Injectable for tests; defaults to the vela billing CLI 收口. */
+  fetchBilling?: () => Promise<WorkspaceBillingSummary | null>;
 }
 
 /**
@@ -25,6 +32,7 @@ export interface RegisterCollabContextRoutesDeps {
 export function registerCollabContextRoutes(app: Express, deps: RegisterCollabContextRoutesDeps): void {
   const { workspaceContext } = deps;
   const consumeInvite = deps.consumeInvite ?? ((nonce: string) => consumeInviteContinuation(nonce));
+  const fetchBilling = deps.fetchBilling ?? (() => fetchVelaBillingSummary());
 
   // Desktop invite hand-off ("桌面唤起和本地恢复"): the desktop app parses the
   // opendesign:// invite deeplink and POSTs the nonce here. The daemon consumes
@@ -44,6 +52,16 @@ export function registerCollabContextRoutes(app: Express, deps: RegisterCollabCo
     const authorization = req.header('authorization') ?? undefined;
     const context = await workspaceContext.current({ authorization });
     const body: WorkspaceContextResponse = { context };
+    res.json(body);
+  });
+
+  // A-lane billing 收口: the client's credits chip fetches the caller's real
+  // plan tier + credit balance here. The daemon shells out to `vela billing
+  // summary` (same vela session as resources); a null summary means the CLI /
+  // session is unavailable and the client keeps its context-derived tier hint.
+  app.get('/api/workspace/billing', async (_req, res) => {
+    const summary = await fetchBilling();
+    const body: WorkspaceBillingResponse = { summary };
     res.json(body);
   });
 

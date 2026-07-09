@@ -23,7 +23,7 @@
 // personal_byok workspace still has full team features.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { WorkspaceCollabContext } from '@open-design/contracts';
+import type { WorkspaceBillingSummary, WorkspaceCollabContext } from '@open-design/contracts';
 import { EntryHelpMenu } from './EntryHelpMenu';
 import { Icon } from './Icon';
 import { useI18n } from '../i18n';
@@ -50,6 +50,9 @@ interface Props {
   onClose: () => void;
   /** The one shared workspace context; null → local (no cloud identity) state. */
   context: WorkspaceCollabContext | null;
+  /** Real billing summary (A-lane, via the vela CLI 收口). Null → the credits
+   *  chip falls back to the context plan-tier hint with no balance. */
+  billing?: WorkspaceBillingSummary | null;
   /** Open the app settings dialog. */
   onOpenSettings?: () => void;
   /** Flip the effective theme (light ⇄ dark). Omitted → the theme item is hidden. */
@@ -108,11 +111,26 @@ function teamConsoleUrl(base: string, section: 'members' | 'dashboard' | 'settin
   }
 }
 
+/** Map a raw vela membership tier to a display label for the credits chip. */
+function formatBillingTier(tier: string): string {
+  switch (tier) {
+    case 'team':
+      return '团队版';
+    case 'free':
+      return '免费';
+    case 'pro':
+      return '专业版';
+    default:
+      return tier;
+  }
+}
+
 export function EntryNavRail({
   view,
   onViewChange,
   open,
   context,
+  billing,
   onOpenSettings,
   onToggleTheme,
 }: Props) {
@@ -141,8 +159,13 @@ export function EntryNavRail({
   const teamName = context?.teamName?.trim() || context?.teamId || '';
   const teamInitial = teamName.charAt(0).toUpperCase() || 'T';
 
-  // Plan tier for the credits chip. Real balance is not available yet.
-  const tierLabel = context?.planId?.trim() || (isTeam ? '团队版' : '免费');
+  // Credits chip: prefer the real billing summary (A-lane, via the vela CLI
+  // 收口); fall back to the context plan-tier hint with no balance when billing
+  // hasn't loaded / no session.
+  const tierLabel = billing?.membershipTier
+    ? formatBillingTier(billing.membershipTier)
+    : context?.planId?.trim() || (isTeam ? '团队版' : '免费');
+  const creditsBalance = billing ? billing.totalAvailableCredits : null;
 
   const [accountOpen, setAccountOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
@@ -197,14 +220,17 @@ export function EntryNavRail({
                 // TODO(collab): real credits balance + billing area via vela CLI 收口 (like resources)
                 onOpenSettings?.();
               }}
-              aria-label={`${tierLabel} · 剩余积分`}
+              aria-label={
+                creditsBalance != null
+                  ? `${tierLabel} · 剩余积分 ${creditsBalance}`
+                  : `${tierLabel} · 剩余积分`
+              }
               data-testid="entry-nav-credits"
             >
               <span className="entry-nav-rail__credits-tier">{tierLabel}</span>
               <span className="entry-nav-rail__credits-sep" aria-hidden>·</span>
               <Icon name="sparkles" size={12} />
-              {/* TODO(collab): real credits balance via vela CLI 收口 (like resources) */}
-              <span aria-hidden>—</span>
+              {creditsBalance != null ? creditsBalance.toLocaleString('en-US') : <span aria-hidden>—</span>}
             </button>
             {accountOpen ? (
               <>

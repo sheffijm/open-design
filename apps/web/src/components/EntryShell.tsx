@@ -114,7 +114,7 @@ import { Icon } from './Icon';
 import { AgentIcon } from './AgentIcon';
 import { CommunityView } from './CommunityView';
 import { TeamSlotPlaceholder } from './TeamSlotPlaceholder';
-import { useWorkspaceContext } from '../collab/useWorkspaceContext';
+import { useWorkspaceContext, useWorkspaceBilling } from '../collab/useWorkspaceContext';
 import { LanguageMenu } from './LanguageMenu';
 import { IntegrationsView, type IntegrationTab } from './IntegrationsView';
 import { InlineModelSwitcher } from './InlineModelSwitcher';
@@ -511,6 +511,7 @@ export function EntryShell({
   // (context non-null && workspaceType === 'team') vs. local rail. Every team
   // surface reads THIS read; the rail never re-derives role/permission gates.
   const { context: workspaceContext, loading: workspaceLoading } = useWorkspaceContext();
+  const workspaceBilling = useWorkspaceBilling();
   const isTeamWorkspace =
     Boolean(workspaceContext) && workspaceContext!.workspaceType === 'team';
   // Resolve the effective light/dark theme so the rail's account-menu theme toggle
@@ -848,6 +849,7 @@ export function EntryShell({
           open={railOpen}
           onClose={() => setRailOpen(false)}
           context={workspaceContext}
+          billing={workspaceBilling}
           onOpenSettings={onOpenSettings}
           onToggleTheme={() => onThemeChange(resolvedDark ? 'light' : 'dark')}
           onInvite={() => changeView('members')}

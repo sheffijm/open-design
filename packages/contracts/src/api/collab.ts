@@ -210,3 +210,28 @@ export function buildWorkspaceSeatSummary(input: {
     isSeatFull: availableSeats === 0,
   };
 }
+
+/**
+ * A caller's Vela billing summary (A-lane data), surfaced through the vela CLI
+ * 收口 (`vela billing summary --format json`) so the client can show real
+ * credits + plan tier instead of a placeholder. `null` when the CLI or the
+ * signed-in billing session is unavailable — the client falls back to the
+ * plan-tier hint it already has from the workspace context.
+ */
+export interface WorkspaceBillingSummary {
+  /** Membership tier, e.g. `team` / `free`. */
+  membershipTier: string;
+  /** Total available credits (subscription + recharge), as a number. */
+  totalAvailableCredits: number;
+  /** Available balance in USD, as reported by vela (kept as a string to avoid
+   *  float drift on money values). */
+  balanceUsd: string;
+  /** Subscription status, e.g. `active` / `canceled`. */
+  subscriptionStatus: string;
+  /** Actions the caller may take, e.g. `subscription_checkout` / `billing_portal`. */
+  availableActions: string[];
+}
+
+export interface WorkspaceBillingResponse {
+  summary: WorkspaceBillingSummary | null;
+}
