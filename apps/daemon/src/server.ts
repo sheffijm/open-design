@@ -578,6 +578,7 @@ import { registerCollabContextRoutes } from './routes/collab-context.js';
 import { registerTeamResourceRoutes } from './routes/team-resources.js';
 import { registerTeamResourceShareRoutes } from './routes/team-resource-share.js';
 import { createCollabRuntime } from './collab/runtime.js';
+import { createCollabPublishWatcher } from './collab/collab-publish-watcher.js';
 import { createTeamProjectsLister } from './collab/team-projects.js';
 import { createTeamResourceShareService } from './collab/team-resource-share.js';
 import { contextToResourceHubPrincipal } from './collab/resource-hub-publish-adapter.js';
@@ -3844,6 +3845,33 @@ export async function startServer({
   // serves) rather than trusting a client-supplied id, so a pulled project is
   // recorded read-only under its true single writer.
   const teamProjectsLister = createTeamProjectsLister({ workspaceContext: collab.workspaceContext });
+  const resolveSharedProjectOwner = async (projectId: string): Promise<string | null> => {
+    const list = await teamProjectsLister();
+    return list.find((entry) => entry.projectId === projectId)?.ownerMemberId ?? null;
+  };
+  // Author-side publish TRIGGER (C spec §D1): watch the projects THIS daemon's
+  // member owns + has shared, and coalesce every file edit into a debounced
+  // publish. The read-only gate (team-shared AND owner === me) means a member's
+  // pulled copy is never watched, so an inbound pull can't loop into a publish and
+  // a member can't publish edits to someone else's project.
+  const collabPublishWatcher = createCollabPublishWatcher({
+    notifyChanged: (projectId) => collab.scheduler.notifyChanged(projectId, 'file-change'),
+    listProjectIds: () => listProjects(db).map((project: { id: string }) => project.id),
+    shouldPublish: async (projectId) => {
+      const owner = await resolveSharedProjectOwner(projectId);
+      if (!owner) return false;
+      const ctx = await collab.workspaceContext.current({});
+      return ctx?.workspaceMemberId != null && owner === ctx.workspaceMemberId;
+    },
+    subscribeFiles: (projectId, onChange) => {
+      const sub = subscribeFileEvents(PROJECTS_DIR, projectId, (evt) => {
+        if (evt.type === 'file-changed') onChange();
+      });
+      return { unsubscribe: () => sub.unsubscribe() };
+    },
+    onError: (error) => console.warn('[od] collab publish watcher error:', error),
+  });
+  collabPublishWatcher.start();
   registerCollabSyncRoutes(app, {
     collab,
     // Register-on-pull: after a member pulls a shared project, insert a local
@@ -3863,10 +3891,7 @@ export async function startServer({
       },
     },
     resolvePullDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
-    resolveSharedProjectOwner: async (projectId) => {
-      const list = await teamProjectsLister();
-      return list.find((entry) => entry.projectId === projectId)?.ownerMemberId ?? null;
-    },
+    resolveSharedProjectOwner,
     // Resolve the owner's display name + role from the collab-cloud directory so
     // /collab/status can hand the client a named "shared project" banner.
     ...(collabCloud

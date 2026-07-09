@@ -40,6 +40,15 @@ export interface CollabRuntime {
   teamResources: TeamResourceStateProvider;
   /** Last published version for a project (members poll this to know what to pull). */
   publishedVersion(projectId: string): number | null;
+  /**
+   * The CURRENT published head for a project, read from the resource hub (E's
+   * `syncLatest`) rather than this daemon's in-memory publish counter. A member
+   * never published the project, so their in-memory `publishedVersion` is null;
+   * this lets their `/collab/status` see the owner's latest published version
+   * (across daemons + across a restart) so the client knows when to pull. Falls
+   * back to the in-memory head when the adapter has no `syncLatest` (local stub).
+   */
+  publishedHead(projectId: string): Promise<number | null>;
   /**  sync state for a project (`local_only` until a share is requested). */
   projectSyncState(projectId: string): ProjectSyncState;
   /**
@@ -150,6 +159,13 @@ export function createCollabRuntime(options: CreateCollabRuntimeOptions = {}): C
     workspaceContext,
     teamResources,
     publishedVersion: (projectId) => published.get(projectId) ?? null,
+    async publishedHead(projectId) {
+      // Prefer the hub's published ref (authoritative + cross-daemon) so a member
+      // sees the owner's latest version; fall back to the in-memory head for the
+      // local stub adapter (no syncLatest).
+      const head = adapter.syncLatest ? await adapter.syncLatest({ projectId }) : null;
+      return head?.version ?? published.get(projectId) ?? null;
+    },
     projectSyncState: (projectId) => syncStates.get(projectId) ?? 'local_only',
     projectOwnerMemberId: (projectId) => owners.get(projectId) ?? null,
     requestTeamShare(projectId, ownerMemberId) {

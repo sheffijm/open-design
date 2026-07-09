@@ -40,6 +40,7 @@ export interface RegisterCollabSyncRoutesDeps {
     CollabRuntime,
     | 'scheduler'
     | 'publishedVersion'
+    | 'publishedHead'
     | 'projectSyncState'
     | 'projectOwnerMemberId'
     | 'requestTeamShare'
@@ -99,6 +100,7 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
   const {
     scheduler,
     publishedVersion,
+    publishedHead,
     projectSyncState,
     projectOwnerMemberId,
     requestTeamShare,
@@ -236,8 +238,17 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
         /* directory unavailable: omit the name */
       }
     }
+    // Report the hub's published head (not this daemon's in-memory counter) so a
+    // member — who never published — still sees the owner's latest version and
+    // knows when to pull. Falls back to the in-memory head on a hub hiccup.
+    let head: number | null;
+    try {
+      head = await publishedHead(projectId);
+    } catch {
+      head = publishedVersion(projectId);
+    }
     res.json({
-      publishedVersion: publishedVersion(projectId),
+      publishedVersion: head,
       syncState,
       ownerMemberId,
       ...(ownerDisplayName ? { ownerDisplayName } : {}),
