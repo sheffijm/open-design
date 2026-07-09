@@ -106,6 +106,7 @@ import {
 import {
   daemonAgentPayloadToPersistedAgentEvent,
   persistRunEventToAssistantMessage,
+  persistRunFailureClassification,
   pinAssistantMessageOnRunCreate,
 } from './runtimes/chat-run-messages.js';
 import {
@@ -5125,6 +5126,11 @@ export async function startServer({
       // failure type + fix. Only meaningful on a failed result.
       run.failureCategory = result === 'failed' ? failure?.failure_category ?? null : null;
       run.failureDetail = result === 'failed' ? failure?.failure_detail ?? null : null;
+      // Stamp the classification onto the persisted assistant message too, so a
+      // reload (or any daemon-side persistence without the live web error
+      // handler) keeps the specific failure guidance instead of the coarse
+      // errorCode UI. Mirrors what statusBody / the SSE `end` frame carry live.
+      if (result === 'failed') persistRunFailureClassification(db, run);
       if (resumableFailure) {
         upsertAgentSession(db, {
           conversationId: run.conversationId,
