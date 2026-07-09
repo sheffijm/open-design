@@ -77,6 +77,7 @@ import {
 import { googleGenerateContentUrl } from './integrations/google-models.js';
 import { readVelaCredentialRevision, resolveAmrProfile } from './integrations/vela.js';
 import { amrModelLoadingCache } from './runtimes/amr-model-cache.js';
+import { buildAmrModelCacheKey } from './runtimes/amr-model-probe.js';
 import {
   fetchVelaPresetModels,
   fetchVelaRemoteModelsWithRetry,
@@ -1981,15 +1982,9 @@ async function resolveConnectionTestModelForAgent(
   if (def.id !== 'amr' || resolved !== 'default' || !launchPath) return resolved;
 
   try {
-    const cacheKey = JSON.stringify({
-      connectionTest: true,
+    const cacheKey = buildAmrModelCacheKey({
       launchPath,
-      home: env.HOME ?? env.USERPROFILE ?? '',
-      openDesignAmrProfile: env.OPEN_DESIGN_AMR_PROFILE ?? '',
-      velaProfile: env.VELA_PROFILE ?? '',
-      velaLinkUrl: env.VELA_LINK_URL ?? '',
-      velaRuntimeKey: env.VELA_RUNTIME_KEY ?? '',
-      velaOpencodeBin: env.VELA_OPENCODE_BIN ?? '',
+      env,
       credentialRevision: readVelaCredentialRevision(env),
     });
     const catalog = await amrModelLoadingCache.get(cacheKey, {

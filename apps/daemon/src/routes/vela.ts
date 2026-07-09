@@ -35,6 +35,7 @@ import {
   velaWalletSnapshotReader,
 } from '../integrations/vela-wallet.js';
 import { amrModelLoadingCache } from '../runtimes/amr-model-cache.js';
+import { buildAmrModelCacheKey } from '../runtimes/amr-model-probe.js';
 import {
   fetchVelaBillingSummary,
   fetchVelaPresetModels,
@@ -169,14 +170,9 @@ export function registerVelaRoutes(app: Express, deps: RegisterVelaRoutesDeps): 
       agentLaunch,
     );
     const credentialRevision = readVelaCredentialRevision(env, configuredEnv);
-    const cacheKey = JSON.stringify({
+    const cacheKey = buildAmrModelCacheKey({
       launchPath,
-      home: spawnEnv.HOME ?? spawnEnv.USERPROFILE ?? '',
-      openDesignAmrProfile: spawnEnv.OPEN_DESIGN_AMR_PROFILE ?? '',
-      velaProfile: spawnEnv.VELA_PROFILE ?? '',
-      velaLinkUrl: spawnEnv.VELA_LINK_URL ?? '',
-      velaRuntimeKey: spawnEnv.VELA_RUNTIME_KEY ?? '',
-      velaOpencodeBin: spawnEnv.VELA_OPENCODE_BIN ?? '',
+      env: spawnEnv,
       credentialRevision,
     });
     return { launchPath, env: spawnEnv, configuredEnv, cacheKey };
