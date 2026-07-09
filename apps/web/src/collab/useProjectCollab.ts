@@ -95,13 +95,16 @@ export function useProjectCollab(
   const workspaceReadOnly = context != null && !context.permissions.canWriteSyncedFiles;
   // Gate 2 (project-level): a project shared to the team (syncState past
   // `local_only`) is read-only for everyone except the member who shared it — the
-  // single writer keeps editing their own project. Until the owner id has been
-  // polled, fall back to the workspace role so a member does not momentarily get
-  // edit affordances on a shared project. A personal / unshared project is never
-  // read-only on this gate.
+  // single writer keeps editing their own project. This fails closed: it stays
+  // read-only until the polled owner id EXPLICITLY matches the current member, so
+  // a non-owner (of any workspace role — including admin/owner) never gets edit
+  // affordances during the load window or when a `/collab/status` payload is
+  // briefly missing `ownerMemberId`. The real owner sees a momentary read-only
+  // state until their id is confirmed, then flips to editable. A personal /
+  // unshared project is never read-only on this gate.
   const shared = collab.syncState !== 'local_only' && collab.syncState !== null;
   const isOwner = collab.ownerMemberId != null && collab.ownerMemberId === context?.workspaceMemberId;
-  const sharedReadOnly = shared && !isOwner && (collab.ownerMemberId != null || context?.role === 'member');
+  const sharedReadOnly = shared && !isOwner;
   const viewerOnly = workspaceReadOnly || sharedReadOnly;
   return {
     enabled: decision.enabled,

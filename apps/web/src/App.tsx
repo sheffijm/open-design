@@ -67,6 +67,7 @@ import {
 import { AMR_LOGIN_STATUS_EVENT } from './components/amrLoginPolling';
 import { CollabDemoView } from './collab/CollabDemoView';
 import { CommunityView } from './components/CommunityView';
+import { seedHomeComposerPrompt } from './components/HomeView';
 import { goBack, navigate, useRoute } from './router';
 import {
   fetchDaemonConfig,
@@ -2237,7 +2238,16 @@ function AppInner() {
   } else if (route.kind === 'collab-demo') {
     appMain = <CollabDemoView projectId={route.projectId} />;
   } else if (route.kind === 'community') {
-    appMain = <CommunityView onRemixTemplate={() => navigate({ kind: 'home', view: 'home' })} />;
+    appMain = (
+      <CommunityView
+        onRemixTemplate={({ prompt }) => {
+          // Seed the Home composer with the template's starting prompt, then hand
+          // the user into Home to review + send it (instead of dropping the pick).
+          seedHomeComposerPrompt(prompt);
+          navigate({ kind: 'home', view: 'home' });
+        }}
+      />
+    );
   } else if (route.kind === 'design-system-create') {
     appMain = (
       <DesignSystemCreationFlow

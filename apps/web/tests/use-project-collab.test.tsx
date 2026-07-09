@@ -104,6 +104,48 @@ describe('useProjectCollab', () => {
     expect(result.current.enabled).toBe(false);
   });
 
+  it('fails closed: a non-owner admin is read-only on a shared project even before the owner id arrives', async () => {
+    // An admin (canWriteSyncedFiles=true, so the workspace gate is open) opens
+    // someone else's shared project. `installFetch`'s /collab/status omits
+    // ownerMemberId — the load window. The single-writer gate must fail closed:
+    // a non-owner of any role must not get edit affordances until their own
+    // ownership is confirmed. Pre-fix this returned viewerOnly=false for admins.
+    const admin = makeContext({ role: 'admin', workspaceMemberId: 'wm-admin' });
+    const fetchImpl = installFetch(admin, [{ memberId: 'wm-admin' }]);
+    const { result } = renderHook(() => useProjectCollab('p1', { fetch: fetchImpl }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.viewerOnly).toBe(true);
+  });
+
+  it('lets the confirmed owner edit their own shared project', async () => {
+    // Positive control: once /collab/status reports an ownerMemberId that matches
+    // the current member, the single writer keeps editing (not read-only).
+    const owner = makeContext({ role: 'member', workspaceMemberId: 'wm-owner' });
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const pathname = new URL(String(input), 'http://d.local').pathname;
+      let payload: unknown = { ok: true };
+      if (pathname.endsWith('/workspace/context')) payload = { context: owner };
+      else if (pathname.endsWith('/presence/heartbeat')) payload = { present: [{ memberId: 'wm-owner' }] };
+      else if (pathname.endsWith('/collab/status')) {
+        payload = { publishedVersion: 2, syncState: 'synced', ownerMemberId: 'wm-owner' };
+      }
+      return { ok: true, status: 200, json: async () => payload } as unknown as Response;
+    }) as typeof fetch;
+    const { result } = renderHook(() => useProjectCollab('p1', { fetch: fetchImpl }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.viewerOnly).toBe(false);
+  });
+
   it('freezes even the project owner read-only when the workspace is locked', async () => {
     // Workspace-level gate: a locked workspace has canWriteSyncedFiles=false, so
     // everyone is read-only — including an owner who would otherwise be the single

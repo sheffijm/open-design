@@ -100,7 +100,7 @@ import {
   formatDiscordPresenceCount,
   useDiscordPresence,
 } from './useDiscordPresence';
-import { HomeView } from './HomeView';
+import { HomeView, seedHomeComposerPrompt } from './HomeView';
 import {
   createPluginAuthoringHandoff,
   createPluginUseHandoff,
@@ -1070,7 +1070,15 @@ export function EntryShell({
               />
             ) : null}
             {view === 'community' ? (
-              <CommunityView onRemixTemplate={() => changeView('home')} />
+              <CommunityView
+                onRemixTemplate={({ prompt }) => {
+                  // Seed the Home composer with the template's starting prompt,
+                  // then switch to Home to review + send it (keep in sync with
+                  // the standalone /community branch in App.tsx).
+                  seedHomeComposerPrompt(prompt);
+                  changeView('home');
+                }}
+              />
             ) : null}
             {/* Team destinations — the entry shell owns the nav frame only; each
                 view is provided by another lane (B = members/board, D = team

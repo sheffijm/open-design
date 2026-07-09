@@ -68,6 +68,13 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
       const context = await workspaceContext.current({
         authorization: req.headers.authorization,
       });
+      // Server-side permission gate, mirroring team resource sharing: a team
+      // member without `canShareProjects` is refused — the client hides the
+      // affordance, but the daemon must not trust the client to enforce it. No
+      // team context stays a silent no-op (the publish adapter no-ops off-team).
+      if (context && !context.permissions.canShareProjects) {
+        return res.status(403).json({ error: 'WORKSPACE_PROJECT_SHARE_DENIED' });
+      }
       requestTeamShare(req.params.id, context?.workspaceMemberId);
     }
     res.json({ ok: true, syncState: projectSyncState(req.params.id) });

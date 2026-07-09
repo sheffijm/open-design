@@ -14,6 +14,11 @@ import {
   type ResourceHubPrincipal,
 } from '../integrations/resource-hub.js';
 import { createResourceHubPublishAdapter } from './resource-hub-publish-adapter.js';
+import {
+  createVelaCliResourceAdapter,
+  shouldUseVelaCliResourceTransport,
+} from './vela-cli-resource-adapter.js';
+import type { ResourcePublishAdapter } from './publish-scheduler.js';
 
 /** Thrown when a team member without share rights attempts to share a resource. */
 export class TeamResourceShareForbiddenError extends Error {
@@ -61,35 +66,49 @@ export function createTeamResourceShareService(
   options: CreateTeamResourceShareOptions,
 ): TeamResourceShareService {
   const env = options.env ?? process.env;
-  const client =
-    options.client ??
-    (env.OD_RESOURCE_HUB_URL?.trim()
-      ? createResourceHubClient({ config: readResourceHubConfig(env) })
-      : null);
+  // Distinct, colon-free id namespace on the shared hub. The caller's id (e.g.
+  // `user:palette-x`) is sanitized to path-safe chars — the hub routes the
+  // resource id as a path param, so a colon would 404.
+  const resourceIdFor = (id: string) => `${options.idPrefix}-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   // Ids shared this session. The published resources are the durable record on
   // the hub; this is the fast local view the team collection reads until a hub
   // listing query lands.
   const shared = new Set<string>();
 
-  if (!client) {
-    return {
-      share: async () => null,
-      sharedIds: () => [],
-      isShared: () => false,
-      configured: false,
-    };
+  let adapter: ResourcePublishAdapter;
+  if (shouldUseVelaCliResourceTransport(env)) {
+    // Vela CLI transport (收口): the CLI drives the hub with the same vela login
+    // session AMR uses, so sharing needs no daemon-held internal token. Its
+    // configured-ness is the CLI's presence, not a hub URL, so this branch is
+    // always "configured" — the identity gate below still no-ops off-team.
+    adapter = createVelaCliResourceAdapter({
+      resolveProjectDir: options.resolveDir,
+      resourceIdFor,
+      kind: options.kind,
+      hasTeamIdentity: async () => (await options.getPrincipal()) != null,
+    });
+  } else {
+    const client =
+      options.client ??
+      (env.OD_RESOURCE_HUB_URL?.trim()
+        ? createResourceHubClient({ config: readResourceHubConfig(env) })
+        : null);
+    if (!client) {
+      return {
+        share: async () => null,
+        sharedIds: () => [],
+        isShared: () => false,
+        configured: false,
+      };
+    }
+    adapter = createResourceHubPublishAdapter({
+      client,
+      getPrincipal: options.getPrincipal,
+      resolveProjectDir: options.resolveDir,
+      resourceIdFor,
+      kind: options.kind,
+    });
   }
-
-  const adapter = createResourceHubPublishAdapter({
-    client,
-    getPrincipal: options.getPrincipal,
-    resolveProjectDir: options.resolveDir,
-    // Distinct, colon-free id namespace on the shared hub. The caller's id (e.g.
-    // `user:palette-x`) is sanitized to path-safe chars — the hub routes the
-    // resource id as a path param, so a colon would 404.
-    resourceIdFor: (id) => `${options.idPrefix}-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
-    kind: options.kind,
-  });
 
   return {
     async share(resourceId) {

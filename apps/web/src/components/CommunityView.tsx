@@ -109,7 +109,15 @@ const TEMPLATE_PREVIEW_SRC: Record<string, string> = {
 };
 
 interface CommunityViewProps {
-  onRemixTemplate?: (templateId: string) => void;
+  /** Hand the user into Home with a starting prompt derived from the chosen
+   *  template. The `templateId` is threaded through so the destination knows
+   *  which card was remixed. */
+  onRemixTemplate?: (remix: { templateId: string; prompt: string }) => void;
+}
+
+/** Build the Home-composer starting prompt for a remixed template. */
+function buildRemixPrompt(template: TemplateDemo): string {
+  return `Remix the "${template.title}" community template into a new Open Design project (${template.meta}).`;
 }
 
 export function CommunityView({ onRemixTemplate }: CommunityViewProps) {
@@ -135,7 +143,7 @@ export function CommunityView({ onRemixTemplate }: CommunityViewProps) {
       void copyTemplatePrompt(template);
       return;
     }
-    onRemixTemplate?.(template.id);
+    onRemixTemplate?.({ templateId: template.id, prompt: buildRemixPrompt(template) });
   };
 
   return (

@@ -1,8 +1,36 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import http from 'node:http';
+import {
+  buildWorkspacePermissions,
+  buildWorkspaceSeatSummary,
+  type WorkspaceCollabContext,
+} from '@open-design/contracts';
 import { createCollabRuntime, type CollabRuntime } from '../src/collab/runtime.js';
+import type { WorkspaceContextProvider } from '../src/collab/workspace-context.js';
 import { registerCollabSyncRoutes } from '../src/routes/collab-sync.js';
+
+/** A fixed team context whose `canShareProjects` bit is forced to the tested
+ *  value, served by a minimal provider (no `set` seam). */
+function fixedShareContextProvider(canShareProjects: boolean): WorkspaceContextProvider {
+  const context: WorkspaceCollabContext = {
+    workspaceId: 'ws-1',
+    workspaceType: 'team',
+    workspaceMemberId: 'wm-1',
+    role: 'member',
+    memberStatus: 'active',
+    lifecycleState: 'active',
+    billingState: 'active',
+    planId: null,
+    providerMode: 'platform_credits',
+    seatSummary: buildWorkspaceSeatSummary({ seatLimit: 5, usedSeats: 1 }),
+    permissions: {
+      ...buildWorkspacePermissions({ role: 'member', lifecycleState: 'active' }),
+      canShareProjects,
+    },
+  };
+  return { current: async () => context };
+}
 
 let server: http.Server | null = null;
 let runtime: CollabRuntime | null = null;
@@ -17,10 +45,10 @@ afterEach(async () => {
   }
 });
 
-async function startSyncServer() {
+async function startSyncServer(workspaceContext?: WorkspaceContextProvider) {
   const app = express();
   app.use(express.json());
-  runtime = createCollabRuntime();
+  runtime = createCollabRuntime(workspaceContext ? { workspaceContext } : {});
   registerCollabSyncRoutes(app, { collab: runtime });
   server = http.createServer(app);
   await new Promise<void>((resolve) => server!.listen(0, resolve));
@@ -122,6 +150,30 @@ describe('collab sync routes', () => {
       body: { event: 'nonsense', projectId: 'p1' },
     });
     expect(res.status).toBe(400);
+  });
+
+  it('refuses a team-share intent from a member without canShareProjects (server-side gate)', async () => {
+    // The client hides the share affordance, but the daemon must not trust the
+    // client — a member whose context lacks canShareProjects is refused (403),
+    // and the project stays local_only (no publish is triggered).
+    const api = await startSyncServer(fixedShareContextProvider(false));
+    const res = await api.json('/api/projects/p1/collab/sync-intent', {
+      method: 'POST',
+      body: { event: 'project_team_share_requested', projectId: 'p1' },
+    });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('WORKSPACE_PROJECT_SHARE_DENIED');
+    expect((await api.json('/api/projects/p1/collab/status')).body.syncState).toBe('local_only');
+  });
+
+  it('honors a team-share intent from a member with canShareProjects', async () => {
+    const api = await startSyncServer(fixedShareContextProvider(true));
+    const res = await api.json('/api/projects/p1/collab/sync-intent', {
+      method: 'POST',
+      body: { event: 'project_team_share_requested', projectId: 'p1' },
+    });
+    expect(res.status).toBe(200);
+    expect(['pending_upload', 'synced']).toContain(res.body.syncState);
   });
 
   it('pulls the published head for a member (null before any publish)', async () => {
