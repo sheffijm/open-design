@@ -327,6 +327,19 @@ export function HomeView({
     () => new Set(homeTeamProjects.projects.map((teamProject) => teamProject.projectId)),
     [homeTeamProjects.projects],
   );
+  // projectId → sharing member id, so the strip can resolve "{creator}创建" for a
+  // teammate's shared project (a project absent here is the member's own local
+  // project → "我创建").
+  const homeProjectOwnerMemberIds = useMemo(
+    () =>
+      new Map(
+        homeTeamProjects.projects.map((teamProject) => [
+          teamProject.projectId,
+          teamProject.ownerMemberId,
+        ]),
+      ),
+    [homeTeamProjects.projects],
+  );
   // P0 page_view page_name=home — fire once on mount. ref-keyed to survive
   // re-renders that flip parent state without remounting HomeView.
   const homePageViewFiredRef = useRef(false);
@@ -2109,6 +2122,7 @@ export function HomeView({
         projects={projects}
         designSystems={designSystems}
         sharedProjectIds={homeSharedProjectIds}
+        projectOwnerMemberIds={homeProjectOwnerMemberIds}
         {...(projectsLoading !== undefined ? { loading: projectsLoading } : {})}
         onOpen={(id) => {
           // P0 ui_click area=recent_projects element=project_card — emit

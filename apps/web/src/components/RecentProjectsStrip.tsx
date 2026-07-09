@@ -15,6 +15,14 @@ import type { DesignSystemSummary, Project, ProjectDisplayStatus, ProjectFile } 
 import { Icon } from './Icon';
 import { STATUS_LABEL_KEYS } from './DesignsTab';
 import { isDesignSystemProject, isPublishedDesignSystemProject } from './design-system-project';
+import { useTeamMembers } from '../collab/useTeamMembers';
+import { useWorkspaceContext } from '../collab/useWorkspaceContext';
+
+/** Which project space this strip renders. Drives the per-card 共享 badge
+ *  (hidden in the all-shared team space) and the "{creator}创建" line: 'recent'
+ *  = home's mixed private/shared, 'drafts' = the member's own private list,
+ *  'team' = the全部项目 grid where every card is a team-shared project. */
+export type SpaceKind = 'recent' | 'drafts' | 'team';
 
 interface Props {
   projects: Project[];
@@ -34,6 +42,15 @@ interface Props {
    *  project in this set shows the 共享 badge + "已在团队空间" and cannot be
    *  re-shared — so the state survives a refresh, not just the in-session share. */
   sharedProjectIds?: ReadonlySet<string>;
+  /** Which space this strip renders (see {@link SpaceKind}). Defaults to
+   *  'recent' (home). 'team' hides the per-card 共享 badge since every card
+   *  there is already a team-shared project. */
+  space?: SpaceKind;
+  /** projectId → the sharing member's workspaceMemberId, for team-shared
+   *  projects (from the team hub). Used to resolve the creator name against the
+   *  member directory; a project absent from this map is a local project owned
+   *  by the current member ("我创建"). */
+  projectOwnerMemberIds?: ReadonlyMap<string, string>;
 }
 
 const EMPTY_DESIGN_SYSTEMS: DesignSystemSummary[] = [];
@@ -57,9 +74,19 @@ export function RecentProjectsStrip({
   onRename,
   limit,
   sharedProjectIds,
+  space = 'recent',
+  projectOwnerMemberIds,
 }: Props) {
   const t = useT();
   const rowRef = useRef<HTMLDivElement | null>(null);
+  // Real creator resolution (replaces the demo's mock 李娜/张伟 roster): the
+  // member directory turns an ownerMemberId into a display name, and the
+  // workspace context tells us which member is "me" so the owner's own cards
+  // read "我创建" instead of their display name. Both hooks degrade to
+  // empty/null off-team, so every card safely falls back to "我创建".
+  const { resolve: resolveMember } = useTeamMembers();
+  const { context: workspaceContext } = useWorkspaceContext();
+  const selfMemberId = workspaceContext?.workspaceMemberId ?? null;
   const [responsiveLimit, setResponsiveLimit] = useState(DEFAULT_RECENT_PROJECT_LIMIT);
   const resolvedLimit = limit ?? responsiveLimit;
   const hasRecentProjects = projects.length > 0;
@@ -115,6 +142,20 @@ export function RecentProjectsStrip({
   // survives refresh) OR we shared it in this session (optimistic, before the
   // team-projects poll catches up). The union is what makes the badge stick.
   const isShared = (id: string) => sharedProjectIds?.has(id) === true || sharedIds.has(id);
+  // The card's "{creator}创建" line. A project the team hub attributes to another
+  // member resolves through the directory to that member's display name; my own
+  // shares and every local (non-shared) project read "我创建". Falls back to a
+  // generic "团队成员" when a shared project's owner is not yet in the directory
+  // (off-team, or a member the daemon has not seen register), never an opaque id.
+  const resolveCreator = (projectId: string): { name: string; initial: string } => {
+    const ownerMemberId = projectOwnerMemberIds?.get(projectId) ?? null;
+    if (!ownerMemberId || ownerMemberId === selfMemberId) {
+      return { name: '我', initial: '我' };
+    }
+    const name = resolveMember(ownerMemberId)?.displayName ?? '团队成员';
+    const initial = (Array.from(name.trim())[0] ?? '团').toUpperCase();
+    return { name, initial };
+  };
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
   const renameTitleId = useId();
   const confirmTitleId = useId();
@@ -295,6 +336,7 @@ export function RecentProjectsStrip({
           const isActive =
             !publishedDesignSystem &&
             (status === 'running' || status === 'queued' || status === 'awaiting_input');
+          const creator = resolveCreator(project.id);
           return (
             <div
               key={project.id}
@@ -351,48 +393,34 @@ export function RecentProjectsStrip({
                     >
                       <Icon name="spinner" size={18} />
                     </span>
-                  ) : isShared(project.id) ? (
-                    <span
-                      className="recent-projects__shared-badge"
-                      style={{
-                        position: 'absolute',
-                        top: 8,
-                        left: 8,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 8px',
-                        borderRadius: 999,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        background: 'rgba(17,24,39,0.72)',
-                        color: '#fff',
-                      }}
-                    >
-                      <Icon name="users" size={11} /> 共享
+                  ) : space !== 'team' && isShared(project.id) ? (
+                    <span className="recent-projects__card-badge recent-projects__card-badge--shared">
+                      <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="9" cy="8" r="3" />
+                        <path d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 0-1-5.8M21 20a6 6 0 0 0-5-5.9" />
+                      </svg>
+                      共享
                     </span>
                   ) : null}
                 </div>
                 <div className="recent-projects__card-meta">
-                  <div className="design-card-tag-row">
-                    {designSystemProject ? (
-                      <DesignSystemProjectTag />
-                    ) : (
-                      <ProjectTag category={projectCategory(project)} />
-                    )}
-                  </div>
                   <div className="recent-projects__card-name">{project.name}</div>
-                  <div className="recent-projects__card-time">
-                    <span
-                      className={`recent-projects__card-status recent-projects__card-status-${publishedDesignSystem ? 'published' : status}`}
-                    >
-                      {isActive ? (
-                        <span className="recent-projects__card-status-dot" aria-hidden />
-                      ) : null}
-                      {publishedDesignSystem ? t('designs.status.published') : statusLabel(status, t)}
-                    </span>
-                    <span className="recent-projects__card-sep" aria-hidden>·</span>
-                    {relativeTime(project.updatedAt, t)}
+                  <div className="recent-projects__card-footer">
+                    <div className="recent-projects__card-time">
+                      <span className="recent-projects__card-owner" aria-hidden>
+                        {creator.initial}
+                      </span>
+                      <span>{creator.name}创建</span>
+                      <span className="recent-projects__card-sep" aria-hidden>·</span>
+                      {relativeTime(project.updatedAt, t)}
+                    </div>
+                    <div className="design-card-tag-row">
+                      {designSystemProject ? (
+                        <DesignSystemProjectTag />
+                      ) : (
+                        <ProjectTag category={projectCategory(project)} />
+                      )}
+                    </div>
                   </div>
                 </div>
               </button>
