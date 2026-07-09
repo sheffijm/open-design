@@ -28,6 +28,7 @@ import { EntryHelpMenu } from './EntryHelpMenu';
 import { Icon } from './Icon';
 import { InviteDialog } from './InviteDialog';
 import { CreditsPanel } from './CreditsPanel';
+import { InsufficientCreditsDialog } from './InsufficientCreditsDialog';
 import { useI18n } from '../i18n';
 import type { EntryHomeView } from '../router';
 import styles from './EntryNavRail.module.css';
@@ -173,14 +174,16 @@ export function EntryNavRail({
   const [teamOpen, setTeamOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   // Whether the real billing summary offers a checkout (A's subscription flow).
   const canUpgrade = Boolean(billing?.availableActions?.includes('subscription_checkout'));
 
-  // The "升级" action behind the credits chip: start a team-subscription
+  // "确认支付并升级" inside the plan-picker dialog: start a team-subscription
   // checkout via the daemon's billing 收口 (spawns `vela billing checkout`) and
   // open the returned Stripe URL. A null url (CLI / session / A's route
-  // unavailable) leaves the panel open so the user can retry.
+  // unavailable, e.g. A #660 not yet in local vela) leaves the dialog open so
+  // the user can retry — it never crashes.
   async function handleUpgrade() {
     if (checkingOut) return;
     setCheckingOut(true);
@@ -193,10 +196,10 @@ export function EntryNavRail({
       const body = (await res.json()) as { checkoutUrl?: string | null };
       if (body?.checkoutUrl) {
         window.open(body.checkoutUrl, '_blank', 'noopener,noreferrer');
-        setCreditsOpen(false);
+        setUpgradeOpen(false);
       }
     } catch {
-      // Best-effort: leave the panel open so the user can retry.
+      // Best-effort: leave the dialog open so the user can retry.
     } finally {
       setCheckingOut(false);
     }
@@ -267,8 +270,12 @@ export function EntryNavRail({
                 balance: creditsBalance,
                 grantTip: '团队版按订阅额度发放积分，可在计费中查看用量。',
               }}
-              onUpgrade={() => void handleUpgrade()}
-              upgrading={checkingOut}
+              onUpgrade={() => {
+                // First step: the chip's 升级 opens the plan-picker dialog; the
+                // real checkout runs from the dialog's 确认支付并升级 button.
+                setCreditsOpen(false);
+                setUpgradeOpen(true);
+              }}
               memberCreditNotice={isTeam && !canManageMembers}
             />
             {accountOpen ? (
@@ -581,6 +588,18 @@ export function EntryNavRail({
       </div>
 
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
+
+      {/* Plan-picker shown when the user taps 升级 on the credits chip. Pinned to
+          'free' so the full 个人版 Plus/Pro/Max + 团队版 tier chooser renders (we
+          don't ship the demo's DemoControlBar plan switcher). 确认支付并升级 runs
+          the real billing 收口 (handleUpgrade). */}
+      <InsufficientCreditsDialog
+        open={upgradeOpen}
+        plan="free"
+        onClose={() => setUpgradeOpen(false)}
+        onUpgrade={() => void handleUpgrade()}
+        onBuyPack={() => setUpgradeOpen(false)}
+      />
     </nav>
   );
 }
