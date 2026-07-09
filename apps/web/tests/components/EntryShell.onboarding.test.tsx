@@ -1266,6 +1266,66 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     expect(payload.body).not.toContain('user@example.com');
   });
 
+  it('keeps the typed "Other" channel in the memory note when finishing immediately after typing', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/integrations/vela/status')) {
+        return jsonResponse({
+          loggedIn: true,
+          profile: 'prod',
+          configPath: '/x',
+          user: { id: 'u', email: 'user@example.com' },
+        });
+      }
+      if (url === '/api/memory/user_profile' && init?.method === 'PUT') {
+        return jsonResponse({
+          entry: {
+            id: 'user_profile',
+            name: 'Work profile',
+            description: 'Role and defaults',
+            type: 'profile',
+            updatedAt: Date.now(),
+            body: JSON.parse(String(init.body)).body,
+          },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    renderOnboarding();
+
+    await clickSignedInCloudContinue();
+    chooseOnboardingOption('Where did you hear about us?', /Other/i);
+    const otherInput = document.querySelector<HTMLInputElement>(
+      '.onboarding-chip-field__other-input',
+    );
+    expect(otherInput).toBeTruthy();
+    // Type the custom channel and advance in one act() batch. This is a
+    // behavioral guard that the typed "Other" value reaches the memory note
+    // (its only remaining sink) — it does not reproduce the real-browser race
+    // itself, since jsdom/RTL always flush the state→ref sync effect before the
+    // async memory PUT reads the ref. The fix (mirroring the value into
+    // profileRef synchronously in the input's onChange) removes that timing
+    // dependency by construction.
+    await act(async () => {
+      fireEvent.change(otherInput as HTMLInputElement, {
+        target: { value: 'Design podcast' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
+    });
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url) === '/api/memory/user_profile'),
+      ).toBe(true);
+    });
+    const memoryCall = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/memory/user_profile',
+    );
+    const payload = JSON.parse(String(memoryCall?.[1]?.body));
+    expect(payload.body).toContain('- Discovery source: Other (Design podcast)');
+  });
+
   it('reports about_you_submit exactly once when advancing to the newsletter step', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({

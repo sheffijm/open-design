@@ -2842,6 +2842,16 @@ function OnboardingView({
                         value={profile.sourceOther}
                         onChange={(event) => {
                           const next = event.target.value;
+                          // Mirror into the live ref synchronously. The Memory
+                          // note (the free-text's only sink) is written from
+                          // `profileRef.current`, which state otherwise syncs
+                          // one tick late via useEffect — so a fast type-then-
+                          // Continue would drop the last keystrokes. Updating
+                          // the ref here keeps the note in step with the input.
+                          profileRef.current = {
+                            ...profileRef.current,
+                            sourceOther: next,
+                          };
                           setProfile((current) => ({ ...current, sourceOther: next }));
                         }}
                       />
