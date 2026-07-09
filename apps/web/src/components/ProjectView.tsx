@@ -8083,6 +8083,7 @@ export function ProjectView({
               // A read-only viewer of a team-shared project cannot drive artifact
               // changes through chat (comments go through the separate overlay).
               sendDisabled={currentConversationSendDisabled || projectCollab.viewerOnly}
+              composerPlaceholder={projectCollab.viewerOnly ? t('workspace.readonlyNotice') : undefined}
               queuedItems={currentConversationQueuedItems}
               error={conversationLoadError ?? error}
               projectId={project.id}
@@ -8212,14 +8213,17 @@ export function ProjectView({
               projectHeader={(
                 <span className="chat-project-title-line">
                   <span
-                    className="title editable"
+                    className={`title${projectCollab.viewerOnly ? ' readonly' : ' editable'}`}
                     data-testid="project-title"
-                    title={project.name}
-                    tabIndex={0}
-                    role="textbox"
+                    title={projectCollab.viewerOnly ? t('workspace.readonlyNotice') : project.name}
+                    tabIndex={projectCollab.viewerOnly ? -1 : 0}
+                    role={projectCollab.viewerOnly ? undefined : 'textbox'}
                     suppressContentEditableWarning
-                    contentEditable
-                    onBlur={(e) => handleProjectRename(e.currentTarget.textContent ?? '')}
+                    contentEditable={!projectCollab.viewerOnly}
+                    onBlur={(e) => {
+                      if (projectCollab.viewerOnly) return;
+                      handleProjectRename(e.currentTarget.textContent ?? '');
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -8244,6 +8248,7 @@ export function ProjectView({
                 <DesignSystemPicker
                   designSystems={designSystems}
                   selectedId={projectDesignSystemId ?? null}
+                  disabled={projectCollab.viewerOnly}
                   onChange={handleChangeDesignSystemId}
                 />
               )}
@@ -8277,6 +8282,7 @@ export function ProjectView({
         <FileWorkspace
           projectId={project.id}
           viewerOnly={projectCollab.viewerOnly}
+          readonlyNotice={projectCollab.viewerOnly ? t('workspace.readonlyNotice') : undefined}
           projectKind={projectKindFromMetadataToTracking(currentProject.metadata) ?? 'prototype'}
           rootDirName={(() => {
             const baseDir = currentProject.metadata?.baseDir;

@@ -2714,7 +2714,7 @@ export function FileWorkspace({
       ) : null}
       {viewerOnly ? (
         <div className="workspace-readonly-notice" role="status">
-          <Icon name="eye" size={14} />
+          <Icon name="lock" size={14} />
           <span>{readonlyNotice ?? t('workspace.readonlyNotice')}</span>
         </div>
       ) : null}
@@ -2977,15 +2977,16 @@ export function FileWorkspace({
             commentPortalId={commentPortalId}
             onCommentModeChange={onCommentModeChange}
             shareRequest={
-              shareRequest && shareRequest.name === activeFile.name
+              !viewerOnly && shareRequest && shareRequest.name === activeFile.name
                 ? { nonce: shareRequest.nonce }
                 : null
             }
             downloadRequest={
-              downloadRequest && downloadRequest.name === activeFile.name
+              !viewerOnly && downloadRequest && downloadRequest.name === activeFile.name
                 ? { nonce: downloadRequest.nonce }
                 : null
             }
+            viewerOnly={viewerOnly}
             slideNavRequest={deliverableSlideNavForActiveFile(
               slideNavRequest,
               activeFile.name,

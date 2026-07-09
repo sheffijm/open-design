@@ -343,6 +343,7 @@ export function BoardComposerPopover({
   sending,
   queueOnSend = false,
   sendDisabled = false,
+  sendDisabledReason,
   t,
   scale = 1,
   bounds,
@@ -373,6 +374,7 @@ export function BoardComposerPopover({
   sending: boolean;
   queueOnSend?: boolean;
   sendDisabled?: boolean;
+  sendDisabledReason?: string;
   t: TranslateFn;
   scale?: number;
   bounds?: PopoverBounds;
@@ -647,6 +649,7 @@ export function BoardComposerPopover({
                     variant="primary"
                     data-testid="comment-add-send"
                     disabled={sendBlocked}
+                    title={sendDisabled ? sendDisabledReason : undefined}
                     onClick={() => void onSendBatch()}
                   >
                     {primaryLabel}
@@ -660,6 +663,7 @@ export function BoardComposerPopover({
                     variant="ghost"
                     data-testid="comment-add-send"
                     disabled={sendBlocked}
+                    title={sendDisabled ? sendDisabledReason : undefined}
                     onClick={() => void onSendBatch()}
                   >
                     {primaryLabel}

@@ -1190,6 +1190,9 @@ interface Props {
   // Bumped nonce asking a deck preview to flip to `slideIndex` (a queued chat
   // send for this file just started processing).
   slideNavRequest?: { slideIndex: number; nonce: number } | null;
+  // Read-only viewer of a team-shared project: the viewer can comment but not
+  // edit, export, share, download, or send changes to Chat.
+  viewerOnly?: boolean;
 }
 
 export function FileViewer({
@@ -1214,6 +1217,7 @@ export function FileViewer({
   shareRequest,
   downloadRequest,
   slideNavRequest,
+  viewerOnly = false,
 }: Props) {
   const rendererMatch = artifactRendererRegistry.resolve({
     file,
@@ -1258,6 +1262,7 @@ export function FileViewer({
         shareRequest={shareRequest}
         downloadRequest={downloadRequest}
         slideNavRequest={slideNavRequest}
+        viewerOnly={viewerOnly}
       />
     );
   }
@@ -2572,6 +2577,7 @@ function FileVersionManagerModal({
   entryFrom,
   onClose,
   onRestored,
+  viewerOnly = false,
 }: {
   projectId: string;
   projectKind: TrackingProjectKind | null;
@@ -2580,6 +2586,8 @@ function FileVersionManagerModal({
   entryFrom: 'toolbar' | 'more_menu';
   onClose: () => void;
   onRestored: (content: string, version: ProjectFileVersion) => Promise<void> | void;
+  // Read-only viewer of a team-shared project can browse versions but not restore.
+  viewerOnly?: boolean;
 }) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -2710,7 +2718,7 @@ function FileVersionManagerModal({
     : null;
   const selectedContentMatchesVersion = Boolean(selectedId && selectedContentVersionId === selectedId && selectedContent);
   const restoreDisabled =
-    !selectedVersion || selectedVersion.current || restoring || loadingContent || !selectedContentMatchesVersion;
+    viewerOnly || !selectedVersion || selectedVersion.current || restoring || loadingContent || !selectedContentMatchesVersion;
   const srcDoc = useMemo(() => {
     if (!selectedContent) return '';
     const previewOptions = fileVersionPreviewOptions(projectId, file.name, selectedContent);
@@ -3124,6 +3132,7 @@ function FileVersionManagerModal({
                     type="button"
                     className={`viewer-action primary file-version-restore-action${confirmRestore ? ' active' : ''}`}
                     disabled={restoreDisabled}
+                    title={viewerOnly ? '共享项目只读：可以评论，不能编辑或导出' : undefined}
                     aria-haspopup="dialog"
                     aria-expanded={confirmRestore}
                     aria-controls={confirmRestore ? restorePopoverId : undefined}
@@ -3337,6 +3346,7 @@ export function CommentSidePanel({
   sending,
   queueOnSend = false,
   sendDisabled = false,
+  sendDisabledReason,
   renderCreateForm = true,
   t,
   composer,
@@ -3357,6 +3367,7 @@ export function CommentSidePanel({
   sending: boolean;
   queueOnSend?: boolean;
   sendDisabled?: boolean;
+  sendDisabledReason?: string;
   renderCreateForm?: boolean;
   t: TranslateFn;
   composer?: ReactNode;
@@ -3606,6 +3617,7 @@ export function CommentSidePanel({
             variant="primary"
             data-testid="comment-side-send-claude"
             disabled={sending || sendDisabled}
+            title={sendDisabled ? sendDisabledReason : undefined}
             onClick={() => void onSendSelected()}
           >
             {sending
@@ -3735,6 +3747,7 @@ function CommentSideDock({
   sending,
   queueOnSend = false,
   sendDisabled = false,
+  sendDisabledReason,
   renderCreateForm = true,
   t,
   composer,
@@ -3755,6 +3768,7 @@ function CommentSideDock({
   sending: boolean;
   queueOnSend?: boolean;
   sendDisabled?: boolean;
+  sendDisabledReason?: string;
   renderCreateForm?: boolean;
   t: TranslateFn;
   composer?: ReactNode;
@@ -3781,6 +3795,7 @@ function CommentSideDock({
         sending={sending}
         queueOnSend={queueOnSend}
         sendDisabled={sendDisabled}
+        sendDisabledReason={sendDisabledReason}
         renderCreateForm={renderCreateForm}
         t={t}
         composer={composer}
@@ -5642,6 +5657,7 @@ function HtmlViewer({
   shareRequest,
   downloadRequest,
   slideNavRequest,
+  viewerOnly = false,
 }: {
   projectId: string;
   projectKind: TrackingProjectKind;
@@ -5663,6 +5679,8 @@ function HtmlViewer({
   shareRequest?: { nonce: number } | null;
   downloadRequest?: { nonce: number } | null;
   slideNavRequest?: { slideIndex: number; nonce: number } | null;
+  // Read-only viewer of a team-shared project: comment-only, no edit/export.
+  viewerOnly?: boolean;
 }) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
@@ -8860,6 +8878,8 @@ function HtmlViewer({
   }
 
   function selectMode(nextMode: 'preview' | 'source') {
+    // Read-only viewer of a team-shared project can preview but not inspect source.
+    if (viewerOnly && nextMode === 'source') return;
     if (nextMode === 'source') setDrawOverlayOpen(false);
     setMode(nextMode);
   }
@@ -8907,6 +8927,7 @@ function HtmlViewer({
   }
 
   function activateDrawTool() {
+    if (viewerOnly) return; // read-only viewer: mark (annotate) is an edit action
     fireArtifactToolbarClick('mark');
     const next = !drawOverlayOpen;
     if (!next) {
@@ -8995,6 +9016,7 @@ function HtmlViewer({
   }
 
   function activateManualEditTool() {
+    if (viewerOnly) return; // read-only viewer cannot enter manual edit mode
     fireArtifactToolbarClick('edit');
     capturePreviewScrollPosition();
     if (!manualEditMode) {
@@ -9163,15 +9185,33 @@ function HtmlViewer({
     isDeckArtifact ||
     artifactKind === 'html' ||
     rendererId === 'html';
-  const canShare = source !== null && isShareableArtifact;
-  const canDownload = source !== null && (isShareableArtifact || isMarkdownArtifact);
+  const canShare = source !== null && isShareableArtifact && !viewerOnly;
+  const canDownload = source !== null && (isShareableArtifact || isMarkdownArtifact) && !viewerOnly;
   // PPTX export is slide-based, so show it only for explicit decks plus
   // structured deck runtimes. Do not key this off plain `.slide`: ordinary
   // parallax/long pages may use that class but must remain page-mode exports.
   const showPptxExport = canShare && deckExportSignal;
   const canPptx = showPptxExport && !streaming;
-  const showMarkdownExport = source !== null && isMarkdownArtifact;
+  const showMarkdownExport = source !== null && isMarkdownArtifact && !viewerOnly;
   const showImageExport = canShare;
+  // Read-only viewer of a team-shared project: comment-only copy for the
+  // disabled edit/export controls and the comment composer's send-to-chat path.
+  const viewerOnlyDisabledTitle = '共享项目只读：可以评论，不能编辑或导出';
+  const viewerOnlySendDisabledTitle = '共享项目只读：可以保存评论，不能发送到 Chat 修改 Artifact';
+
+  // If viewerOnly flips on while an edit surface / export menu is open, close it
+  // so the read-only viewer never lands in an editing mode it can't act on.
+  useEffect(() => {
+    if (!viewerOnly) return;
+    setDeployMenuOpen(false);
+    setDownloadMenuOpen(false);
+    setDrawOverlayOpen(false);
+    setInspectMode(false);
+    if (mode === 'source') setMode('preview');
+    if (manualEditMode) {
+      void exitManualEditModeAfterFlush();
+    }
+  }, [viewerOnly, mode, manualEditMode]);
 
   useEffect(() => {
     const nudgeKey = `${projectId}\n${file.name}`;
@@ -9245,6 +9285,7 @@ function HtmlViewer({
   }, [slideNavRequest?.nonce, slideNavRequest?.slideIndex, effectiveDeck, previewStateKey, slideState?.count]);
 
   const openDownloadMenu = () => {
+    if (viewerOnly) return; // read-only viewer cannot download/export
     fireArtifactHeaderClick('download_dropdown');
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
@@ -9252,6 +9293,7 @@ function HtmlViewer({
     setDownloadMenuOpen((v) => !v);
   };
   const openDeployMenu = () => {
+    if (viewerOnly) return; // read-only viewer cannot share/publish
     fireArtifactHeaderClick('share_dropdown');
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
@@ -9962,7 +10004,8 @@ function HtmlViewer({
       } : undefined}
       sending={sendingBoardBatch}
       queueOnSend={commentQueueOnSend}
-      sendDisabled={commentSendDisabled}
+      sendDisabled={commentSendDisabled || viewerOnly}
+      sendDisabledReason={viewerOnly ? viewerOnlySendDisabledTitle : undefined}
       t={t}
       scale={overlayPreviewScale}
       offset={{ x: overlayPreviewTransform.offsetX, y: overlayPreviewTransform.offsetY }}
@@ -10077,7 +10120,8 @@ function HtmlViewer({
       onCreateComment={savePanelComment}
       sending={sendingBoardBatch}
       queueOnSend={commentQueueOnSend}
-      sendDisabled={commentSendDisabled}
+      sendDisabled={commentSendDisabled || viewerOnly}
+      sendDisabledReason={viewerOnly ? viewerOnlySendDisabledTitle : undefined}
       renderCreateForm={!commentPortalHost}
       t={t}
       composer={null}
@@ -10085,7 +10129,7 @@ function HtmlViewer({
   ) : null;
 
   return (
-    <div className={`viewer html-viewer${inTabPresent ? ' is-tab-present' : ''}`}>
+    <div className={`viewer html-viewer${inTabPresent ? ' is-tab-present' : ''}${viewerOnly ? ' html-viewer--viewer-only' : ''}`}>
       <div className="viewer-toolbar">
         <div className="viewer-toolbar-left">
           <button
@@ -10111,8 +10155,9 @@ function HtmlViewer({
                 className={`viewer-tab od-tooltip ${mode === id ? 'active' : ''}`}
                 aria-label={label}
                 aria-selected={mode === id}
-                title={label}
-                data-tooltip={label}
+                disabled={viewerOnly && id === 'source'}
+                title={viewerOnly && id === 'source' ? viewerOnlyDisabledTitle : label}
+                data-tooltip={viewerOnly && id === 'source' ? viewerOnlyDisabledTitle : label}
                 data-tooltip-placement="bottom"
                 onClick={() => {
                   fireArtifactToolbarClick(id);
@@ -10203,8 +10248,9 @@ function HtmlViewer({
                   data-testid="screenshot-copy-button"
                   data-tooltip={t('fileViewer.screenshot')}
                   data-tooltip-placement="bottom"
-                  title={t('fileViewer.screenshot')}
+                  title={viewerOnly ? viewerOnlyDisabledTitle : t('fileViewer.screenshot')}
                   aria-label={t('fileViewer.screenshot')}
+                  disabled={viewerOnly}
                   onClick={handleCopyScreenshot}
                 >
                   <RemixIcon name="screenshot-2-line" size={15} />
@@ -10229,9 +10275,10 @@ function HtmlViewer({
                 className={`viewer-action viewer-action-icon od-tooltip${drawOverlayOpen ? ' active' : ''}`}
                 type="button"
                 data-testid="draw-overlay-toggle"
-                data-tooltip={t('fileViewer.mark')}
+                data-tooltip={viewerOnly ? viewerOnlyDisabledTitle : t('fileViewer.mark')}
                 data-tooltip-placement="bottom"
-                title={t('fileViewer.mark')}
+                disabled={viewerOnly}
+                title={viewerOnly ? viewerOnlyDisabledTitle : t('fileViewer.mark')}
                 aria-label={t('fileViewer.mark')}
                 aria-pressed={drawOverlayOpen}
                 onClick={activateDrawTool}
@@ -10243,9 +10290,10 @@ function HtmlViewer({
                 className={`viewer-action viewer-action-icon od-tooltip${manualEditMode ? ' active' : ''}`}
                 type="button"
                 data-testid="manual-edit-mode-toggle"
-                data-tooltip={t('fileViewer.edit')}
+                data-tooltip={viewerOnly ? viewerOnlyDisabledTitle : t('fileViewer.edit')}
                 data-tooltip-placement="bottom"
-                title={t('fileViewer.edit')}
+                disabled={viewerOnly}
+                title={viewerOnly ? viewerOnlyDisabledTitle : t('fileViewer.edit')}
                 aria-label={t('fileViewer.edit')}
                 aria-pressed={manualEditMode}
                 onClick={activateManualEditTool}
@@ -11250,6 +11298,7 @@ function HtmlViewer({
           entryFrom={versionModalOpen}
           onClose={() => setVersionModalOpen(false)}
           onRestored={handleVersionRestored}
+          viewerOnly={viewerOnly}
         />
       ) : null}
       {pptxExportModalOpen && typeof document !== 'undefined' ? createPortal(
