@@ -64,12 +64,15 @@ describe('codex native session resume', () => {
     // The MCP-directive red-spec below writes an authenticated `github` server
     // into the process-wide OD_DATA_DIR (tests/setup.ts shares one root for the
     // whole daemon Vitest run). Reset it after every test so that state cannot
-    // leak into later test files and make them suite-order dependent. Both calls
-    // are idempotent no-ops when nothing was written.
+    // leak into later test files and make them suite-order dependent.
+    // `writeMcpConfig` unconditionally overwrites to an empty server list and
+    // `clearToken` is a documented no-op when the entry is absent, so neither
+    // needs to tolerate "nothing was written" — let a real teardown failure
+    // surface instead of silently degrading the isolation guarantee.
     const dataDir = process.env.OD_DATA_DIR;
     if (dataDir) {
-      await writeMcpConfig(dataDir, { servers: [] }).catch(() => {});
-      await clearToken(dataDir, 'github').catch(() => {});
+      await writeMcpConfig(dataDir, { servers: [] });
+      await clearToken(dataDir, 'github');
     }
   });
 
