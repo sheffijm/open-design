@@ -8,7 +8,12 @@ import {
   type PluginSourceKind,
   type SkillSummary,
 } from '@open-design/contracts';
-import { fetchSkills } from '../providers/registry';
+import {
+  fetchSkills,
+  importSkill,
+  type SkillImportInput,
+  type SkillImportError,
+} from '../providers/registry';
 import { localizeSkillName } from '../i18n/content';
 import { useAnalytics } from '../analytics/provider';
 import {
@@ -732,6 +737,107 @@ export function ExtensionsMarketplace({
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
 
+  // "新增" import dialog (ported verbatim from the demo's PluginMarketplaceDemo
+  // create panel). The demo shipped a pure UI stub; here every action is wired
+  // to the real daemon import path where one exists:
+  //   Plugin · 从链接导入   → installPluginSource(url)
+  //   Plugin · 上传本地文件夹 → uploadPluginFolder(files)
+  //   Skill  · 上传本地文件夹 → importSkill(<SKILL.md body>)  (reads the folder)
+  //   Skill  · 从链接导入   → NO backend yet → 待接后端 (see handleCreateImportUrl)
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createKind, setCreateKind] = useState<'plugin' | 'skill'>('plugin');
+  const [createUrl, setCreateUrl] = useState('');
+  const [createFolderFiles, setCreateFolderFiles] = useState<File[]>([]);
+  const [createBusy, setCreateBusy] = useState<'import' | 'upload' | null>(null);
+  const createFolderInputRef = useRef<HTMLInputElement>(null);
+
+  function openCreateDialog() {
+    setCreateKind(mode === 'skills' ? 'skill' : 'plugin');
+    setCreateUrl('');
+    setCreateFolderFiles([]);
+    setCreateBusy(null);
+    setCreateOpen(true);
+  }
+
+  function closeCreateDialog() {
+    if (createBusy) return;
+    setCreateOpen(false);
+  }
+
+  function switchCreateKind(next: 'plugin' | 'skill') {
+    if (createBusy) return;
+    setCreateKind(next);
+    setCreateUrl('');
+    setCreateFolderFiles([]);
+  }
+
+  async function handleCreateImportUrl() {
+    const url = createUrl.trim();
+    if (!url || createBusy) return;
+    // Skills have no import-from-URL endpoint yet. Keep the UI shell but do not
+    // fabricate a flow — surface the gap plainly. TODO(backend): skill import
+    // from a public URL.
+    if (createKind === 'skill') {
+      setToast({
+        message: '技能暂不支持从链接导入，请改用「上传本地文件夹」。',
+        tone: 'error',
+      });
+      return;
+    }
+    setCreateBusy('import');
+    try {
+      const outcome = await installPluginSource(url);
+      if (outcome.ok) {
+        await refresh();
+        setCreateOpen(false);
+        setToast({ message: '已导入并上传专家套件', tone: 'success' });
+      } else {
+        setToast({ message: outcome.message || '导入失败，请检查链接后重试。', tone: 'error' });
+      }
+    } finally {
+      setCreateBusy(null);
+    }
+  }
+
+  async function handleCreateUploadFolder() {
+    if (createFolderFiles.length === 0 || createBusy) return;
+    setCreateBusy('upload');
+    try {
+      if (createKind === 'plugin') {
+        const outcome = await uploadPluginFolder(createFolderFiles);
+        if (outcome.ok) {
+          await refresh();
+          setCreateOpen(false);
+          setToast({ message: '已上传专家套件', tone: 'success' });
+        } else {
+          setToast({ message: outcome.message || '上传失败，请检查文件夹内容。', tone: 'error' });
+        }
+        return;
+      }
+      // Skill: read SKILL.md out of the picked folder and import it through the
+      // existing /api/skills/import endpoint (importSkill). Imports to the user
+      // (个人的) registry; promoting to the team is the existing 转为团队共享 action.
+      const input = await readSkillImportInputFromFolder(createFolderFiles);
+      if ('error' in input) {
+        setToast({ message: input.error.message, tone: 'error' });
+        return;
+      }
+      const result = await importSkill(input);
+      if ('error' in result) {
+        setToast({ message: result.error.message, tone: 'error' });
+        return;
+      }
+      await refresh();
+      setCreateOpen(false);
+      setToast({
+        message: `已导入 Skill「${localizeSkillName(locale, result.skill)}」，可在「个人的」中转为团队共享。`,
+        tone: 'success',
+      });
+    } finally {
+      setCreateBusy(null);
+    }
+  }
+
   async function refresh() {
     setLoading(true);
     const [rows, allRows, catalogs, skillRows] = await Promise.all([
@@ -954,7 +1060,7 @@ export function ExtensionsMarketplace({
             <button
               type="button"
               className="plugin-marketplace__create"
-              onClick={() => onCreatePlugin()}
+              onClick={openCreateDialog}
             >
               <Icon name="plus" size={15} />
               新增
@@ -1132,11 +1238,182 @@ export function ExtensionsMarketplace({
         )}
       </div>
 
+      {createOpen ? (
+        <div
+          className="plugin-marketplace__modal-backdrop"
+          role="presentation"
+          onClick={closeCreateDialog}
+        >
+          <section
+            className="plugin-marketplace__create-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plugin-create-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="plugin-marketplace__create-head">
+              <div>
+                <h2 id="plugin-create-title">新增 {createKind === 'plugin' ? 'Plugin' : 'Skill'}</h2>
+                <p>
+                  {createKind === 'plugin'
+                    ? '从 GitHub 或本地文件夹导入一个插件，上传后即可在团队内使用。'
+                    : '创建一个可复用的任务流程或审查规则，之后可以被 Plugin 复用。'}
+                </p>
+              </div>
+              <button type="button" aria-label="关闭新增面板" onClick={closeCreateDialog}>
+                <Icon name="close" size={15} />
+              </button>
+            </header>
+            <div className="plugin-marketplace__create-tabs" aria-label="Create type">
+              <button
+                type="button"
+                className={createKind === 'plugin' ? 'is-active' : ''}
+                onClick={() => switchCreateKind('plugin')}
+              >
+                Plugin
+              </button>
+              <button
+                type="button"
+                className={createKind === 'skill' ? 'is-active' : ''}
+                onClick={() => switchCreateKind('skill')}
+              >
+                Skill
+              </button>
+            </div>
+            <div className="plugin-marketplace__create-options">
+              <article>
+                <span className="plugin-marketplace__create-option-icon" aria-hidden>
+                  <Icon name="external-link" size={20} />
+                </span>
+                <div>
+                  <h3>从链接导入</h3>
+                  <p>
+                    粘贴 {createKind === 'plugin' ? '专家套件' : 'Skill'} 的公开链接，
+                    Open Design 会拉取清单、校验能力并上传到团队空间。
+                  </p>
+                  <label>
+                    <span>URL</span>
+                    <input
+                      value={createUrl}
+                      onChange={(event) => setCreateUrl(event.target.value)}
+                      disabled={createBusy !== null}
+                      placeholder={createKind === 'plugin' ? 'https://example.com/open-design-suite' : 'https://example.com/skill'}
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  disabled={createBusy !== null || createUrl.trim().length === 0}
+                  onClick={() => void handleCreateImportUrl()}
+                >
+                  {createBusy === 'import' ? '导入中…' : '导入并上传'}
+                </button>
+              </article>
+              <article>
+                <span className="plugin-marketplace__create-option-icon" aria-hidden>
+                  <Icon name="folder" size={20} />
+                </span>
+                <div>
+                  <h3>上传本地文件夹</h3>
+                  <p>
+                    选择包含 {createKind === 'plugin' ? 'open-design.json / SKILL.md' : 'SKILL.md'} 的本地目录，
+                    校验通过后上传为团队 {createKind === 'plugin' ? '专家套件' : 'Skill'}。
+                  </p>
+                  <input
+                    ref={createFolderInputRef}
+                    type="file"
+                    multiple
+                    disabled={createBusy !== null}
+                    style={{ display: 'none' }}
+                    {...{ webkitdirectory: '', directory: '' }}
+                    onChange={(event) =>
+                      setCreateFolderFiles(Array.from(event.currentTarget.files ?? []))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="plugin-marketplace__folder-pick"
+                    disabled={createBusy !== null}
+                    onClick={() => createFolderInputRef.current?.click()}
+                  >
+                    <Icon name="folder" size={15} />
+                    {createFolderFiles.length > 0
+                      ? `已选择 ${createFolderFiles.length} 个文件`
+                      : '选择文件夹'}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={createBusy !== null || createFolderFiles.length === 0}
+                  onClick={() => void handleCreateUploadFolder()}
+                >
+                  {createBusy === 'upload'
+                    ? '上传中…'
+                    : `上传 ${createKind === 'plugin' ? '专家套件' : 'Skill'}`}
+                </button>
+              </article>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {toast ? (
         <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
       ) : null}
     </section>
   );
+}
+
+// Reads a SKILL.md out of a webkitdirectory folder selection and shapes it into
+// the /api/skills/import body. Best-effort YAML-frontmatter parse for name and
+// description; the body is everything after the frontmatter block. Returns a
+// tagged error (never throws) so the caller can surface a toast.
+async function readSkillImportInputFromFolder(
+  files: File[],
+): Promise<SkillImportInput | { error: SkillImportError }> {
+  const skillFile = files.find((file) =>
+    /(^|\/)SKILL\.md$/i.test(file.webkitRelativePath || file.name),
+  );
+  if (!skillFile) {
+    return { error: { message: '所选文件夹中未找到 SKILL.md。' } };
+  }
+  let text: string;
+  try {
+    text = await skillFile.text();
+  } catch {
+    return { error: { message: '无法读取 SKILL.md，请重试。' } };
+  }
+  const fallbackName = deriveSkillFolderName(skillFile);
+  const { name, description, body } = parseSkillMarkdown(text, fallbackName);
+  if (!name) {
+    return { error: { message: 'SKILL.md 缺少 name 字段。' } };
+  }
+  if (!body.trim()) {
+    return { error: { message: 'SKILL.md 内容为空。' } };
+  }
+  return { name, description, body, triggers: [] };
+}
+
+function deriveSkillFolderName(file: File): string {
+  const rel = file.webkitRelativePath;
+  if (rel && rel.includes('/')) return rel.split('/')[0] ?? '';
+  return file.name.replace(/\.md$/i, '');
+}
+
+function parseSkillMarkdown(
+  content: string,
+  fallbackName: string,
+): { name: string; description: string; body: string } {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) {
+    return { name: fallbackName, description: '', body: content.trim() };
+  }
+  const block = match[1] ?? '';
+  const body = content.slice(match[0].length).trim();
+  const unquote = (value: string | undefined) =>
+    (value ?? '').trim().replace(/^["']|["']$/g, '').trim();
+  const name = unquote(block.match(/^name:\s*(.+)$/m)?.[1]) || fallbackName;
+  const description = unquote(block.match(/^description:\s*(.+)$/m)?.[1]);
+  return { name, description, body };
 }
 
 function MarketEmptyState({
