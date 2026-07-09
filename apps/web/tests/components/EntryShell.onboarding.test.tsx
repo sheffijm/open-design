@@ -1071,6 +1071,55 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     });
   });
 
+  it('keeps the "Other" free-text in parity across both survey-snapshot carriers', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        loggedIn: true,
+        profile: 'prod',
+        configPath: '/x',
+        user: { id: 'u', email: 'user@example.com' },
+      }),
+    ) as typeof fetch;
+    renderOnboarding();
+
+    await clickSignedInCloudContinue();
+
+    chooseOnboardingOption('Where did you hear about us?', /Other/i);
+    const otherInput = document.querySelector<HTMLInputElement>(
+      '.onboarding-chip-field__other-input',
+    );
+    expect(otherInput).toBeTruthy();
+    fireEvent.change(otherInput as HTMLInputElement, {
+      target: { value: 'Design podcast' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Stay in the loop' })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Create once, build everywhere' }),
+      ).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Build a design system' }));
+
+    // Both carriers of the survey snapshot — the about_you_submit click and
+    // the onboarding_complete_result fallback — must preserve the raw channel
+    // typed behind "Other", not just `discovery_source: 'other'`.
+    expect(
+      findTrackedEvent('ui_click', (payload) => payload.element === 'about_you_submit'),
+    ).toMatchObject({
+      discovery_source: 'other',
+      discovery_source_other: 'Design podcast',
+    });
+    expect(latestTrackedEvent('onboarding_complete_result')).toMatchObject({
+      discovery_source: 'other',
+      discovery_source_other: 'Design podcast',
+    });
+  });
+
   it('submits the optional newsletter email when finishing onboarding', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       void init;

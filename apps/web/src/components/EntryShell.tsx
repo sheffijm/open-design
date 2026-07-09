@@ -1702,6 +1702,12 @@ function OnboardingView({
           ? liveProfile.useCase
           : ['unknown'],
         discovery_source: liveProfile.source || 'unknown',
+        // Keep the raw "Other" channel in parity with `about_you_submit`;
+        // without this the fallback carrier would preserve `discovery_source:
+        // 'other'` but lose what the user actually typed.
+        ...(liveProfile.source === 'other' && liveProfile.sourceOther.trim()
+          ? { discovery_source_other: liveProfile.sourceOther.trim() }
+          : {}),
       } : {}),
     });
   }

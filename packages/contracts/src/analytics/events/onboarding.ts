@@ -260,6 +260,10 @@ export interface OnboardingCompleteResultProps {
   organization_size?: TrackingOnboardingOrganizationSize;
   use_cases?: TrackingOnboardingUseCase[];
   discovery_source?: TrackingOnboardingDiscoverySource;
+  // Free-text detail behind `discovery_source === 'other'`, mirrored from
+  // `about_you_submit` so the completion carrier keeps the raw channel string
+  // when the individual click was dropped on navigation. Absent otherwise.
+  discovery_source_other?: string;
 }
 
 // Fired once when Studio mounts with the recommended first request pre-filled
