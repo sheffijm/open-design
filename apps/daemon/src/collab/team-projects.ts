@@ -7,6 +7,15 @@
 // the team-resource share path uses, and degrades to an empty list when there is
 // no team identity or the hub is not configured — the single identity gate shared
 // with the rest of the collab surface.
+//
+// OWNERSHIP / TEMPORARY: the source of truth for team project visibility (which
+// projects are in the team space) is the D-lane directory service on vela, NOT
+// this C-lane hub read. This lister exists so the team edition is locally
+// point-and-click debuggable before D's vela endpoint lands: it derives the list
+// from the projects C already publishes to the hub on a share. When D's service
+// is ready, the daemon should proxy vela here (daemon as the cache/收口 layer)
+// and this hub-derived read becomes the offline fallback. Keep the data source
+// swap contained to this file + the version helper below.
 
 import type { TeamProject } from '@open-design/contracts';
 import {
@@ -20,6 +29,12 @@ import type { WorkspaceContextProvider } from './workspace-context.js';
 
 const PROJECT_KIND = 'project';
 const PROJECT_ID_PREFIX = /^project-/;
+
+// TODO(D-lane): when this read proxies vela over the CLI (a slower cross-network
+// call), the web poll should first probe a cheap change tag — vela's version /
+// last-modified on the team project list — and only pull the full list when it
+// moved. While the read is daemon-local (the hub stub below), that probe would
+// save nothing, so the client just refetches the whole list on its interval.
 
 /** Map a `kind: 'project'` hub resource to the team-project discovery DTO. The
  *  hub id namespaces projects under a `project-` prefix; strip it back to the

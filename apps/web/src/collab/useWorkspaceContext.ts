@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   TeamProject,
   WorkspaceBillingResponse,
@@ -90,41 +90,68 @@ export interface TeamProjectsState {
  * surfaces them so a member can discover + open them. Empty off-team or when the
  * hub is not configured — the daemon degrades to `{ projects: [] }` there.
  */
+// Poll cadence for the team-shared list. ~15s is fast enough that two teammates
+// see each other's shares without refreshing. Today the read is daemon-local
+// (fast) so the poll just refetches the whole list; if this becomes a slow vela
+// proxy, add a cheap change probe first (see team-projects.ts TODO) so the poll
+// only pulls the full list when it changed.
+const TEAM_PROJECTS_POLL_MS = 15_000;
+
 export function useTeamProjects(): TeamProjectsState {
   const [projects, setProjects] = useState<TeamProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    void (async () => {
-      try {
-        const res = await fetch('/api/workspace/projects/team');
-        if (!res.ok) {
-          if (!cancelled) {
-            setProjects([]);
-            setLoading(false);
-          }
-          return;
-        }
-        const body = (await res.json()) as WorkspaceTeamProjectsResponse;
-        if (!cancelled) {
-          setProjects(body.projects ?? []);
-          setLoading(false);
-        }
-      } catch {
-        // Personal / offline / daemon without the hub: no team-shared projects.
-        if (!cancelled) {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Fetch the full list. Shared by the initial load, manual reload(), and the
+  // poll. Never flips `loading` (only the initial/reload effect does) so a
+  // background refresh has no spinner.
+  const loadFull = useCallback(async () => {
+    try {
+      const res = await fetch('/api/workspace/projects/team');
+      if (!res.ok) {
+        if (mountedRef.current) {
           setProjects([]);
           setLoading(false);
         }
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [nonce]);
+      const body = (await res.json()) as WorkspaceTeamProjectsResponse;
+      if (mountedRef.current) {
+        setProjects(body.projects ?? []);
+        setLoading(false);
+      }
+    } catch {
+      // Personal / offline / daemon without the hub: no team-shared projects.
+      if (mountedRef.current) {
+        setProjects([]);
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  // Initial load + manual reload (nonce bump).
+  useEffect(() => {
+    setLoading(true);
+    void loadFull();
+  }, [nonce, loadFull]);
+
+  // Lightweight polling so teammates see each other's shares without refreshing.
+  // A daemon-local read is cheap enough to just refetch; offline errors keep the
+  // last snapshot until the next tick.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void loadFull();
+    }, TEAM_PROJECTS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [loadFull]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   return { projects, loading, reload };

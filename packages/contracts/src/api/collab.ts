@@ -68,6 +68,13 @@ export interface TeamProject {
  * project any member shared to the team, read from the resource hub. A member's
  * own `/api/projects` list is only their LOCAL projects; team-shared projects
  * live on the hub until pulled. Empty off-team or when the hub is not configured.
+ *
+ * The web client polls this on an interval so teammates see each other's shares
+ * without refreshing. Today the read is daemon-local (fast), so it just refetches
+ * the whole list. Once D's directory service owns team visibility this read
+ * proxies vela over the CLI — a slower cross-network call — and should gain a
+ * cheap change probe (vela's version / last-modified) so the poll only pulls the
+ * full list when it actually changed.
  */
 export interface WorkspaceTeamProjectsResponse {
   projects: TeamProject[];
