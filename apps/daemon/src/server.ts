@@ -576,6 +576,7 @@ import { registerCollabContextRoutes } from './routes/collab-context.js';
 import { registerTeamResourceRoutes } from './routes/team-resources.js';
 import { registerTeamResourceShareRoutes } from './routes/team-resource-share.js';
 import { createCollabRuntime } from './collab/runtime.js';
+import { createTeamProjectsLister } from './collab/team-projects.js';
 import { createTeamResourceShareService } from './collab/team-resource-share.js';
 import { contextToResourceHubPrincipal } from './collab/resource-hub-publish-adapter.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
@@ -3810,6 +3811,11 @@ export async function startServer({
     resolveProjectDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
   });
   registerCollabPresenceRoutes(app, { collab });
+  // Server-authoritative owner lookup for register-on-pull: read the shared
+  // project's owner from the team hub (the same list the discovery endpoint
+  // serves) rather than trusting a client-supplied id, so a pulled project is
+  // recorded read-only under its true single writer.
+  const teamProjectsLister = createTeamProjectsLister({ workspaceContext: collab.workspaceContext });
   registerCollabSyncRoutes(app, {
     collab,
     // Register-on-pull: after a member pulls a shared project, insert a local
@@ -3829,6 +3835,10 @@ export async function startServer({
       },
     },
     resolvePullDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
+    resolveSharedProjectOwner: async (projectId) => {
+      const list = await teamProjectsLister();
+      return list.find((entry) => entry.projectId === projectId)?.ownerMemberId ?? null;
+    },
   });
   registerCollabContextRoutes(app, { workspaceContext: collab.workspaceContext });
   registerTeamResourceRoutes(app, { teamResources: collab.teamResources });

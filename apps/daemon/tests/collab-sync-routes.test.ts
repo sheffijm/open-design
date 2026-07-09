@@ -293,4 +293,32 @@ describe('collab sync routes', () => {
     expect(store.registerCalls).toBe(1);
     expect(store.projects.get('shared-3')?.name).toBe('Already Local');
   });
+
+  it('derives read-only from the hub at status time — no pull or in-memory record needed', async () => {
+    const api = await startSyncServer(undefined, {
+      resolveSharedProjectOwner: async (projectId) =>
+        projectId === 'shared-ro' ? 'wm-owner' : null,
+    });
+
+    // Straight to status: no pull, no in-memory share record. A project the hub
+    // lists as shared by wm-owner reports synced + that owner, so a non-owner
+    // member's client (`shared && !isOwner`) renders it single-writer read-only.
+    // Deriving every read is what makes read-only survive a daemon restart (which
+    // clears the in-memory maps) and an already-pulled project opened without a
+    // re-pull — the bug was the pull never recording this at all.
+    const status = await api.json('/api/projects/shared-ro/collab/status');
+    expect(status.body.syncState).toBe('synced');
+    expect(status.body.ownerMemberId).toBe('wm-owner');
+  });
+
+  it('leaves a project the hub does not list editable (local_only)', async () => {
+    const api = await startSyncServer(undefined, {
+      resolveSharedProjectOwner: async () => null,
+    });
+    const status = await api.json('/api/projects/not-shared/collab/status');
+    // Not team-shared → no read-only: the member keeps full edit on their own
+    // local project. Read-only never fires just because a status probe ran.
+    expect(status.body.syncState).toBe('local_only');
+    expect(status.body.ownerMemberId).toBeNull();
+  });
 });

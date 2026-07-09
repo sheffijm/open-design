@@ -47,6 +47,15 @@ export interface RegisterCollabSyncRoutesDeps {
     | 'workspaceContext'
   >;
   /**
+   * Resolve the member who shared a project (its single writer), from the team
+   * hub — server-authoritative and read at status time, so a member's read-only
+   * state derives from the hub rather than a client-supplied id or an in-memory
+   * pull record that a daemon restart would lose. Returns null when the project is
+   * not team-shared (off-team / hub unconfigured / owned by nobody in the list),
+   * in which case the project is a normal editable local project.
+   */
+  resolveSharedProjectOwner?: (projectId: string) => Promise<string | null>;
+  /**
    * Optional project-store seam. When present, `POST /api/projects/:id/collab/pull`
    * registers the pulled shared project locally (idempotently) so a member can
    * open it like any other project. Omitted in unit contexts that only exercise
@@ -85,7 +94,7 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
     pullLatest,
     workspaceContext,
   } = deps.collab;
-  const { projectStore, resolvePullDir } = deps;
+  const { projectStore, resolvePullDir, resolveSharedProjectOwner } = deps;
   const readManifest = deps.readManifest ?? readProjectManifest;
 
   // Register a freshly pulled shared project as a local project record so it
@@ -175,11 +184,35 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
 
   // Members poll this to learn the published head version they should pull and
   // the current sync state (local_only / pending_upload / synced / sync_failed).
-  app.get('/api/projects/:id/collab/status', (req, res) => {
+  app.get('/api/projects/:id/collab/status', async (req, res) => {
+    const projectId = req.params.id;
+    let syncState = projectSyncState(projectId);
+    let ownerMemberId = projectOwnerMemberId(projectId);
+    // Read-only is DERIVED from the team hub at read time, not cached from a pull.
+    // In-memory state (`syncStates`/`owners`) only tracks THIS daemon's own share
+    // lifecycle (an author publishing their project). A project with no local
+    // lifecycle (`local_only`) is still read-only for a member if the hub lists it
+    // as shared by someone else — so read-only survives a daemon restart (which
+    // clears the in-memory maps) and an already-pulled project opened without a
+    // re-pull. The owner's own project resolves to their own id here, so their
+    // client still computes isOwner=true and keeps editing. When this hub read
+    // becomes a slow vela proxy, cache it behind the version probe (see
+    // team-projects.ts TODO) rather than hitting it on every status poll.
+    if (syncState === 'local_only' && resolveSharedProjectOwner) {
+      try {
+        const hubOwner = await resolveSharedProjectOwner(projectId);
+        if (hubOwner != null) {
+          syncState = 'synced';
+          ownerMemberId = hubOwner;
+        }
+      } catch {
+        // Hub unavailable: fall back to the local (editable) state.
+      }
+    }
     res.json({
-      publishedVersion: publishedVersion(req.params.id),
-      syncState: projectSyncState(req.params.id),
-      ownerMemberId: projectOwnerMemberId(req.params.id),
+      publishedVersion: publishedVersion(projectId),
+      syncState,
+      ownerMemberId,
     });
   });
 }
