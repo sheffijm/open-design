@@ -591,6 +591,7 @@ export function EntryShell({
     activeTheme === 'dark' ||
     (activeTheme === 'system' &&
       typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-color-scheme: dark)').matches);
   // Team-only destinations. In the local state the rail never links to these; a
   // deep link to one (or losing team access) falls back to home once the context

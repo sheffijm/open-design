@@ -9464,13 +9464,13 @@ function HtmlViewer({
     const nonce = downloadRequest?.nonce;
     if (nonce == null) return;
     if (consumedDownloadNonceRef.current === nonce) return;
-    if (!canShare) return;
+    if (!canDownload) return;
     consumedDownloadNonceRef.current = nonce;
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
     setUnifiedActionTab('export');
     setDeployMenuOpen(true);
-  }, [downloadRequest?.nonce, canShare, projectId, file.name]);
+  }, [downloadRequest?.nonce, canDownload, projectId, file.name]);
 
   // A queued chat send for this deck just started: flip the preview to the
   // slide its marked element lives on. We write the cached slide state first so
@@ -9495,18 +9495,23 @@ function HtmlViewer({
     syncCachedSlideStateToIframe();
   }, [slideNavRequest?.nonce, slideNavRequest?.slideIndex, effectiveDeck, previewStateKey, slideState?.count]);
 
-  // The unified chrome share button toggles the one popover. Default to the
-  // Share tab when the artifact is shareable, otherwise open straight on Export
-  // (e.g. markdown, which is downloadable but not publishable).
-  const openDeployMenu = () => {
-    fireArtifactHeaderClick('share_dropdown');
+  // Share and Download are separate toolbar intents, but they share the same
+  // popover shell so switching between them keeps the menu anchored in place.
+  const openUnifiedActionMenu = (
+    tab: 'share' | 'export',
+    sourceLabel: 'share_dropdown' | 'download_dropdown',
+  ) => {
+    fireArtifactHeaderClick(sourceLabel);
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
     setDeployMenuOpen((v) => {
-      if (!v) setUnifiedActionTab(rawCanShare ? 'share' : 'export');
-      return !v;
+      const nextTab = tab === 'share' && !rawCanShare ? 'export' : tab;
+      setUnifiedActionTab(nextTab);
+      return !(v && unifiedActionTab === nextTab);
     });
   };
+  const openShareMenu = () => openUnifiedActionMenu('share', 'share_dropdown');
+  const openDownloadMenu = () => openUnifiedActionMenu('export', 'download_dropdown');
   const captureExportImageSnapshot = useCallback(async (
     options?: { wholeDeck?: boolean },
   ) => {
@@ -10816,7 +10821,7 @@ function HtmlViewer({
               type="button"
               className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only"
               disabled={source === null}
-              aria-label={t('fileViewer.versions.entryFull')}
+              aria-label={t('fileViewer.versions.entry')}
               title={t('fileViewer.versions.entryFull')}
               onClick={() => {
                 fireArtifactToolbarClick('versions', 'toolbar');
@@ -10830,21 +10835,39 @@ function HtmlViewer({
           {rawCanShare || rawCanDownload ? (
             <div className="chrome-file-action-menus" ref={shareRef}>
               <div className="share-menu chrome-share-menu chrome-share-menu--unified">
-                <button
-                  type="button"
-                  className={
-                    'chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified' +
-                    (exportReadyNudge ? ' export-ready-nudge' : '')
-                  }
-                  aria-haspopup="menu"
-                  aria-expanded={deployMenuOpen}
-                  aria-label={shareMenuLabel}
-                  title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
-                  onClick={openDeployMenu}
-                >
-                  <RemixIcon name="share-forward-line" size={15} />
-                  <span>{shareMenuLabel}</span>
-                </button>
+                {rawCanShare ? (
+                  <button
+                    type="button"
+                    className={
+                      'chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified'
+                    }
+                    aria-haspopup="menu"
+                    aria-expanded={deployMenuOpen && unifiedActionTab === 'share'}
+                    aria-label={shareMenuLabel}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
+                    onClick={openShareMenu}
+                  >
+                    <RemixIcon name="share-forward-line" size={15} />
+                    <span>{shareMenuLabel}</span>
+                  </button>
+                ) : null}
+                {rawCanDownload ? (
+                  <button
+                    type="button"
+                    className={
+                      'chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified' +
+                      (exportReadyNudge ? ' export-ready-nudge' : '')
+                    }
+                    aria-haspopup="menu"
+                    aria-expanded={deployMenuOpen && unifiedActionTab === 'export'}
+                    aria-label={t('fileViewer.download')}
+                    title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
+                    onClick={openDownloadMenu}
+                  >
+                    <RemixIcon name="download-line" size={15} />
+                    <span>{t('fileViewer.download')}</span>
+                  </button>
+                ) : null}
                 {deployMenuOpen && (rawCanShare || rawCanDownload) ? (
                   <div className="share-menu-popover chrome-unified-popover" role="menu">
                     <div className="chrome-unified-tabs" role="tablist" aria-label={t('fileViewer.unifiedShareAria')}>
@@ -10867,6 +10890,9 @@ function HtmlViewer({
                     </div>
                     {unifiedActionTab === 'share' && rawCanShare ? (
                       <div className="chrome-unified-panel chrome-unified-panel--share">
+                      <div className="share-menu-section-label" role="presentation">
+                        {t('fileViewer.shareMenuShareLink')}
+                      </div>
                       <div className="chrome-share-card">
                         <div className="chrome-share-card__header">
                           <span className="share-menu-icon"><RemixIcon name="team-line" size={16} /></span>
@@ -10929,6 +10955,9 @@ function HtmlViewer({
                           ) : null}
                         </div>
                       </div>
+                      <div className="share-menu-section-label" role="presentation">
+                        {t('fileViewer.shareMenuPublishOnline')}
+                      </div>
                       <div className="chrome-share-card">
                         <div className="chrome-share-card__header">
                           <span className="share-menu-icon"><RemixIcon name="broadcast-line" size={16} /></span>
@@ -10979,6 +11008,111 @@ function HtmlViewer({
                           </button>
                         )}
                       </div>
+                      <div className="share-menu-divider" />
+                      {!sharePageUrl ? (
+                        <button
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          disabled={viewerOnly}
+                          title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
+                          onClick={() => {
+                            setExportToast({ message: t('fileViewer.shareLinkRequiresDeploy'), tone: 'default' });
+                          }}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name="arrow-up-line" size={15} /></span>
+                          <span>{t('fileViewer.shareLinkPublishGuide')}</span>
+                        </button>
+                      ) : null}
+                      {DEPLOY_PROVIDER_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          disabled={streaming || viewerOnly}
+                          title={
+                            viewerOnly
+                              ? viewerOnlyDisabledTitle
+                              : streaming
+                                ? t('fileViewer.shareAfterGenerationComplete')
+                                : undefined
+                          }
+                          onClick={() => {
+                            void openDeployModal(option.id);
+                          }}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name={deployActionIconFor(option.id)} size={15} /></span>
+                          <span>{deployActionLabelFor(option.id)}</span>
+                        </button>
+                      ))}
+                      {sharePageUrl ? (
+                        <>
+                          <button
+                            type="button"
+                            className="share-menu-item"
+                            role="menuitem"
+                            disabled={!canCopyShareLink || viewerOnly}
+                            title={
+                              viewerOnly
+                                ? viewerOnlyDisabledTitle
+                                : canCopyShareLink
+                                  ? undefined
+                                  : shareUnavailableHint
+                            }
+                            onClick={() => {
+                              void copyShareLink(sharePageUrl);
+                            }}
+                          >
+                            <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
+                            <span>{copyShareLinkLabel}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="share-menu-item"
+                            role="menuitem"
+                            disabled={!canOpenSharePage || viewerOnly}
+                            title={
+                              viewerOnly
+                                ? viewerOnlyDisabledTitle
+                                : canOpenSharePage
+                                  ? undefined
+                                  : shareLinkStatusHint || shareUnavailableHint
+                            }
+                            onClick={() => {
+                              if (!canOpenSharePage) return;
+                              window.open(sharePageUrl, '_blank', 'noopener');
+                            }}
+                          >
+                            <span className="share-menu-icon"><RemixIcon name="external-link-line" size={15} /></span>
+                            <span>{t('fileViewer.openSharePage')}</span>
+                          </button>
+                        </>
+                      ) : null}
+                      {sharePageUrl && (shareLinkStatusHint || shareUnavailableHint) ? (
+                        <div className="share-menu-section-label" role="presentation">
+                          {shareLinkStatusHint || shareUnavailableHint}
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="share-menu-item"
+                        role="menuitem"
+                        disabled={streaming || viewerOnly}
+                        title={
+                          viewerOnly
+                            ? viewerOnlyDisabledTitle
+                            : streaming
+                              ? t('fileViewer.shareAfterGenerationComplete')
+                              : undefined
+                        }
+                        onClick={() => {
+                          void openSocialShareFlow();
+                        }}
+                      >
+                        <span className="share-menu-icon"><RemixIcon name="share-circle-line" size={15} /></span>
+                        <span>{socialShareMenuLabel}</span>
+                      </button>
                       </div>
                     ) : null}
                     {unifiedActionTab === 'export' && rawCanDownload ? (

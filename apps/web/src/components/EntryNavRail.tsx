@@ -131,6 +131,8 @@ function formatBillingTier(tier: string, t: ReturnType<typeof useI18n>['t']): st
 export function EntryNavRail({
   view,
   onViewChange,
+  onNewProject,
+  newProjectDisabled,
   open,
   context,
   billing,
@@ -388,6 +390,16 @@ export function EntryNavRail({
         </div>
 
         <NavButton
+          ariaLabel={t('entry.navNewProject')}
+          tooltip={t('entry.navNewProject')}
+          onClick={onNewProject}
+          disabled={newProjectDisabled}
+          testId="entry-nav-new-project"
+        >
+          <Icon name="plus" size={18} />
+        </NavButton>
+
+        <NavButton
           active={isHome}
           ariaLabel={t('entry.navRecents')}
           tooltip={t('entry.navRecents')}
@@ -545,6 +557,15 @@ export function EntryNavRail({
         ) : (
           <>
             <div className="entry-nav-rail__section-divider" aria-hidden />
+            <NavButton
+              active={view === 'projects'}
+              ariaLabel={t('entry.navProjects')}
+              tooltip={t('entry.navProjects')}
+              onClick={() => selectView('projects')}
+              testId="entry-nav-projects"
+            >
+              <Icon name="folder" size={18} />
+            </NavButton>
             <NavButton
               active={view === 'design-systems'}
               ariaLabel={t('entry.navDesignSystems')}
