@@ -55,4 +55,12 @@ describe('AmrLowBalanceDialog', () => {
     const url = String(open.mock.calls[0]?.[0] ?? '');
     expect(url).not.toContain('view=plans');
   });
+
+  it('dismisses from the corner close button', () => {
+    const { onDecision } = renderDialog('free');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(onDecision).toHaveBeenCalledWith('dismiss');
+  });
 });
