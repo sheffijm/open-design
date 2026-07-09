@@ -64,6 +64,16 @@ export interface ProjectCollab {
    */
   viewerOnly: boolean;
   /**
+   * Whether the viewer is this project's OWNER — the member who shared it (its
+   * single writer). True only when the polled `ownerMemberId` explicitly matches
+   * the current member; it fails closed during the status-load window and for
+   * every non-owner. Distinct from `!viewerOnly`, which a workspace-level freeze
+   * (locked billing / removed member) can also flip. Drives per-comment
+   * permission gates (the owner may delete or send any member's comment) without
+   * re-deriving ownership at the call site.
+   */
+  isOwner: boolean;
+  /**
    * Display name of the member who shared this project (its owner), resolved
    * server-side from the collab-cloud member directory. Drives the "这是 {owner}
    * 创建的共享项目" read-only banner. Null when the project is unshared, off-team,
@@ -178,6 +188,7 @@ export function useProjectCollab(
     publishedVersion: collab.publishedVersion,
     syncState: collab.syncState,
     viewerOnly,
+    isOwner,
     ownerDisplayName: collab.ownerDisplayName,
     ownerRole: collab.ownerRole,
     reportChange: collab.reportChange,

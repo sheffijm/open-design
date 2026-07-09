@@ -344,6 +344,9 @@ export function BoardComposerPopover({
   queueOnSend = false,
   sendDisabled = false,
   sendDisabledReason,
+  canEditComment = true,
+  canDeleteComment = true,
+  canSendToAgent = true,
   t,
   scale = 1,
   bounds,
@@ -375,6 +378,23 @@ export function BoardComposerPopover({
   queueOnSend?: boolean;
   sendDisabled?: boolean;
   sendDisabledReason?: string;
+  /**
+   * Team-collab permission gates for an EXISTING comment's action buttons
+   * (product model, 庆雨 2026-07-09). All default true so the create flow and
+   * every off-team/single-user call site are unaffected. When re-opening a
+   * comment the caller sets these from the comment's author vs. the current
+   * member + project owner:
+   *  - `canEditComment`  — only the author may edit their own note (hides the
+   *    save CTA, add-note, attach-image, and makes the textarea read-only).
+   *  - `canDeleteComment` — author OR project owner (hides the trash button,
+   *    falling back to a plain close button).
+   *  - `canSendToAgent`  — author OR project owner (hides the send-to-chat CTA).
+   * The B lane enforces the same rules server-side; hiding here just keeps a
+   * member from clicking an action they would be 403'd on.
+   */
+  canEditComment?: boolean;
+  canDeleteComment?: boolean;
+  canSendToAgent?: boolean;
   t: TranslateFn;
   scale?: number;
   bounds?: PopoverBounds;
@@ -559,7 +579,8 @@ export function BoardComposerPopover({
           <Textarea
             data-testid="comment-popover-input"
             value={draft}
-            autoFocus
+            autoFocus={canEditComment}
+            readOnly={!canEditComment}
             aria-label={t('chat.comments.placeholder')}
             placeholder={t('chat.comments.placeholder')}
             onChange={(event) => onDraft(event.target.value)}
@@ -579,10 +600,12 @@ export function BoardComposerPopover({
               ) {
                 event.preventDefault();
                 // Enter triggers the primary CTA: comment (save) for element
-                // selections, send-to-chat for pod selections.
+                // selections, send-to-chat for pod selections. Respect the same
+                // permission gates as the visible buttons so Enter can't perform
+                // an action whose button is hidden.
                 if (isPodSelection) {
-                  if (!sendBlocked) void onSendBatch();
-                } else if (!saveDisabled) {
+                  if (canSendToAgent && !sendBlocked) void onSendBatch();
+                } else if (canEditComment && !saveDisabled) {
                   void onSaveComment();
                 }
               }
@@ -590,7 +613,7 @@ export function BoardComposerPopover({
           />
           <div className="comment-popover-actions">
             <div className="comment-popover-actions-start">
-              {onAttachImages ? (
+              {onAttachImages && canEditComment ? (
                 <>
                   <input
                     ref={imageInputRef}
@@ -611,7 +634,7 @@ export function BoardComposerPopover({
                   </button>
                 </>
               ) : null}
-              {existing && onDeleteComment ? (
+              {existing && onDeleteComment && canDeleteComment ? (
                 <button
                   type="button"
                   className="comment-popover-close comment-popover-delete"
@@ -636,46 +659,57 @@ export function BoardComposerPopover({
             <div className="comment-popover-actions-end">
               {isPodSelection ? (
                 <>
-                  {/* Pod: add-note is secondary, send-to-chat is the primary CTA. */}
-                  <Button
-                    variant="ghost"
-                    data-testid="comment-popover-add-note"
-                    disabled={!draft.trim()}
-                    onClick={onAddDraft}
-                  >
-                    {t('chat.comments.addNote')}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    data-testid="comment-add-send"
-                    disabled={sendBlocked}
-                    title={sendDisabled ? sendDisabledReason : undefined}
-                    onClick={() => void onSendBatch()}
-                  >
-                    {primaryLabel}
-                  </Button>
+                  {/* Pod: add-note is secondary, send-to-chat is the primary CTA.
+                      Add-note composes new note text (an edit), so it is gated by
+                      canEditComment; send-to-chat by canSendToAgent. */}
+                  {canEditComment ? (
+                    <Button
+                      variant="ghost"
+                      data-testid="comment-popover-add-note"
+                      disabled={!draft.trim()}
+                      onClick={onAddDraft}
+                    >
+                      {t('chat.comments.addNote')}
+                    </Button>
+                  ) : null}
+                  {canSendToAgent ? (
+                    <Button
+                      variant="primary"
+                      data-testid="comment-add-send"
+                      disabled={sendBlocked}
+                      title={sendDisabled ? sendDisabledReason : undefined}
+                      onClick={() => void onSendBatch()}
+                    >
+                      {primaryLabel}
+                    </Button>
+                  ) : null}
                 </>
               ) : (
                 <>
                   {/* Element: comment (save) is the primary CTA (also Enter);
-                      send-to-chat is secondary. */}
-                  <Button
-                    variant="ghost"
-                    data-testid="comment-add-send"
-                    disabled={sendBlocked}
-                    title={sendDisabled ? sendDisabledReason : undefined}
-                    onClick={() => void onSendBatch()}
-                  >
-                    {primaryLabel}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    data-testid="comment-popover-save"
-                    disabled={saveDisabled}
-                    onClick={() => void onSaveComment()}
-                  >
-                    {t('chat.comments.comment')}
-                  </Button>
+                      send-to-chat is secondary. Save (edit) is gated by
+                      canEditComment; send-to-chat by canSendToAgent. */}
+                  {canSendToAgent ? (
+                    <Button
+                      variant="ghost"
+                      data-testid="comment-add-send"
+                      disabled={sendBlocked}
+                      title={sendDisabled ? sendDisabledReason : undefined}
+                      onClick={() => void onSendBatch()}
+                    >
+                      {primaryLabel}
+                    </Button>
+                  ) : null}
+                  {canEditComment ? (
+                    <Button
+                      variant="primary"
+                      data-testid="comment-popover-save"
+                      disabled={saveDisabled}
+                      onClick={() => void onSaveComment()}
+                    >
+                      {t('chat.comments.comment')}
+                    </Button>
+                  ) : null}
                 </>
               )}
             </div>

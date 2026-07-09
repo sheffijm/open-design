@@ -3382,6 +3382,7 @@ export function CommentSidePanel({
   onReply,
   onSendSelected,
   onCreateComment,
+  canSendComment,
   sending,
   queueOnSend = false,
   sendDisabled = false,
@@ -3398,6 +3399,7 @@ export function CommentSidePanel({
   onCollapsedChange: (collapsed: boolean) => void;
   onToggleSelect: (commentId: string) => void;
   onSelectAll: () => void;
+  canSendComment?: (comment: PreviewComment) => boolean;
   onClearSelection: () => void;
   onReorder?: (orderedIds: string[]) => void;
   onReply: (comment: PreviewComment) => void;
@@ -3420,7 +3422,14 @@ export function CommentSidePanel({
   const sorted = comments;
   const visibleSelectedIds = new Set(comments.filter((comment) => selectedIds.has(comment.id)).map((comment) => comment.id));
   const selectedCount = visibleSelectedIds.size;
-  const allSelected = comments.length > 0 && selectedCount === comments.length;
+  // Team-collab send-to-agent gate: only the author or the project owner may
+  // send a comment. When no predicate is supplied (single-user), every comment
+  // is sendable and the select affordances behave exactly as before. Selecting
+  // is the ONLY thing a checkbox drives here (batch send-to-chat), so a comment
+  // the viewer can't send gets no checkbox and "select all" ignores it.
+  const canSend = canSendComment ?? (() => true);
+  const sendableCount = comments.reduce((count, comment) => (canSend(comment) ? count + 1 : count), 0);
+  const allSelected = sendableCount > 0 && selectedCount === sendableCount;
   const commentsLabel = t('chat.tabComments');
   const canCreateComment = Boolean(onCreateComment) && newCommentDraft.trim().length > 0 && !sending && !sendDisabled;
   const canReorder = Boolean(onReorder && sorted.length > 1);
@@ -3529,7 +3538,7 @@ export function CommentSidePanel({
           <span>{commentsLabel}</span>
         </div>
         <div className="comment-side-header-actions">
-          {comments.length > 0 ? (
+          {sendableCount > 0 ? (
             <button
               type="button"
               className="comment-side-select-all"
@@ -3568,6 +3577,7 @@ export function CommentSidePanel({
         ) : sorted.map((comment, index) => {
           const selected = visibleSelectedIds.has(comment.id);
           const active = comment.id === activeCommentId;
+          const sendable = canSend(comment);
           const author = resolveCommentAuthor(comment.authorMemberId);
           const isDragging = dragState?.draggingId === comment.id;
           const dropClass = dragState?.overId === comment.id &&
@@ -3629,18 +3639,20 @@ export function CommentSidePanel({
                   </span>
                 </span>
                 <span className="comment-side-time">{formatCommentTime(commentActivityAt(comment), t)}</span>
-                <button
-                  type="button"
-                  className={`comment-side-check${selected ? ' checked' : ''}`}
-                  aria-label={selected ? t('chat.comments.deselect') : t('chat.comments.select')}
-                  aria-pressed={selected}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleSelect(comment.id);
-                  }}
-                >
-                  {selected ? <Icon name="check" size={11} /> : null}
-                </button>
+                {sendable ? (
+                  <button
+                    type="button"
+                    className={`comment-side-check${selected ? ' checked' : ''}`}
+                    aria-label={selected ? t('chat.comments.deselect') : t('chat.comments.select')}
+                    aria-pressed={selected}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleSelect(comment.id);
+                    }}
+                  >
+                    {selected ? <Icon name="check" size={11} /> : null}
+                  </button>
+                ) : null}
               </div>
               <div className="comment-side-body">{comment.note}</div>
               {projectId && comment.attachments && comment.attachments.length > 0 ? (
@@ -3806,6 +3818,7 @@ function CommentSideDock({
   onReply,
   onSendSelected,
   onCreateComment,
+  canSendComment,
   sending,
   queueOnSend = false,
   sendDisabled = false,
@@ -3827,6 +3840,9 @@ function CommentSideDock({
   onReply: (comment: PreviewComment) => void;
   onSendSelected: () => void | Promise<void>;
   onCreateComment?: (note: string) => boolean | Promise<boolean>;
+  /** Team-collab gate: which comments the viewer may send to the agent (author
+   * OR project owner). Defaults to all-sendable when absent (single-user). */
+  canSendComment?: (comment: PreviewComment) => boolean;
   sending: boolean;
   queueOnSend?: boolean;
   sendDisabled?: boolean;
@@ -3854,6 +3870,7 @@ function CommentSideDock({
         onReply={onReply}
         onSendSelected={onSendSelected}
         onCreateComment={onCreateComment}
+        canSendComment={canSendComment}
         sending={sending}
         queueOnSend={queueOnSend}
         sendDisabled={sendDisabled}
@@ -10019,10 +10036,33 @@ function HtmlViewer({
     : null;
   const activeComposerAttachments =
     activeComposerComment?.attachments ?? activeCommentExistingAttachments;
+  // Team-collab permission model for a comment's action buttons (庆雨,
+  // 2026-07-09). `myMemberId` is the viewer's presence identity — the same
+  // `workspaceMemberId` the B lane stamps on `authorMemberId`; null off-team.
+  // `iAmProjectOwner` is the collab-resolved project owner (the single writer),
+  // failing closed until the status poll confirms it. A comment with no author
+  // (a brand-new one in the create flow, or any off-team / legacy row) is the
+  // current user's to act on, so it reads as "mine". Only the author may EDIT
+  // their own note; the author OR the project owner may delete it or send it to
+  // the agent. The B lane enforces the same rules server-side.
+  const myMemberId = collab.member?.memberId ?? null;
+  const iAmProjectOwner = collab.isOwner;
+  const commentAuthoredByMe = (comment: PreviewComment | null | undefined): boolean => {
+    const authorId = comment?.authorMemberId ?? null;
+    return authorId == null || authorId === myMemberId;
+  };
+  const canSendCommentToAgent = (comment: PreviewComment | null | undefined): boolean =>
+    commentAuthoredByMe(comment) || iAmProjectOwner;
+  const canEditActiveComment = commentAuthoredByMe(activeComposerComment);
+  const canDeleteActiveComment = canEditActiveComment || iAmProjectOwner;
+  const canSendActiveComment = canEditActiveComment || iAmProjectOwner;
   const commentComposer = boardMode && activeCommentTarget && activeCommentTargetVisible ? (
     <BoardComposerPopover
       target={activeCommentTarget}
       existing={activeComposerComment}
+      canEditComment={canEditActiveComment}
+      canDeleteComment={canDeleteActiveComment}
+      canSendToAgent={canSendActiveComment}
       draft={commentDraft}
       notes={queuedBoardNotes}
       onDraft={setCommentDraft}
@@ -10123,7 +10163,15 @@ function HtmlViewer({
           return next;
         });
       }}
-      onSelectAll={() => setSelectedSideCommentIds(new Set(visibleSideComments.map((comment) => comment.id)))}
+      onSelectAll={() =>
+        setSelectedSideCommentIds(
+          new Set(
+            visibleSideComments
+              .filter((comment) => canSendCommentToAgent(comment))
+              .map((comment) => comment.id),
+          ),
+        )
+      }
       onClearSelection={() => setSelectedSideCommentIds(new Set())}
       onReorder={(orderedIds) => setCommentOrderIds(orderedIds)}
       onReply={(comment) => {
@@ -10178,6 +10226,7 @@ function HtmlViewer({
         }
       }}
       onCreateComment={savePanelComment}
+      canSendComment={canSendCommentToAgent}
       sending={sendingBoardBatch}
       queueOnSend={commentQueueOnSend}
       sendDisabled={commentSendDisabled}
