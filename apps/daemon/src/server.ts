@@ -3810,7 +3810,26 @@ export async function startServer({
     resolveProjectDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
   });
   registerCollabPresenceRoutes(app, { collab });
-  registerCollabSyncRoutes(app, { collab });
+  registerCollabSyncRoutes(app, {
+    collab,
+    // Register-on-pull: after a member pulls a shared project, insert a local
+    // project record so it appears in /api/projects and opens read-only (the
+    // member is not the owner). Idempotent — an already-local project is a no-op.
+    projectStore: {
+      has: (projectId) => getProject(db, projectId) != null,
+      register: (input) => {
+        insertProject(db, {
+          id: input.id,
+          name: input.name,
+          skillId: input.skillId,
+          designSystemId: input.designSystemId,
+          createdAt: input.createdAt,
+          updatedAt: input.updatedAt,
+        });
+      },
+    },
+    resolvePullDir: (projectId) => resolveProjectDir(PROJECTS_DIR, projectId),
+  });
   registerCollabContextRoutes(app, { workspaceContext: collab.workspaceContext });
   registerTeamResourceRoutes(app, { teamResources: collab.teamResources });
 

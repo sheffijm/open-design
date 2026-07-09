@@ -1,6 +1,39 @@
 import type { Express } from 'express';
 import type { ProjectSyncIntentEvent } from '@open-design/contracts';
 import type { CollabRuntime } from '../collab/runtime.js';
+import { readProjectManifest } from '../project-locations.js';
+
+/** The fields register-on-pull reads out of a pulled project's manifest (a
+ *  `.open-design/project.json`-type file under the materialized dir). Every field
+ *  is optional so a manifest-less pull still registers under a placeholder name. */
+export interface PulledProjectManifest {
+  name?: string;
+  skillId?: string | null;
+  designSystemId?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+/** The record register-on-pull inserts so a pulled shared project appears in
+ *  `/api/projects` and can be opened. Read-only is NOT a flag here — the member
+ *  isn't the owner, so `useProjectCollab` keeps it single-writer read-only. */
+export interface RegisterPulledProjectInput {
+  id: string;
+  name: string;
+  skillId: string | null;
+  designSystemId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Local project-store seam for register-on-pull. Kept behind an interface so the
+ *  route stays free of `db`/SQLite while the daemon wires it to the real store. */
+export interface PulledProjectStore {
+  /** Whether a project is already registered locally (idempotency guard). */
+  has(projectId: string): boolean;
+  /** Register a freshly pulled shared project as a local project record. */
+  register(input: RegisterPulledProjectInput): void;
+}
 
 export interface RegisterCollabSyncRoutesDeps {
   collab: Pick<
@@ -13,6 +46,22 @@ export interface RegisterCollabSyncRoutesDeps {
     | 'pullLatest'
     | 'workspaceContext'
   >;
+  /**
+   * Optional project-store seam. When present, `POST /api/projects/:id/collab/pull`
+   * registers the pulled shared project locally (idempotently) so a member can
+   * open it like any other project. Omitted in unit contexts that only exercise
+   * the sync triggers, in which case a pull materializes content but does not
+   * register a local record.
+   */
+  projectStore?: PulledProjectStore;
+  /**
+   * Resolve the on-disk dir a pull materializes into, so registration can read
+   * the shared project's manifest for its real name. Should mirror the pull dir
+   * the collab runtime writes to. Required alongside `projectStore`.
+   */
+  resolvePullDir?: (projectId: string) => string;
+  /** Injectable manifest reader; defaults to `.open-design/project.json`. */
+  readManifest?: (projectDir: string) => Promise<PulledProjectManifest | null>;
 }
 
 const SYNC_INTENT_EVENTS: ReadonlySet<ProjectSyncIntentEvent> = new Set([
@@ -36,6 +85,35 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
     pullLatest,
     workspaceContext,
   } = deps.collab;
+  const { projectStore, resolvePullDir } = deps;
+  const readManifest = deps.readManifest ?? readProjectManifest;
+
+  // Register a freshly pulled shared project as a local project record so it
+  // appears in `/api/projects` and can be opened. Idempotent (a project the
+  // member already has locally is left untouched) and best-effort — the pull
+  // response never fails on a registration hiccup. The real name comes from the
+  // pulled project's manifest when the materialized tree carries one; otherwise
+  // it registers under a placeholder ("共享项目") until a manifest is present.
+  async function registerPulledProject(projectId: string): Promise<void> {
+    if (!projectStore || !resolvePullDir) return;
+    if (projectStore.has(projectId)) return;
+    let manifest: PulledProjectManifest | null = null;
+    try {
+      manifest = await readManifest(resolvePullDir(projectId));
+    } catch {
+      manifest = null;
+    }
+    const now = Date.now();
+    const name = manifest?.name?.trim() || '共享项目';
+    projectStore.register({
+      id: projectId,
+      name,
+      skillId: manifest?.skillId ?? null,
+      designSystemId: manifest?.designSystemId ?? null,
+      createdAt: typeof manifest?.createdAt === 'number' ? manifest.createdAt : now,
+      updatedAt: typeof manifest?.updatedAt === 'number' ? manifest.updatedAt : now,
+    });
+  }
 
   // An author-side edit landed. The publish is coalesced within the scheduler's
   // window so a burst of edits collapses into one publish.
@@ -83,7 +161,15 @@ export function registerCollabSyncRoutes(app: Express, deps: RegisterCollabSyncR
   // Member pull trigger (the sync trigger owns *when*; the resource hub fetches + extracts the bytes behind the
   // adapter). Returns the head version that was pulled.
   app.post('/api/projects/:id/collab/pull', async (req, res) => {
-    const result = await pullLatest(req.params.id);
+    const projectId = req.params.id;
+    const result = await pullLatest(projectId);
+    // Register the pulled project locally so it opens like any other project.
+    // Best-effort: a registration failure must not fail the pull itself.
+    try {
+      await registerPulledProject(projectId);
+    } catch {
+      /* registration is best-effort; leave the pull result standing */
+    }
     res.json({ ok: true, version: result.version });
   });
 

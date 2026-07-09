@@ -26,6 +26,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkspaceBillingSummary, WorkspaceCollabContext } from '@open-design/contracts';
 import { EntryHelpMenu } from './EntryHelpMenu';
 import { Icon } from './Icon';
+import { CreditsPanel } from './CreditsPanel';
 import { useI18n } from '../i18n';
 import type { EntryHomeView } from '../router';
 import styles from './EntryNavRail.module.css';
@@ -259,32 +260,20 @@ export function EntryNavRail({
               <Icon name="sparkles" size={12} />
               {creditsBalance != null ? creditsBalance.toLocaleString('en-US') : <span aria-hidden>—</span>}
             </button>
-            {creditsOpen ? (
-              <>
-                <div className="entry-nav-rail__menu-backdrop" onClick={() => setCreditsOpen(false)} />
-                <div className="entry-nav-rail__credits-panel" role="dialog" aria-label="套餐与积分">
-                  <div className="entry-nav-rail__credits-panel-head">
-                    <span className="entry-nav-rail__credits-panel-tier">{tierLabel}</span>
-                    <span className="entry-nav-rail__credits-panel-balance">
-                      <Icon name="sparkles" size={13} />
-                      {creditsBalance != null ? `${creditsBalance.toLocaleString('en-US')} 积分` : '积分 —'}
-                    </span>
-                  </div>
-                  {canUpgrade ? (
-                    <button
-                      type="button"
-                      className="entry-nav-rail__credits-upgrade"
-                      disabled={checkingOut}
-                      onClick={() => void handleUpgrade()}
-                    >
-                      {checkingOut ? '正在打开…' : '升级 / 购买积分'}
-                    </button>
-                  ) : (
-                    <p className="entry-nav-rail__credits-panel-note">当前套餐无可用升级动作。</p>
-                  )}
-                </div>
-              </>
-            ) : null}
+            <CreditsPanel
+              open={creditsOpen}
+              onClose={() => setCreditsOpen(false)}
+              info={{
+                planName: tierLabel,
+                tierLabel,
+                showUpgrade: canUpgrade,
+                balance: creditsBalance,
+                grantTip: '团队版按订阅额度发放积分，可在计费中查看用量。',
+              }}
+              onUpgrade={() => void handleUpgrade()}
+              upgrading={checkingOut}
+              memberCreditNotice={isTeam && !canManageMembers}
+            />
             {accountOpen ? (
               <>
                 <div className="entry-nav-rail__menu-backdrop" onClick={() => setAccountOpen(false)} />

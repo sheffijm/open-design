@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import http from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   buildWorkspacePermissions,
   buildWorkspaceSeatSummary,
@@ -8,7 +11,32 @@ import {
 } from '@open-design/contracts';
 import { createCollabRuntime, type CollabRuntime } from '../src/collab/runtime.js';
 import type { WorkspaceContextProvider } from '../src/collab/workspace-context.js';
-import { registerCollabSyncRoutes } from '../src/routes/collab-sync.js';
+import {
+  registerCollabSyncRoutes,
+  type PulledProjectStore,
+  type RegisterCollabSyncRoutesDeps,
+  type RegisterPulledProjectInput,
+} from '../src/routes/collab-sync.js';
+import { writeProjectManifest } from '../src/project-locations.js';
+
+/** In-memory project store standing in for the daemon's SQLite-backed store, so
+ *  a route test can assert register-on-pull without a real database. */
+function fakeProjectStore(): PulledProjectStore & {
+  projects: Map<string, RegisterPulledProjectInput>;
+  registerCalls: number;
+} {
+  const projects = new Map<string, RegisterPulledProjectInput>();
+  const store = {
+    projects,
+    registerCalls: 0,
+    has: (projectId: string) => projects.has(projectId),
+    register(input: RegisterPulledProjectInput) {
+      store.registerCalls += 1;
+      projects.set(input.id, input);
+    },
+  };
+  return store;
+}
 
 /** A fixed team context whose `canShareProjects` bit is forced to the tested
  *  value, served by a minimal provider (no `set` seam). */
@@ -34,6 +62,7 @@ function fixedShareContextProvider(canShareProjects: boolean): WorkspaceContextP
 
 let server: http.Server | null = null;
 let runtime: CollabRuntime | null = null;
+const tempDirs: string[] = [];
 
 afterEach(async () => {
   runtime?.dispose(); // cancel any pending debounce timers
@@ -43,13 +72,20 @@ afterEach(async () => {
     server = null;
     await new Promise<void>((resolve) => toClose.close(() => resolve()));
   }
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop()!;
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 });
 
-async function startSyncServer(workspaceContext?: WorkspaceContextProvider) {
+async function startSyncServer(
+  workspaceContext?: WorkspaceContextProvider,
+  extraDeps?: Omit<RegisterCollabSyncRoutesDeps, 'collab'>,
+) {
   const app = express();
   app.use(express.json());
   runtime = createCollabRuntime(workspaceContext ? { workspaceContext } : {});
-  registerCollabSyncRoutes(app, { collab: runtime });
+  registerCollabSyncRoutes(app, { collab: runtime, ...extraDeps });
   server = http.createServer(app);
   await new Promise<void>((resolve) => server!.listen(0, resolve));
   const address = server.address();
@@ -186,5 +222,75 @@ describe('collab sync routes', () => {
     await api.awaitPublishedVersion('/api/projects/p1/collab/status', null);
     const after = await api.json('/api/projects/p1/collab/pull', { method: 'POST' });
     expect(after.body.version).toBe(1);
+  });
+
+  it('registers a pulled shared project locally so it appears in the project store', async () => {
+    const store = fakeProjectStore();
+    const api = await startSyncServer(undefined, {
+      projectStore: store,
+      resolvePullDir: (projectId) => `/does/not/exist/${projectId}`,
+    });
+
+    expect(store.has('shared-1')).toBe(false);
+    const pull = await api.json('/api/projects/shared-1/collab/pull', { method: 'POST' });
+    expect(pull.status).toBe(200);
+
+    // The pull registered a local project record. With no manifest under the
+    // (non-existent) pull dir, it falls back to the placeholder name.
+    expect(store.has('shared-1')).toBe(true);
+    expect(store.projects.get('shared-1')?.name).toBe('共享项目');
+  });
+
+  it('registers a pulled shared project under its real name from the manifest', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'od-pull-'));
+    tempDirs.push(dir);
+    // The shared tree carries the owner's project manifest; register-on-pull
+    // reads it so the local record shows the real name after opening.
+    await writeProjectManifest(dir, {
+      schemaVersion: 1,
+      id: 'shared-2',
+      name: 'Team Roadmap',
+      createdAt: 111,
+      updatedAt: 222,
+      skillId: 'live-artifact',
+      designSystemId: 'ds-9',
+    });
+
+    const store = fakeProjectStore();
+    const api = await startSyncServer(undefined, {
+      projectStore: store,
+      resolvePullDir: () => dir,
+    });
+
+    await api.json('/api/projects/shared-2/collab/pull', { method: 'POST' });
+    const registered = store.projects.get('shared-2');
+    expect(registered?.name).toBe('Team Roadmap');
+    expect(registered?.skillId).toBe('live-artifact');
+    expect(registered?.designSystemId).toBe('ds-9');
+    expect(registered?.createdAt).toBe(111);
+    expect(registered?.updatedAt).toBe(222);
+  });
+
+  it('is idempotent — a pull for an already-local project does not re-register it', async () => {
+    const store = fakeProjectStore();
+    store.register({
+      id: 'shared-3',
+      name: 'Already Local',
+      skillId: null,
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(store.registerCalls).toBe(1);
+
+    const api = await startSyncServer(undefined, {
+      projectStore: store,
+      resolvePullDir: (projectId) => `/does/not/exist/${projectId}`,
+    });
+
+    await api.json('/api/projects/shared-3/collab/pull', { method: 'POST' });
+    // Still exactly one registration; the existing record is left untouched.
+    expect(store.registerCalls).toBe(1);
+    expect(store.projects.get('shared-3')?.name).toBe('Already Local');
   });
 });

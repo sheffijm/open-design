@@ -4905,56 +4905,131 @@
 
 .entry-nav-rail__menu-item.is-current svg { margin-left: auto; }
 
-/* Credits panel (the "升级" surface behind the credits chip — A-lane billing). */
-.entry-nav-rail__credits-panel {
+/* Credits popover — ported verbatim from the design demo. */
+.credits-panel {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
   right: 0;
-  z-index: 40;
-  background: var(--bg-elevated, #fff);
-  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
-  border-radius: 12px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
-  padding: 12px;
+  z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  padding: 16px 18px;
+  border-radius: var(--radius-lg, 16px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  animation: entry-invite-in 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-.entry-nav-rail__credits-panel-head {
+.credits-panel__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
-.entry-nav-rail__credits-panel-tier {
-  font-weight: 600;
+.credits-panel__plan {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.credits-panel__upgrade {
+  padding: 7px 18px;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  background: #1a1a1a;
+  color: #fff;
   font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms;
 }
-.entry-nav-rail__credits-panel-balance {
+.credits-panel__upgrade:hover { filter: brightness(1.15); }
+.credits-panel__divider {
+  height: 0;
+  border-top: 1px dashed var(--border);
+  margin: 0 0 12px;
+}
+.credits-panel__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.credits-panel__row--refresh { margin-top: 14px; }
+.credits-panel__row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+.credits-panel__row-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.credits-panel__help {
+  display: inline-flex;
+  color: var(--text-faint);
+  cursor: help;
+}
+.credits-panel__sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+.credits-panel__sub--muted { color: var(--text-faint); }
+.credits-panel__sub span { display: inline-flex; align-items: center; gap: 5px; }
+.credits-panel__usage {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
-  color: var(--text-secondary, #666);
-}
-.entry-nav-rail__credits-upgrade {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent, #d9663f);
-  color: #fff;
+  align-self: flex-start;
+  margin-top: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: 14px;
   font-weight: 600;
-  font-size: 13px;
   cursor: pointer;
 }
-.entry-nav-rail__credits-upgrade:disabled {
-  opacity: 0.6;
-  cursor: default;
+.credits-panel__usage:hover { color: var(--accent); }
+.credits-panel__member-notice {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-subtle));
 }
-.entry-nav-rail__credits-panel-note {
-  font-size: 12px;
-  color: var(--text-tertiary, #999);
+.credits-panel__member-notice strong {
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.2;
+}
+.credits-panel__member-notice p {
   margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.credits-panel__member-notice button {
+  justify-self: flex-start;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
 }

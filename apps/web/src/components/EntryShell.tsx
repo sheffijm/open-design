@@ -102,7 +102,6 @@ import {
 } from './useDiscordPresence';
 import { HomeView, seedHomeComposerPrompt } from './HomeView';
 import { RecentProjectsStrip } from './RecentProjectsStrip';
-import { TeamProjectsSection } from './TeamProjectsSection';
 import {
   createPluginAuthoringHandoff,
   createPluginUseHandoff,
@@ -519,6 +518,48 @@ export function EntryShell({
   const teamProjects = useTeamProjects();
   const isTeamWorkspace =
     Boolean(workspaceContext) && workspaceContext!.workspaceType === 'team';
+  // The "全部项目" grid is the SAME project-card grid used everywhere: it merges
+  // the member's own local projects with the projects teammates shared to the
+  // team (from the resource hub), deduped by id. A shared project the member has
+  // not pulled yet is not in `projects`, so we synthesize a normal `Project` card
+  // for it — placeholder name until it is opened (the pull registers it under its
+  // real name), timestamps from when it was shared. No custom section: these flow
+  // through `RecentProjectsStrip` like any other card.
+  const localProjectIds = new Set(projects.map((project) => project.id));
+  const sharedProjectCards: Project[] = teamProjects.projects
+    .filter((teamProject) => !localProjectIds.has(teamProject.projectId))
+    .map((teamProject) => {
+      const sharedAtMs = Date.parse(teamProject.sharedAt);
+      const timestamp = Number.isFinite(sharedAtMs) ? sharedAtMs : Date.now();
+      return {
+        id: teamProject.projectId,
+        name: '共享项目',
+        skillId: null,
+        designSystemId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      } satisfies Project;
+    });
+  const allProjectsList: Project[] = [...projects, ...sharedProjectCards];
+  // Open handler for the "全部项目" grid. A project already in the member's local
+  // list opens directly; a team-shared project the member has not pulled yet is
+  // first pulled + registered on the daemon (materialize content + insert a local
+  // project record) so it can open read-only — the member is not the owner, so
+  // the useProjectCollab single-writer path keeps it read-only.
+  async function handleOpenAllProjects(id: string): Promise<void> {
+    if (localProjectIds.has(id)) {
+      await Promise.resolve(onOpenProject(id));
+      return;
+    }
+    try {
+      await fetch(`/api/projects/${encodeURIComponent(id)}/collab/pull`, { method: 'POST' });
+      await Promise.resolve(onProjectsRefresh?.());
+    } catch {
+      // Best-effort: still try to open — the open handler surfaces a missing state
+      // if the pull did not land.
+    }
+    await Promise.resolve(onOpenProject(id));
+  }
   // Resolve the effective light/dark theme so the rail's account-menu theme toggle
   // flips to the opposite of what's actually shown (system → resolved).
   const activeTheme: AppTheme = config.theme ?? 'system';
@@ -1123,28 +1164,25 @@ export function EntryShell({
             {view === 'all-projects' ? (
               <div className="entry-section">
                 <header className="entry-section__head">
-                  <h1 className="entry-section__title">{t('entry.navAllProjects')}</h1>
+                  <div>
+                    <h1 className="entry-section__title">{t('entry.navAllProjects')}</h1>
+                    <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
+                      团队所有人的项目
+                    </p>
+                  </div>
                 </header>
                 {projectsLoading ? (
                   <CenteredLoader label={t('common.loading')} />
                 ) : (
-                  <>
-                    <RecentProjectsStrip
-                      projects={projects}
-                      designSystems={designSystems}
-                      limit={1000}
-                      onOpen={(id) => onOpenProject(id)}
-                      onViewAll={() => {}}
-                      onDelete={onDeleteProject}
-                      onRename={onRenameProject}
-                    />
-                    <TeamProjectsSection
-                      projects={teamProjects.projects}
-                      localProjectIds={new Set(projects.map((project) => project.id))}
-                      onOpenProject={onOpenProject}
-                      onProjectsRefresh={onProjectsRefresh}
-                    />
-                  </>
+                  <RecentProjectsStrip
+                    projects={allProjectsList}
+                    designSystems={designSystems}
+                    limit={1000}
+                    onOpen={(id) => void handleOpenAllProjects(id)}
+                    onViewAll={() => {}}
+                    onDelete={onDeleteProject}
+                    onRename={onRenameProject}
+                  />
                 )}
               </div>
             ) : null}
