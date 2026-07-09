@@ -39,7 +39,7 @@ import {
 import { readProcessStamp } from "@open-design/platform";
 
 import { createDesktopRuntime, type DesktopRuntime } from "./runtime.js";
-import { beginDesktopSession, endDesktopSessionCleanly } from "./session-lifecycle.js";
+import { beginDesktopSession, endDesktopSessionCleanly, markDesktopSessionRunning } from "./session-lifecycle.js";
 import { attachDesktopProcessErrorFilter } from "./uncaught-exception.js";
 import { createDesktopUpdater, createDesktopUpdaterScheduler, type DesktopUpdaterScheduler } from "./updater.js";
 import {
@@ -867,6 +867,12 @@ export async function runDesktopMain(
   });
   console.info("[open-design desktop] desktop runtime created");
   options.onDesktopReady?.({ show: () => desktop?.show() });
+
+  // The app is up now — only from here does a subsequent dirty marker mean a
+  // RUNTIME crash. A bootstrap failure before this point never reached running,
+  // so it isn't misreported as an abnormal exit (it's a startup failure, which
+  // packaged_runtime_failed already covers).
+  markDesktopSessionRunning({ stateFilePath: sessionStatePath });
 
   const discoverDaemonBaseUrl = resolveDaemonBaseUrl(runtime, options);
   // Report an abnormal exit of the PREVIOUS run now that the daemon is up to

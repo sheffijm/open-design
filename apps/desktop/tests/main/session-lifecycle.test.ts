@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   beginDesktopSession,
   endDesktopSessionCleanly,
+  markDesktopSessionRunning,
   type DesktopSessionState,
 } from "../../src/main/session-lifecycle.js";
 
@@ -19,7 +20,8 @@ function makeStore(initial?: string) {
     writeFile: (p: string, d: string) => {
       files.set(p, d);
     },
-    get: () => files.get("state.json"),
+    state: () => JSON.parse(files.get("state.json")!) as DesktopSessionState,
+    raw: () => files.get("state.json"),
   };
 }
 
@@ -35,50 +37,66 @@ function begin(store: ReturnType<typeof makeStore>, sessionId: string, version =
     writeFile: store.writeFile,
   });
 }
+const running = (store: ReturnType<typeof makeStore>) =>
+  markDesktopSessionRunning({ stateFilePath: "state.json", readFile: store.readFile, writeFile: store.writeFile });
+const quit = (store: ReturnType<typeof makeStore>) =>
+  endDesktopSessionCleanly({ stateFilePath: "state.json", readFile: store.readFile, writeFile: store.writeFile });
 
 describe("desktop session lifecycle", () => {
-  test("first run reports no previous session and writes a dirty marker", () => {
+  test("first run reports nothing and writes a not-yet-running marker", () => {
     const store = makeStore();
-    const { previousUncleanSession } = begin(store, "s1");
-    expect(previousUncleanSession).toBeNull();
-    const written = JSON.parse(store.get()!) as DesktopSessionState;
-    expect(written).toMatchObject({ sessionId: "s1", version: "0.14.0", clean: false });
+    expect(begin(store, "s1").previousUncleanSession).toBeNull();
+    expect(store.state()).toMatchObject({ sessionId: "s1", reachedRunning: false, clean: false });
   });
 
-  test("detects a previous UNCLEAN exit (marker left dirty)", () => {
-    // Previous run wrote a dirty marker and never marked it clean = it crashed.
-    const store = makeStore(JSON.stringify({ sessionId: "prev", version: "0.13.0", startedAt: "t0", clean: false }));
-    const { previousUncleanSession } = begin(store, "s2");
-    expect(previousUncleanSession).toMatchObject({ sessionId: "prev", version: "0.13.0", clean: false });
-    // ...and it stamps a fresh dirty marker for this run.
-    expect((JSON.parse(store.get()!) as DesktopSessionState).sessionId).toBe("s2");
+  test("a previous run that reached running and never went clean is a runtime crash", () => {
+    const store = makeStore(
+      JSON.stringify({ sessionId: "prev", version: "0.13.0", startedAt: "t0", reachedRunning: true, clean: false }),
+    );
+    expect(begin(store, "s2").previousUncleanSession).toMatchObject({ sessionId: "prev", reachedRunning: true });
   });
 
-  test("a previous CLEAN exit is not reported", () => {
-    const store = makeStore(JSON.stringify({ sessionId: "prev", version: "0.13.0", startedAt: "t0", clean: true }));
+  test("a previous run that never reached running is NOT reported (startup failure, not a crash)", () => {
+    const store = makeStore(
+      JSON.stringify({ sessionId: "prev", version: "0.13.0", startedAt: "t0", reachedRunning: false, clean: false }),
+    );
     expect(begin(store, "s3").previousUncleanSession).toBeNull();
   });
 
-  test("endDesktopSessionCleanly flips the current marker to clean", () => {
-    const store = makeStore();
-    begin(store, "s4");
-    endDesktopSessionCleanly({ stateFilePath: "state.json", readFile: store.readFile, writeFile: store.writeFile });
-    expect((JSON.parse(store.get()!) as DesktopSessionState).clean).toBe(true);
+  test("a previous clean exit is not reported", () => {
+    const store = makeStore(
+      JSON.stringify({ sessionId: "prev", version: "0.13.0", startedAt: "t0", reachedRunning: true, clean: true }),
+    );
+    expect(begin(store, "s4").previousUncleanSession).toBeNull();
   });
 
-  test("full cycle: clean shutdown then next launch reports nothing; a crash is caught", () => {
+  test("markDesktopSessionRunning then a graceful quit → next launch reports nothing", () => {
     const store = makeStore();
     begin(store, "a");
-    endDesktopSessionCleanly({ stateFilePath: "state.json", readFile: store.readFile, writeFile: store.writeFile });
-    // Next launch after a clean quit: no abnormal-exit signal.
+    running(store);
+    expect(store.state().reachedRunning).toBe(true);
+    quit(store);
+    expect(store.state().clean).toBe(true);
     expect(begin(store, "b").previousUncleanSession).toBeNull();
-    // 'b' now runs and crashes (no endDesktopSessionCleanly). Next launch catches it.
-    expect(begin(store, "c").previousUncleanSession?.sessionId).toBe("b");
   });
 
-  test("never throws on unreadable/corrupt marker and still stamps this run", () => {
+  test("reached running then crashed (no clean) → next launch reports it", () => {
+    const store = makeStore();
+    begin(store, "a");
+    running(store);
+    // 'a' crashes — no endDesktopSessionCleanly.
+    expect(begin(store, "b").previousUncleanSession?.sessionId).toBe("a");
+  });
+
+  test("bootstrap failure before running is not reported next launch", () => {
+    const store = makeStore();
+    begin(store, "a"); // never calls markDesktopSessionRunning (crashed during bootstrap)
+    expect(begin(store, "b").previousUncleanSession).toBeNull();
+  });
+
+  test("never throws on a corrupt marker and still stamps this run", () => {
     const store = makeStore("}{ not json");
     expect(() => begin(store, "s5")).not.toThrow();
-    expect((JSON.parse(store.get()!) as DesktopSessionState).sessionId).toBe("s5");
+    expect(store.state().sessionId).toBe("s5");
   });
 });
