@@ -919,8 +919,8 @@ export function ChatPane({
   // shouldn't be yanked back the moment the next chunk streams in.
   const pinnedToBottomRef = useRef(true);
   const scrolledToFormRef = useRef<Set<string>>(new Set());
-  const refreshInlineAmrLoginStatus = useCallback(async () => {
-    const next = await fetchVelaLoginStatus().catch(() => null);
+  const refreshInlineAmrLoginStatus = useCallback(async (options: { refresh?: boolean } = {}) => {
+    const next = await fetchVelaLoginStatus(options).catch(() => null);
     if (next) setInlineAmrLoginStatus(next);
     return next;
   }, []);
@@ -935,6 +935,19 @@ export function ChatPane({
     window.addEventListener(AMR_LOGIN_STATUS_EVENT, onAmrLoginStatusChange);
     return () => {
       window.removeEventListener(AMR_LOGIN_STATUS_EVENT, onAmrLoginStatusChange);
+    };
+  }, [refreshInlineAmrLoginStatus]);
+
+  useEffect(() => {
+    const refreshAfterExternalAmrReturn = () => {
+      if (document.visibilityState === 'hidden') return;
+      void refreshInlineAmrLoginStatus({ refresh: true });
+    };
+    window.addEventListener('focus', refreshAfterExternalAmrReturn);
+    document.addEventListener('visibilitychange', refreshAfterExternalAmrReturn);
+    return () => {
+      window.removeEventListener('focus', refreshAfterExternalAmrReturn);
+      document.removeEventListener('visibilitychange', refreshAfterExternalAmrReturn);
     };
   }, [refreshInlineAmrLoginStatus]);
 

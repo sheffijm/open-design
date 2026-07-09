@@ -1543,7 +1543,7 @@ export function SettingsDialog({
     // login, ping-pongs the action between "Signing in…" and "Authorize".
     const resyncAmrStatus = () => {
       if (document.visibilityState === 'hidden') return;
-      void fetchVelaLoginStatus().then((next) => {
+      void fetchVelaLoginStatus({ refresh: true }).then((next) => {
         if (cancelled || !next) return;
         setAmrCardStatus(next);
         if (next.loggedIn) void refreshAmrWalletSnapshot({ refresh: true });
