@@ -520,16 +520,6 @@ export interface ComposeInput {
   // Skill identifier. Required when critique is enabled;
   // ignored when critique is disabled or omitted.
   critiqueSkill?: { id: string } | undefined;
-  // External MCP servers the daemon already holds a valid OAuth Bearer
-  // token for at spawn time. We surface the list to the model so it does
-  // NOT chase Claude Code's synthetic `*_authenticate` /
-  // `*_complete_authentication` tools that get injected when the HTTP
-  // transport's first connect transiently flips a server into
-  // needs-auth state — the Bearer is in `.mcp.json`, the real tools are
-  // available, and burning a turn on a redundant OAuth dance just
-  // confuses the user.
-  connectedExternalMcp?: ReadonlyArray<{ id: string; label?: string | undefined }>
-    | undefined;
   // Optional `## Active plugin` / `## Plugin inputs` block. The daemon's
   // plugin module renders this from an AppliedPluginSnapshot; we splice
   // it in after the active skill so the plugin description sits next to
@@ -595,7 +585,6 @@ export function composeSystemPrompt({
   critique,
   critiqueBrand,
   critiqueSkill,
-  connectedExternalMcp,
   pluginBlock,
   activeStageBlocks,
   streamFormat,
@@ -940,9 +929,6 @@ export function composeSystemPrompt({
     parts.push(ACTIVE_DESIGN_SYSTEM_VISUAL_DIRECTION_OVERRIDE);
   }
 
-  const mcpDirective = renderConnectedExternalMcpDirective(connectedExternalMcp);
-  if (mcpDirective) parts.push(mcpDirective);
-
   if (resolvedExecutionProfile === 'filesystem') {
     parts.push(FILESYSTEM_HANDOFF_OVERRIDE);
   }
@@ -1072,7 +1058,7 @@ If this is a plain API run where filesystem tools are unavailable, output the sa
 // `*_authenticate` / `*_complete_authentication` tool for them. If
 // the real tools really are missing, surface that as a separate
 // failure instead of pivoting to the synthetic flow.
-function renderConnectedExternalMcpDirective(
+export function renderConnectedExternalMcpDirective(
   connectedExternalMcp:
     | ReadonlyArray<{ id: string; label?: string | undefined }>
     | undefined,
@@ -1087,8 +1073,8 @@ function renderConnectedExternalMcpDirective(
     })
     .filter((line): line is string => typeof line === 'string');
   if (lines.length === 0) return '';
+  // No leading separator: callers place this in a `---`-joined slice.
   return [
-    '\n\n---\n\n',
     '## External MCP servers — already authenticated\n\n',
     'The following external MCP servers are already authenticated for this run via an OAuth Bearer token the daemon injected into `.mcp.json`. You can call their real tools directly:\n\n',
     lines.join('\n'),

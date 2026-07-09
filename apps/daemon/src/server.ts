@@ -20,6 +20,7 @@ import net from 'node:net';
 import { executionProfileFromStreamFormat, PLUGIN_SHARE_ACTION_PLUGIN_IDS } from '@open-design/contracts';
 import {
   composeSystemPrompt,
+  renderConnectedExternalMcpDirective,
   resolveExclusiveSurface,
 } from './prompts/system.js';
 import { emittedRenderableQuestionForm } from './question-form-detect.js';
@@ -3372,7 +3373,6 @@ export async function startServer({
     streamFormat,
     locale,
     sessionMode,
-    connectedExternalMcp,
     appliedPluginSnapshotId,
     mediaExecution,
     byokMediaDefaults,
@@ -3888,9 +3888,6 @@ export async function startServer({
       byokMediaDefaults,
       streamFormat,
       executionProfile: executionProfileFromStreamFormat(streamFormat),
-      connectedExternalMcp: Array.isArray(connectedExternalMcp)
-        ? connectedExternalMcp
-        : undefined,
       ...(pluginBlock ? { pluginBlock } : {}),
       ...(activeStageBlocks ? { activeStageBlocks } : {}),
       userInstructions,
@@ -4384,7 +4381,6 @@ export async function startServer({
         streamFormat: def?.streamFormat ?? 'plain',
         locale,
         sessionMode: runSessionMode,
-        connectedExternalMcp,
         mediaExecution: run?.mediaExecution,
         byokMediaDefaults,
         // Plan §3.M2 / §3.V1 — forward the run's snapshot id so the
@@ -4686,9 +4682,16 @@ export async function startServer({
           'Do not mention this title task to the user. Continue with the normal answer after the title marker.',
         ].join('\n')
       : '';
+    // The connected-external-MCP directive reflects live OAuth token state,
+    // which flips mid-conversation as Bearers expire/refresh. Keeping it out of
+    // the cached stable prefix (daemonSystemPrompt) and re-sending it here in
+    // the per-turn slice keeps the upstream prompt-cache prefix byte-stable
+    // across resumes (protecting the conversation-history cache) while still
+    // giving the model the current MCP auth state on every turn.
+    const mcpConnectedDirective = renderConnectedExternalMcpDirective(connectedExternalMcp);
     const clientInstructionParts = includeStableInstructions
-      ? [researchCommandContract, runContextPrompt, browserUsePromptGuard, titleGenerationPrompt, systemPrompt]
-      : [researchCommandContract, runContextPrompt, browserUsePromptGuard, titleGenerationPrompt];
+      ? [researchCommandContract, runContextPrompt, mcpConnectedDirective, browserUsePromptGuard, titleGenerationPrompt, systemPrompt]
+      : [researchCommandContract, runContextPrompt, mcpConnectedDirective, browserUsePromptGuard, titleGenerationPrompt];
     const clientInstructionPrompt = clientInstructionParts
       .map((part) => (typeof part === 'string' ? part.trim() : ''))
       .filter(Boolean)
