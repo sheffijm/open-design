@@ -102,6 +102,10 @@ export function RecentProjectsStrip({
   const [renameTarget, setRenameTarget] = useState<{ id: string; original: string } | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const [confirmTarget, setConfirmTarget] = useState<Project | null>(null);
+  // Project → team-space sharing (the project card entry). The daemon gates on
+  // `canShareProjects` (403 off-team / no rights), so we only badge on success.
+  const [sharingId, setSharingId] = useState<string | null>(null);
+  const [sharedIds, setSharedIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
   const renameTitleId = useId();
   const confirmTitleId = useId();
@@ -220,6 +224,26 @@ export function RecentProjectsStrip({
     setConfirmTarget(project);
   }
 
+  // Promote a project into the team space: fire the sync-intent the daemon uses
+  // to publish it for teammates. Server-side gated on `canShareProjects`, so a
+  // non-team / unpermitted caller gets a 403 and the project stays un-badged.
+  async function handleShareToTeam(project: Project) {
+    setMenuOpenId(null);
+    setSharingId(project.id);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(project.id)}/collab/sync-intent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ event: 'project_team_share_requested', projectId: project.id }),
+      });
+      if (res.ok) setSharedIds((prev) => new Set(prev).add(project.id));
+    } catch {
+      // Best-effort: leave the project un-badged on a transient failure.
+    } finally {
+      setSharingId(null);
+    }
+  }
+
   function requestDuplicate(project: Project) {
     if (!onDuplicate) return;
     setMenuOpenId(null);
@@ -303,6 +327,42 @@ export function RecentProjectsStrip({
                   ) : (
                     <span className="recent-projects__card-glyph">{cover.initial}</span>
                   )}
+                  {sharingId === project.id ? (
+                    <span
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'rgba(255,255,255,0.55)',
+                        borderRadius: 'inherit',
+                      }}
+                    >
+                      <Icon name="spinner" size={18} />
+                    </span>
+                  ) : sharedIds.has(project.id) ? (
+                    <span
+                      className="recent-projects__shared-badge"
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        left: 8,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: 'rgba(17,24,39,0.72)',
+                        color: '#fff',
+                      }}
+                    >
+                      <Icon name="users" size={11} /> 共享
+                    </span>
+                  ) : null}
                 </div>
                 <div className="recent-projects__card-meta">
                   <div className="design-card-tag-row">
@@ -363,6 +423,21 @@ export function RecentProjectsStrip({
                           <span>{t('designs.menuDuplicate')}</span>
                         </button>
                       ) : null}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={sharingId === project.id || sharedIds.has(project.id)}
+                        onClick={() => void handleShareToTeam(project)}
+                      >
+                        <Icon name="share" size={12} />
+                        <span>
+                          {sharingId === project.id
+                            ? '分享中…'
+                            : sharedIds.has(project.id)
+                              ? '已在团队空间'
+                              : '转入团队空间'}
+                        </span>
+                      </button>
                       {onDelete ? (
                         <button
                           type="button"
