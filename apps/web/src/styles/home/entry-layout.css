@@ -4904,3 +4904,57 @@
 .entry-nav-rail__menu-item.is-current svg { color: var(--accent); }
 
 .entry-nav-rail__menu-item.is-current svg { margin-left: auto; }
+
+/* Credits panel (the "升级" surface behind the credits chip — A-lane billing). */
+.entry-nav-rail__credits-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.entry-nav-rail__credits-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.entry-nav-rail__credits-panel-tier {
+  font-weight: 600;
+  font-size: 13px;
+}
+.entry-nav-rail__credits-panel-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+}
+.entry-nav-rail__credits-upgrade {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent, #d9663f);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.entry-nav-rail__credits-upgrade:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.entry-nav-rail__credits-panel-note {
+  font-size: 12px;
+  color: var(--text-tertiary, #999);
+  margin: 0;
+}

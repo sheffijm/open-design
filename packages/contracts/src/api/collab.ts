@@ -50,6 +50,29 @@ export interface CollabSyncIntentResponse extends OkResponse {
   syncState: ProjectSyncState;
 }
 
+/**
+ * A project shared to the caller's team, surfaced from the resource hub so a
+ * member can discover + open projects the owner shared. `projectId` is the local
+ * project id (the hub `project-` id prefix stripped) a member pulls then opens;
+ * `ownerMemberId` is the member who shared it (its single writer); `sharedAt` is
+ * when it was first shared (the hub resource's `createdAt`).
+ */
+export interface TeamProject {
+  projectId: string;
+  ownerMemberId: string;
+  sharedAt: string;
+}
+
+/**
+ * GET /api/workspace/projects/team. Team-wide shared-project discovery: every
+ * project any member shared to the team, read from the resource hub. A member's
+ * own `/api/projects` list is only their LOCAL projects; team-shared projects
+ * live on the hub until pulled. Empty off-team or when the hub is not configured.
+ */
+export interface WorkspaceTeamProjectsResponse {
+  projects: TeamProject[];
+}
+
 // Workspace context seam onto the B (identity/membership) + D (visibility)
 // lanes. A faithful SUBSET of B's `CurrentWorkspaceContext`
 // (vela packages/shared/src/workspace-context.ts) — the exact fields C needs to
@@ -234,4 +257,21 @@ export interface WorkspaceBillingSummary {
 
 export interface WorkspaceBillingResponse {
   summary: WorkspaceBillingSummary | null;
+}
+
+/**
+ * Request to start a team-subscription checkout (the "升级" action behind the
+ * nav credits chip). Seats defaults server-side when omitted.
+ */
+export interface WorkspaceBillingCheckoutRequest {
+  seats?: number;
+}
+
+/**
+ * Result of starting a team-subscription checkout via the vela billing CLI 收口.
+ * `checkoutUrl` is the Stripe URL the client opens; null when the CLI / session
+ * / backend route is unavailable (the client shows an error instead).
+ */
+export interface WorkspaceBillingCheckoutResponse {
+  checkoutUrl: string | null;
 }

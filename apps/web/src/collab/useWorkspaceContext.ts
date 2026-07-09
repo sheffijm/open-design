@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type {
+  TeamProject,
   WorkspaceBillingResponse,
   WorkspaceBillingSummary,
   WorkspaceCollabContext,
   WorkspaceContextResponse,
+  WorkspaceTeamProjectsResponse,
 } from '@open-design/contracts';
 
 // One shared read of the workspace context (`GET /api/workspace/context`) for the
@@ -71,4 +73,59 @@ export function useWorkspaceBilling(): WorkspaceBillingSummary | null {
   }, []);
 
   return summary;
+}
+
+export interface TeamProjectsState {
+  projects: TeamProject[];
+  loading: boolean;
+  /** Re-fetch the team-shared project list (e.g. after a member pulls one). */
+  reload: () => void;
+}
+
+/**
+ * Team-wide shared-project discovery for the "全部项目" view
+ * (`GET /api/workspace/projects/team`, resource-hub data behind the daemon).
+ * A member's own `/api/projects` list is only their LOCAL projects; the projects
+ * the owner shared to the team live on the hub until pulled, and this read
+ * surfaces them so a member can discover + open them. Empty off-team or when the
+ * hub is not configured — the daemon degrades to `{ projects: [] }` there.
+ */
+export function useTeamProjects(): TeamProjectsState {
+  const [projects, setProjects] = useState<TeamProject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch('/api/workspace/projects/team');
+        if (!res.ok) {
+          if (!cancelled) {
+            setProjects([]);
+            setLoading(false);
+          }
+          return;
+        }
+        const body = (await res.json()) as WorkspaceTeamProjectsResponse;
+        if (!cancelled) {
+          setProjects(body.projects ?? []);
+          setLoading(false);
+        }
+      } catch {
+        // Personal / offline / daemon without the hub: no team-shared projects.
+        if (!cancelled) {
+          setProjects([]);
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [nonce]);
+
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+  return { projects, loading, reload };
 }

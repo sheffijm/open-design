@@ -169,6 +169,35 @@ export function EntryNavRail({
 
   const [accountOpen, setAccountOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [creditsOpen, setCreditsOpen] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
+  // Whether the real billing summary offers a checkout (A's subscription flow).
+  const canUpgrade = Boolean(billing?.availableActions?.includes('subscription_checkout'));
+
+  // The "升级" action behind the credits chip: start a team-subscription
+  // checkout via the daemon's billing 收口 (spawns `vela billing checkout`) and
+  // open the returned Stripe URL. A null url (CLI / session / A's route
+  // unavailable) leaves the panel open so the user can retry.
+  async function handleUpgrade() {
+    if (checkingOut) return;
+    setCheckingOut(true);
+    try {
+      const res = await fetch('/api/workspace/billing/checkout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const body = (await res.json()) as { checkoutUrl?: string | null };
+      if (body?.checkoutUrl) {
+        window.open(body.checkoutUrl, '_blank', 'noopener,noreferrer');
+        setCreditsOpen(false);
+      }
+    } catch {
+      // Best-effort: leave the panel open so the user can retry.
+    } finally {
+      setCheckingOut(false);
+    }
+  }
 
   const selectView = (next: EntryView) => {
     onViewChange(next);
@@ -216,10 +245,8 @@ export function EntryNavRail({
             <button
               type="button"
               className="entry-nav-rail__credits-chip"
-              onClick={() => {
-                // TODO(collab): real credits balance + billing area via vela CLI 收口 (like resources)
-                onOpenSettings?.();
-              }}
+              onClick={() => setCreditsOpen((v) => !v)}
+              aria-expanded={creditsOpen}
               aria-label={
                 creditsBalance != null
                   ? `${tierLabel} · 剩余积分 ${creditsBalance}`
@@ -232,6 +259,32 @@ export function EntryNavRail({
               <Icon name="sparkles" size={12} />
               {creditsBalance != null ? creditsBalance.toLocaleString('en-US') : <span aria-hidden>—</span>}
             </button>
+            {creditsOpen ? (
+              <>
+                <div className="entry-nav-rail__menu-backdrop" onClick={() => setCreditsOpen(false)} />
+                <div className="entry-nav-rail__credits-panel" role="dialog" aria-label="套餐与积分">
+                  <div className="entry-nav-rail__credits-panel-head">
+                    <span className="entry-nav-rail__credits-panel-tier">{tierLabel}</span>
+                    <span className="entry-nav-rail__credits-panel-balance">
+                      <Icon name="sparkles" size={13} />
+                      {creditsBalance != null ? `${creditsBalance.toLocaleString('en-US')} 积分` : '积分 —'}
+                    </span>
+                  </div>
+                  {canUpgrade ? (
+                    <button
+                      type="button"
+                      className="entry-nav-rail__credits-upgrade"
+                      disabled={checkingOut}
+                      onClick={() => void handleUpgrade()}
+                    >
+                      {checkingOut ? '正在打开…' : '升级 / 购买积分'}
+                    </button>
+                  ) : (
+                    <p className="entry-nav-rail__credits-panel-note">当前套餐无可用升级动作。</p>
+                  )}
+                </div>
+              </>
+            ) : null}
             {accountOpen ? (
               <>
                 <div className="entry-nav-rail__menu-backdrop" onClick={() => setAccountOpen(false)} />

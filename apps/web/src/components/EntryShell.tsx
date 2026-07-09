@@ -102,6 +102,7 @@ import {
 } from './useDiscordPresence';
 import { HomeView, seedHomeComposerPrompt } from './HomeView';
 import { RecentProjectsStrip } from './RecentProjectsStrip';
+import { TeamProjectsSection } from './TeamProjectsSection';
 import {
   createPluginAuthoringHandoff,
   createPluginUseHandoff,
@@ -114,7 +115,7 @@ import { Icon } from './Icon';
 import { AgentIcon } from './AgentIcon';
 import { CommunityView } from './CommunityView';
 import { TeamSlotPlaceholder } from './TeamSlotPlaceholder';
-import { useWorkspaceContext, useWorkspaceBilling } from '../collab/useWorkspaceContext';
+import { useWorkspaceContext, useWorkspaceBilling, useTeamProjects } from '../collab/useWorkspaceContext';
 import { LanguageMenu } from './LanguageMenu';
 import { IntegrationsView, type IntegrationTab } from './IntegrationsView';
 import { InlineModelSwitcher } from './InlineModelSwitcher';
@@ -512,6 +513,10 @@ export function EntryShell({
   // surface reads THIS read; the rail never re-derives role/permission gates.
   const { context: workspaceContext, loading: workspaceLoading } = useWorkspaceContext();
   const workspaceBilling = useWorkspaceBilling();
+  // Team-wide shared-project discovery for the "全部项目" view. The member's own
+  // `projects` prop is only their LOCAL list; team-shared projects come from the
+  // resource hub through the daemon. Empty off-team / when the hub is unconfigured.
+  const teamProjects = useTeamProjects();
   const isTeamWorkspace =
     Boolean(workspaceContext) && workspaceContext!.workspaceType === 'team';
   // Resolve the effective light/dark theme so the rail's account-menu theme toggle
@@ -1123,15 +1128,23 @@ export function EntryShell({
                 {projectsLoading ? (
                   <CenteredLoader label={t('common.loading')} />
                 ) : (
-                  <RecentProjectsStrip
-                    projects={projects}
-                    designSystems={designSystems}
-                    limit={1000}
-                    onOpen={(id) => onOpenProject(id)}
-                    onViewAll={() => {}}
-                    onDelete={onDeleteProject}
-                    onRename={onRenameProject}
-                  />
+                  <>
+                    <RecentProjectsStrip
+                      projects={projects}
+                      designSystems={designSystems}
+                      limit={1000}
+                      onOpen={(id) => onOpenProject(id)}
+                      onViewAll={() => {}}
+                      onDelete={onDeleteProject}
+                      onRename={onRenameProject}
+                    />
+                    <TeamProjectsSection
+                      projects={teamProjects.projects}
+                      localProjectIds={new Set(projects.map((project) => project.id))}
+                      onOpenProject={onOpenProject}
+                      onProjectsRefresh={onProjectsRefresh}
+                    />
+                  </>
                 )}
               </div>
             ) : null}

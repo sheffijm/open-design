@@ -1,18 +1,22 @@
 import type { Express } from 'express';
 import type {
+  TeamProject,
+  WorkspaceBillingCheckoutResponse,
   WorkspaceBillingResponse,
   WorkspaceBillingSummary,
   WorkspaceContextResponse,
+  WorkspaceTeamProjectsResponse,
 } from '@open-design/contracts';
 import {
   parseWorkspaceCollabContext,
   type WorkspaceContextProvider,
 } from '../collab/workspace-context.js';
+import { createTeamProjectsLister } from '../collab/team-projects.js';
 import {
   consumeInviteContinuation,
   type InviteContinueOutcome,
 } from '../collab/invite-continue.js';
-import { fetchVelaBillingSummary } from '../integrations/vela-billing.js';
+import { fetchBillingCheckoutUrl, fetchVelaBillingSummary } from '../integrations/vela-billing.js';
 
 export interface RegisterCollabContextRoutesDeps {
   workspaceContext: WorkspaceContextProvider;
@@ -20,6 +24,12 @@ export interface RegisterCollabContextRoutesDeps {
   consumeInvite?: (nonce: string) => Promise<InviteContinueOutcome>;
   /** Injectable for tests; defaults to the vela billing CLI 收口. */
   fetchBilling?: () => Promise<WorkspaceBillingSummary | null>;
+  /** Injectable for tests; defaults to the vela billing checkout CLI 收口. */
+  startCheckout?: (input: { seats?: number }) => Promise<string | null>;
+  /** Injectable for tests; defaults to the resource-hub team-project lister
+   *  built from the same workspace context + env-configured hub client the share
+   *  path uses. */
+  listTeamProjects?: () => Promise<TeamProject[]>;
 }
 
 /**
@@ -33,6 +43,10 @@ export function registerCollabContextRoutes(app: Express, deps: RegisterCollabCo
   const { workspaceContext } = deps;
   const consumeInvite = deps.consumeInvite ?? ((nonce: string) => consumeInviteContinuation(nonce));
   const fetchBilling = deps.fetchBilling ?? (() => fetchVelaBillingSummary());
+  const startCheckout =
+    deps.startCheckout ?? ((input: { seats?: number }) => fetchBillingCheckoutUrl(input));
+  const listTeamProjects =
+    deps.listTeamProjects ?? createTeamProjectsLister({ workspaceContext });
 
   // Desktop invite hand-off ("桌面唤起和本地恢复"): the desktop app parses the
   // opendesign:// invite deeplink and POSTs the nonce here. The daemon consumes
@@ -55,6 +69,22 @@ export function registerCollabContextRoutes(app: Express, deps: RegisterCollabCo
     res.json(body);
   });
 
+  // Team-wide shared-project discovery: the web "全部项目" view fetches every
+  // project any member shared to the team here (read from the resource hub), so a
+  // member whose own /api/projects list is empty still sees the owner's shared
+  // projects to pull + open. Empty off-team / hub-unconfigured; a transient hub
+  // error also degrades to [] so a hub outage never blanks the view with a 500.
+  app.get('/api/workspace/projects/team', async (_req, res) => {
+    let projects: TeamProject[] = [];
+    try {
+      projects = await listTeamProjects();
+    } catch {
+      projects = [];
+    }
+    const body: WorkspaceTeamProjectsResponse = { projects };
+    res.json(body);
+  });
+
   // A-lane billing 收口: the client's credits chip fetches the caller's real
   // plan tier + credit balance here. The daemon shells out to `vela billing
   // summary` (same vela session as resources); a null summary means the CLI /
@@ -63,6 +93,17 @@ export function registerCollabContextRoutes(app: Express, deps: RegisterCollabCo
     const summary = await fetchBilling();
     const body: WorkspaceBillingResponse = { summary };
     res.json(body);
+  });
+
+  // The "升级" action behind the credits chip: start a team-subscription
+  // checkout via the vela billing CLI 收口 and hand back the Stripe URL to open.
+  // A null url means the CLI / session / A's checkout route is unavailable.
+  app.post('/api/workspace/billing/checkout', async (req, res) => {
+    const body = (req.body ?? {}) as { seats?: unknown };
+    const seats = typeof body.seats === 'number' && body.seats > 0 ? Math.floor(body.seats) : undefined;
+    const checkoutUrl = await startCheckout(seats != null ? { seats } : {});
+    const response: WorkspaceBillingCheckoutResponse = { checkoutUrl };
+    res.json(response);
   });
 
   // Dev/demo seam: override the in-memory context. A real B-backed provider does
