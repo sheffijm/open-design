@@ -27,6 +27,8 @@ export interface UseCollabResult {
   ownerRole: CollabSnapshot['ownerRole'];
   reportChange: () => void;
   requestPublish: () => void;
+  /** Member side — pull the published head into the local project directory. */
+  pull: () => Promise<void>;
 }
 
 const EMPTY: CollabSnapshot = {
@@ -88,6 +90,11 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
   const requestPublish = useCallback(() => {
     void clientRef.current?.requestPublish();
   }, []);
+  // Returns the promise (unlike reportChange/requestPublish) so the member
+  // auto-pull can await a successful pull before advancing its version cursor.
+  const pull = useCallback(async () => {
+    await clientRef.current?.pull();
+  }, []);
 
   return {
     present: snapshot.present,
@@ -98,5 +105,6 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
     ownerRole: snapshot.ownerRole,
     reportChange,
     requestPublish,
+    pull,
   };
 }

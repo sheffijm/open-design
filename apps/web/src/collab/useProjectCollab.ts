@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CollabMemberRole, CollabPresenceMember, WorkspaceCollabContext } from '@open-design/contracts';
 import { resolveCollabSession } from './collab-session';
 import { useCollab } from './useCollab';
@@ -116,6 +116,61 @@ export function useProjectCollab(
   const isOwner = collab.ownerMemberId != null && collab.ownerMemberId === context?.workspaceMemberId;
   const sharedReadOnly = shared && !isOwner;
   const viewerOnly = workspaceReadOnly || sharedReadOnly;
+
+  // Member content auto-sync (the last link): when a read-only member sees the
+  // resource-hub head (`publishedVersion`) advance past what we last pulled,
+  // pull the new content into the local project directory. The daemon
+  // materializes it and its file watcher then fires the existing live-reload SSE
+  // (`useProjectFileEvents` in ProjectView, gated on `daemonLive`), so the
+  // FileViewer refreshes on its own — no extra reload wiring is needed here.
+  //
+  // Only members (`viewerOnly`) pull. The owner is the single writer; their
+  // local copy is already the newest, and pulling could clobber unpublished
+  // edits, so the owner path stays out. `viewerOnly` resolves to false for the
+  // owner in the same status poll that resolves `syncState`, so the gate holds.
+  //
+  // The cursor starts at 0 (not the first observed `publishedVersion`), so
+  // entering a shared project pulls once to guarantee the member lands on the
+  // latest head rather than trusting a possibly-stale local copy.
+  const pulledVersionRef = useRef(0);
+  const pullInFlightRef = useRef(false);
+  // Bumped after each successful pull to re-evaluate immediately — this catches
+  // a head that advanced while a pull was in flight (the plain publishedVersion
+  // dep would otherwise not re-fire once it settles on the newer number).
+  const [pullTick, setPullTick] = useState(0);
+  // Reset the cursor when the project changes so switching to another shared
+  // project pulls its latest head instead of inheriting the previous cursor.
+  useEffect(() => {
+    pulledVersionRef.current = 0;
+    pullInFlightRef.current = false;
+  }, [projectId]);
+  const { publishedVersion } = collab;
+  const pull = collab.pull;
+  useEffect(() => {
+    if (!viewerOnly) return;
+    if (publishedVersion == null) return;
+    if (publishedVersion <= pulledVersionRef.current) return;
+    if (pullInFlightRef.current) return;
+    const target = publishedVersion;
+    pullInFlightRef.current = true;
+    void (async () => {
+      let advanced = false;
+      try {
+        await pull();
+        // Advance only on success so a failed pull is retried, not skipped.
+        pulledVersionRef.current = target;
+        advanced = true;
+      } catch {
+        // Swallow: the ~5s status poll keeps publishedVersion fresh and the next
+        // tick retries while the cursor is still behind. Deferring the retry to
+        // the poll (rather than looping) avoids hammering a failing daemon.
+      } finally {
+        pullInFlightRef.current = false;
+      }
+      if (advanced) setPullTick((n) => n + 1);
+    })();
+  }, [viewerOnly, publishedVersion, pull, pullTick]);
+
   return {
     enabled: decision.enabled,
     member: decision.member,

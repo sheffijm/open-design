@@ -106,6 +106,15 @@ export class CollabClient {
     await this.post('/collab/publish');
   }
 
+  /**
+   * Member side — pull the resource-hub head into the local project directory.
+   * The daemon materializes the new content and its file watcher then fires the
+   * existing live-reload SSE, so the FileViewer refreshes on its own.
+   */
+  async pull(): Promise<void> {
+    await this.post('/collab/pull');
+  }
+
   async heartbeat(): Promise<void> {
     try {
       const body = await this.post('/presence/heartbeat', this.member);
