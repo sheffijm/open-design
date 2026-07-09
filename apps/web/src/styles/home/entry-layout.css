@@ -5033,3 +5033,456 @@
   font-size: 12px;
   font-weight: 750;
 }
+
+/* ============================================================
+   Invite-colleagues dialog (team space). Opened from the team
+   switcher's "邀请同事" item. Demo-only: email + role + share link
+   + current member list. Centered modal over a dimmed backdrop.
+   ============================================================ */
+.entry-invite {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.entry-invite__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.entry-invite__panel {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  border-radius: var(--radius-lg, 16px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+  animation: entry-invite-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes entry-invite-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.entry-invite__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.entry-invite__team-avatar {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #1f1f1f;
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+}
+.entry-invite__head-text { min-width: 0; }
+.entry-invite__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+.entry-invite__subtitle {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.entry-invite__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: -6px;
+}
+.entry-invite__row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.entry-invite__input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg);
+  color: var(--text);
+}
+.entry-invite__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.entry-invite__role {
+  flex: 0 0 96px;
+  align-self: flex-start;
+  /* Right padding leaves room for the global <select> chevron; use
+     background-color (not the `background` shorthand) so that chevron
+     image from primitives.css survives. */
+  padding: 9px 30px 9px 10px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background-color: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.entry-invite__link-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-subtle);
+}
+.entry-invite__link-icon { color: var(--text-muted); flex: 0 0 auto; }
+.entry-invite__link-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.entry-invite__link-text strong { font-size: 12.5px; color: var(--text-strong); }
+.entry-invite__link-text span {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entry-invite__copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.entry-invite__copy:hover { border-color: var(--border-strong); }
+.entry-invite__members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+}
+.entry-invite__members-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.entry-invite__member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+.entry-invite__member-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 26px;
+}
+.entry-invite__member-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entry-invite__member-role {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.entry-invite__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+.entry-invite__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.entry-invite__btn:hover { border-color: var(--border-strong); }
+.entry-invite__btn.is-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+/* Re-assert the accent fill + white label on hover — the global
+   `button:hover` rule in primitives.css otherwise repaints the background to
+   --bg-subtle, washing the white text away. */
+.entry-invite__btn.is-primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  filter: brightness(1.05);
+}
+
+/* ── Canva-style split invite dialog ── */
+.entry-invite__panel--split {
+  max-width: 880px;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.entry-invite__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.entry-invite__close:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border-strong);
+}
+.entry-invite__form {
+  flex: 1 1 0;
+  min-width: 0;
+  /* min-height:0 lets the form shrink inside the height-capped panel so its
+     inner scroll regions take over instead of the dialog growing unbounded. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 36px 40px;
+  overflow-y: auto;
+}
+/* The invite rows scroll within a capped region so adding many members can't
+   grow the dialog past the viewport; the header labels and submit stay put. */
+.entry-invite__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  /* Negative margin + padding give the input focus ring room so overflow
+     clipping doesn't shave it. Extra right padding keeps the overlay
+     scrollbar clear of each row's remove (×) button. */
+  margin: 0 -4px;
+  padding: 2px 16px 2px 4px;
+}
+.entry-invite__teamsize {
+  margin: -8px 0 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.entry-invite__fields {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.entry-invite__field {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.entry-invite__field--role { flex: 0 0 150px; }
+.entry-invite__field-labels {
+  display: flex;
+  gap: 12px;
+  margin-bottom: -4px;
+}
+.entry-invite__field-labels .entry-invite__label { flex: 1 1 0; }
+.entry-invite__field-labels .entry-invite__label--role { flex: 0 0 150px; }
+.entry-invite__fields .entry-invite__input { flex: 1 1 0; }
+.entry-invite__fields .entry-invite__role { flex: 0 0 150px; }
+.entry-invite__row-remove {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.entry-invite__row-remove:hover { background: var(--bg-subtle); color: var(--text); }
+.entry-invite__add-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 8px 14px;
+  /* Ghost button: dashed accent border makes "add member" stand out as the
+     clear next action instead of reading as plain link text. */
+  border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radius-sm, 8px);
+  transition: background 120ms var(--ease-out), border-color 120ms var(--ease-out);
+}
+.entry-invite__add-row:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: var(--accent);
+}
+.entry-invite__panel--split .entry-invite__label { margin-bottom: 0; }
+.entry-invite__panel--split .entry-invite__input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 11px 13px;
+}
+.entry-invite__panel--split .entry-invite__role {
+  flex: 0 0 150px;
+  width: auto;
+  padding: 11px 34px 11px 13px;
+}
+.entry-invite__collapse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.entry-invite__collapse-body {
+  margin: -8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.entry-invite__submit {
+  width: 100%;
+  padding: 13px;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms, background 120ms, color 120ms;
+}
+.entry-invite__submit:hover:not(:disabled) {
+  /* Hold the accent fill — the global button:hover rule would repaint it to
+     --bg-subtle and hide the white label. */
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  filter: brightness(1.05);
+}
+.entry-invite__submit:disabled {
+  background: var(--bg-subtle);
+  color: var(--text-faint);
+  cursor: default;
+}
+/* Right column: a cluster of overlapping teammate avatars ending in a
+   dashed "+" — reads as "bring people together" instead of the previous
+   abstract blobs. */
+.entry-invite__art {
+  position: relative;
+  flex: 0 0 360px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(150deg, #f4f1ff 0%, #faf7ff 100%);
+}
+.entry-invite__art-glow {
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 70%);
+  filter: blur(6px);
+}
+.entry-invite__art-cluster {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.entry-invite__art-avatar {
+  width: 72px;
+  height: 72px;
+  margin-left: -20px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: #fff;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 10px 24px rgba(76, 29, 149, 0.16);
+}
+.entry-invite__art-avatar:first-child { margin-left: 0; }
+.entry-invite__art-avatar:nth-child(odd) { transform: translateY(-12px); }
+.entry-invite__art-avatar:nth-child(even) { transform: translateY(12px); }
+.entry-invite__art-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.entry-invite__art-avatar--invite {
+  border: 2px dashed color-mix(in srgb, var(--accent) 60%, #fff);
+  background: color-mix(in srgb, var(--accent) 12%, #fff);
+  color: var(--accent);
+  box-shadow: none;
+}
+@media (max-width: 720px) {
+  .entry-invite__panel--split { flex-direction: column; max-width: 460px; }
+  .entry-invite__art { display: none; }
+}

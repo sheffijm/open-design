@@ -26,6 +26,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkspaceBillingSummary, WorkspaceCollabContext } from '@open-design/contracts';
 import { EntryHelpMenu } from './EntryHelpMenu';
 import { Icon } from './Icon';
+import { InviteDialog } from './InviteDialog';
 import { CreditsPanel } from './CreditsPanel';
 import { useI18n } from '../i18n';
 import type { EntryHomeView } from '../router';
@@ -170,6 +171,7 @@ export function EntryNavRail({
 
   const [accountOpen, setAccountOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   // Whether the real billing summary offers a checkout (A's subscription flow).
@@ -202,11 +204,6 @@ export function EntryNavRail({
 
   const selectView = (next: EntryView) => {
     onViewChange(next);
-  };
-
-  const openConsole = (section: 'members' | 'dashboard' | 'settings') => {
-    if (!workspaceSettingsUrl) return;
-    window.open(teamConsoleUrl(workspaceSettingsUrl, section), '_blank', 'noopener,noreferrer');
   };
 
   // While collapsed the rail is visually hidden but its controls stay mounted;
@@ -432,9 +429,8 @@ export function EntryNavRail({
                         className="entry-nav-rail__menu-item"
                         role="menuitem"
                         onClick={() => {
-                          // TODO(collab): invite lives in B's vela/web member console via vela CLI 收口
                           setTeamOpen(false);
-                          openConsole('members');
+                          setInviteOpen(true);
                         }}
                       >
                         <Icon name="share" size={15} /> 邀请同事
@@ -583,6 +579,8 @@ export function EntryNavRail({
         <div className="entry-nav-rail__divider" role="separator" />
         <EntryHelpMenu />
       </div>
+
+      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </nav>
   );
 }

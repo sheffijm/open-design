@@ -127,6 +127,7 @@ import type {
 } from '../types';
 import { Icon } from './Icon';
 import { RemixIcon } from './RemixIcon';
+import { HandoffButton } from './HandoffButton';
 import { SocialShareGrid } from './SocialShareGrid';
 import { Toast } from './Toast';
 import { PreviewDrawOverlay, type DrawToolbarElement } from './PreviewDrawOverlay';
@@ -5124,6 +5125,11 @@ function ReactComponentViewer({
   const [srcDoc, setSrcDoc] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [unifiedActionTab, setUnifiedActionTab] = useState<'share' | 'export' | 'send'>('share');
+  const [shareAccess, setShareAccess] = useState<'private' | 'workspace'>('private');
+  const [shareAccessMenuOpen, setShareAccessMenuOpen] = useState(false);
+  const [filePublished, setFilePublished] = useState(false);
+  const [publishLinkFeedback, setPublishLinkFeedback] = useState<'copied' | 'failed' | null>(null);
   const shareRef = useRef<HTMLDivElement | null>(null);
   // HTML entries that load this file as a Babel module. `null` = still
   // checking; `[]` = standalone artifact; non-empty = a module of a
@@ -5188,6 +5194,43 @@ function ReactComponentViewer({
       document.removeEventListener('keydown', onKey);
     };
   }, [shareMenuOpen]);
+
+  // Mirror the selected share access level onto the document body so shell-level
+  // chrome can react to it (matches the demo's `data-artifact-share-access`).
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.dataset.artifactShareAccess = shareAccess;
+    return () => {
+      delete document.body.dataset.artifactShareAccess;
+    };
+  }, [shareAccess]);
+
+  // Collapse the nested workspace-access listbox whenever the share popover
+  // itself closes, so it never re-opens mid-flight.
+  useEffect(() => {
+    if (!shareMenuOpen) setShareAccessMenuOpen(false);
+  }, [shareMenuOpen]);
+
+  // Published-file link. The demo mints a dedicated share URL; this viewer has
+  // no publish backend, so we fall back to the current page URL (no invented
+  // backend) and copy it to the clipboard with the same transient feedback.
+  const publishedFileUrl = typeof window !== 'undefined' ? window.location.href : '';
+  async function copyPublishedFileLink() {
+    let ok = false;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(publishedFileUrl);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    const feedback = ok ? 'copied' : 'failed';
+    setPublishLinkFeedback(feedback);
+    window.setTimeout(() => {
+      setPublishLinkFeedback((current) => (current === feedback ? null : current));
+    }, 1800);
+  }
 
   const exportTitle = file.name.replace(/\.(jsx|tsx)$/i, '') || file.name;
   const sourceExtension = file.name.toLowerCase().endsWith('.tsx') ? '.tsx' : '.jsx';
@@ -5260,7 +5303,7 @@ function ReactComponentViewer({
           {source !== null ? (
             <>
               <span className="viewer-divider" aria-hidden />
-              <div className="share-menu" ref={shareRef}>
+              <div className="share-menu chrome-share-menu chrome-share-menu--unified" ref={shareRef}>
                 <button
                   type="button"
                   className="viewer-action primary viewer-action-export od-tooltip"
@@ -5276,47 +5319,186 @@ function ReactComponentViewer({
                   <RemixIcon name="arrow-down-s-line" size={14} />
                 </button>
                 {shareMenuOpen ? (
-                  <div className="share-menu-popover" role="menu">
-                    <div className="share-menu-section-label" role="presentation">
-                      {t('common.share')}
+                  <div className="share-menu-popover chrome-unified-popover" role="menu">
+                    <div className="chrome-unified-tabs" role="tablist" aria-label="分享和导出操作">
+                      {([
+                        ['share', '分享'],
+                        ['export', '导出'],
+                        ['send', '发送到...'],
+                      ] as const).map(([tab, label]) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          className={unifiedActionTab === tab ? 'is-active' : undefined}
+                          role="tab"
+                          aria-selected={unifiedActionTab === tab}
+                          onClick={() => setUnifiedActionTab(tab)}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                    <button
-                      type="button"
-                      className="share-menu-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setShareMenuOpen(false);
-                        exportAsJsx(source, exportTitle, sourceExtension);
-                      }}
-                    >
-                      <span className="share-menu-icon"><RemixIcon name="file-code-line" size={15} /></span>
-                      <span>{t('fileViewer.exportJsx')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="share-menu-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setShareMenuOpen(false);
-                        exportReactComponentAsHtml(source, exportTitle);
-                      }}
-                    >
-                      <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
-                      <span>{t('fileViewer.exportReactHtml')}</span>
-                    </button>
-                    <div className="share-menu-divider" />
-                    <button
-                      type="button"
-                      className="share-menu-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setShareMenuOpen(false);
-                        exportReactComponentAsZip(source, exportTitle, sourceExtension);
-                      }}
-                    >
-                      <span className="share-menu-icon"><RemixIcon name="file-zip-line" size={15} /></span>
-                      <span>{t('fileViewer.exportZip')}</span>
-                    </button>
+                    {unifiedActionTab === 'share' ? (
+                      <div className="chrome-unified-panel chrome-unified-panel--share">
+                        <div className="chrome-share-card">
+                          <div className="chrome-share-card__header">
+                            <span className="share-menu-icon"><RemixIcon name="team-line" size={16} /></span>
+                            <span className="share-menu-text">
+                              <span>在工作空间中分享项目</span>
+                              <small>
+                                {shareAccess === 'private'
+                                  ? '仅你可以访问此项目。选择工作空间成员后，即可分享给团队。'
+                                  : '此工作空间的成员可以访问此项目。'}
+                              </small>
+                            </span>
+                          </div>
+                          <div className="chrome-access-select">
+                            <button
+                              type="button"
+                              className="chrome-access-trigger"
+                              aria-haspopup="listbox"
+                              aria-expanded={shareAccessMenuOpen}
+                              onClick={() => setShareAccessMenuOpen((v) => !v)}
+                            >
+                              <span className="share-menu-icon">
+                                <RemixIcon
+                                  name={
+                                    shareAccess === 'private'
+                                      ? 'lock-line'
+                                      : 'team-line'
+                                  }
+                                  size={16}
+                                />
+                              </span>
+                              <span>
+                                {shareAccess === 'private'
+                                  ? '仅自己'
+                                  : '工作空间成员'}
+                              </span>
+                              <RemixIcon name="arrow-down-s-line" size={16} />
+                            </button>
+                            {shareAccessMenuOpen ? (
+                              <div className="chrome-access-options" role="listbox">
+                                {([
+                                  ['private', 'lock-line', '仅自己'],
+                                  ['workspace', 'team-line', '工作空间成员'],
+                                ] as const).map(([value, icon, label]) => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={shareAccess === value}
+                                    className={shareAccess === value ? 'is-active' : undefined}
+                                    onClick={() => {
+                                      setShareAccess(value);
+                                      setShareAccessMenuOpen(false);
+                                    }}
+                                  >
+                                    <span className="share-menu-icon"><RemixIcon name={icon} size={16} /></span>
+                                    <span>{label}</span>
+                                    {shareAccess === value ? <RemixIcon name="check-line" size={15} /> : null}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="chrome-share-card">
+                          <div className="chrome-share-card__header">
+                            <span className="share-menu-icon"><RemixIcon name="broadcast-line" size={16} /></span>
+                            <span className="share-menu-text">
+                              <span>发布单个文件给所有人</span>
+                              <small>将当前单个文件设为外部可见。任何获得发布链接的人都可以在线查看。</small>
+                            </span>
+                          </div>
+                          {filePublished ? (
+                            <>
+                              <div className="chrome-publish-url" title={publishedFileUrl}>
+                                {publishedFileUrl}
+                              </div>
+                              <div className="chrome-publish-actions">
+                                <button
+                                  type="button"
+                                  className="chrome-publish-button"
+                                  onClick={() => {
+                                    void copyPublishedFileLink();
+                                  }}
+                                >
+                                  <RemixIcon name="file-copy-line" size={14} />
+                                  {publishLinkFeedback === 'copied'
+                                    ? t('fileViewer.copied')
+                                    : publishLinkFeedback === 'failed'
+                                      ? t('useEverywhere.copyFailed')
+                                      : '复制链接'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="chrome-publish-button chrome-publish-button--ghost"
+                                  onClick={() => setFilePublished(false)}
+                                >
+                                  取消发布
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="chrome-publish-primary"
+                              onClick={() => setFilePublished(true)}
+                            >
+                              <RemixIcon name="upload-cloud-2-line" size={15} />
+                              发布文件
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                    {unifiedActionTab === 'export' ? (
+                      <div className="chrome-unified-panel">
+                        <button
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setShareMenuOpen(false);
+                            exportAsJsx(source, exportTitle, sourceExtension);
+                          }}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name="file-code-line" size={15} /></span>
+                          <span>{t('fileViewer.exportJsx')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setShareMenuOpen(false);
+                            exportReactComponentAsHtml(source, exportTitle);
+                          }}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
+                          <span>{t('fileViewer.exportReactHtml')}</span>
+                        </button>
+                        <div className="share-menu-divider" />
+                        <button
+                          type="button"
+                          className="share-menu-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setShareMenuOpen(false);
+                            exportReactComponentAsZip(source, exportTitle, sourceExtension);
+                          }}
+                        >
+                          <span className="share-menu-icon"><RemixIcon name="file-zip-line" size={15} /></span>
+                          <span>{t('fileViewer.exportZip')}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                    {unifiedActionTab === 'send' ? (
+                      <div className="chrome-unified-panel chrome-unified-panel--handoff">
+                        <HandoffButton projectId={projectId} />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

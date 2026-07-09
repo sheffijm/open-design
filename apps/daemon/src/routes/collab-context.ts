@@ -5,6 +5,9 @@ import type {
   WorkspaceBillingResponse,
   WorkspaceBillingSummary,
   WorkspaceContextResponse,
+  WorkspaceInviteCreateResponse,
+  WorkspaceInviteCreateResult,
+  WorkspaceInviteRole,
   WorkspaceTeamProjectsResponse,
 } from '@open-design/contracts';
 import {
@@ -16,12 +19,19 @@ import {
   consumeInviteContinuation,
   type InviteContinueOutcome,
 } from '../collab/invite-continue.js';
+import {
+  createWorkspaceInvite,
+  type CreateInviteOutcome,
+  type CreateWorkspaceInviteInput,
+} from '../collab/invite-create.js';
 import { fetchBillingCheckoutUrl, fetchVelaBillingSummary } from '../integrations/vela-billing.js';
 
 export interface RegisterCollabContextRoutesDeps {
   workspaceContext: WorkspaceContextProvider;
   /** Injectable for tests; defaults to consuming against B with the vela session. */
   consumeInvite?: (nonce: string) => Promise<InviteContinueOutcome>;
+  /** Injectable for tests; defaults to creating invites on B with the vela session. */
+  createInvite?: (input: CreateWorkspaceInviteInput) => Promise<CreateInviteOutcome>;
   /** Injectable for tests; defaults to the vela billing CLI 收口. */
   fetchBilling?: () => Promise<WorkspaceBillingSummary | null>;
   /** Injectable for tests; defaults to the vela billing checkout CLI 收口. */
@@ -30,6 +40,39 @@ export interface RegisterCollabContextRoutesDeps {
    *  built from the same workspace context + env-configured hub client the share
    *  path uses. */
   listTeamProjects?: () => Promise<TeamProject[]>;
+}
+
+const ASSIGNABLE_ROLES = new Set<WorkspaceInviteRole>(['admin', 'member']);
+
+/**
+ * Normalize an invite-create request body into validated { email, role } items.
+ * Accepts either the canonical `{ invites: [...] }` batch shape or a single
+ * top-level `{ email, role }`. Rows without a non-empty email are dropped; a
+ * missing/unknown role defaults to 'member' (never 'owner').
+ */
+function parseInviteCreateItems(
+  body: unknown,
+): Array<{ email: string; role: WorkspaceInviteRole }> {
+  const raw = body as { invites?: unknown; email?: unknown; role?: unknown } | null;
+  const source: unknown[] = Array.isArray(raw?.invites)
+    ? raw!.invites
+    : raw && typeof raw === 'object' && typeof raw.email === 'string'
+      ? [raw]
+      : [];
+  const items: Array<{ email: string; role: WorkspaceInviteRole }> = [];
+  for (const entry of source) {
+    if (!entry || typeof entry !== 'object') continue;
+    const rec = entry as { email?: unknown; role?: unknown };
+    if (typeof rec.email !== 'string') continue;
+    const email = rec.email.trim();
+    if (!email) continue;
+    const role: WorkspaceInviteRole =
+      typeof rec.role === 'string' && ASSIGNABLE_ROLES.has(rec.role as WorkspaceInviteRole)
+        ? (rec.role as WorkspaceInviteRole)
+        : 'member';
+    items.push({ email, role });
+  }
+  return items;
 }
 
 /**
@@ -42,6 +85,8 @@ export interface RegisterCollabContextRoutesDeps {
 export function registerCollabContextRoutes(app: Express, deps: RegisterCollabContextRoutesDeps): void {
   const { workspaceContext } = deps;
   const consumeInvite = deps.consumeInvite ?? ((nonce: string) => consumeInviteContinuation(nonce));
+  const createInvite =
+    deps.createInvite ?? ((input: CreateWorkspaceInviteInput) => createWorkspaceInvite(input));
   const fetchBilling = deps.fetchBilling ?? (() => fetchVelaBillingSummary());
   const startCheckout =
     deps.startCheckout ?? ((input: { seats?: number }) => fetchBillingCheckoutUrl(input));
@@ -60,6 +105,40 @@ export function registerCollabContextRoutes(app: Express, deps: RegisterCollabCo
     const outcome = await consumeInvite(nonce);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json({ context: outcome.context, workspaceMemberId: outcome.workspaceMemberId });
+  });
+
+  // Invite CREATE (the inviter/host flow): the team switcher's "邀请同事" dialog
+  // POSTs one or more { email, role } pairs here. The daemon derives the current
+  // workspaceId from the caller's workspace context and creates each invite on B
+  // with the signed-in vela session. Every outcome is typed: a missing session
+  // 401s, a missing workspace 409s, and B's per-invite failures (including a 404
+  // when B's create endpoint is absent locally) come back as `ok: false` results
+  // — the endpoint never crashes on the backend being unavailable.
+  app.post('/api/workspace/invite', async (req, res) => {
+    const items = parseInviteCreateItems(req.body);
+    if (items.length === 0) return res.status(400).json({ error: 'missing_invites' });
+
+    const authorization = req.header('authorization') ?? undefined;
+    const context = await workspaceContext.current({ authorization });
+    const workspaceId = context?.workspaceId?.trim() ?? '';
+    if (!workspaceId) return res.status(409).json({ error: 'no_workspace' });
+
+    const results: WorkspaceInviteCreateResult[] = [];
+    for (const item of items) {
+      const outcome = await createInvite({ email: item.email, role: item.role, workspaceId });
+      // The vela session is workspace-wide: if it is missing for one invite it is
+      // missing for all, so short-circuit to a single 401 instead of N failures.
+      if (!outcome.ok && outcome.error === 'no_session') {
+        return res.status(401).json({ error: 'no_session' });
+      }
+      results.push(
+        outcome.ok
+          ? { email: item.email, ok: true, inviteId: outcome.inviteId }
+          : { email: item.email, ok: false, error: outcome.error },
+      );
+    }
+    const body: WorkspaceInviteCreateResponse = { results };
+    return res.json(body);
   });
 
   app.get('/api/workspace/context', async (req, res) => {
