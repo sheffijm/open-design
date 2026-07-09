@@ -51,6 +51,25 @@ export interface ResourceHubPublishAdapterOptions {
 const PUBLISHED_REF = 'published';
 const PROJECT_KIND = 'project';
 
+// Author-only, daemon-internal directories that must never land in a member's
+// read-only mirror. `.file-versions` is the owner's version history — C spec
+// §779 requires the member mirror to carry only the latest content, with no
+// history to browse or restore; a member pulling it (observed on disk) is the
+// bug this excludes. `.live-artifacts` is the daemon's transient live-artifact
+// registry and `.od-skills` is a private per-run skill working copy — neither
+// is publishable project content. This mirrors the dotdir filtering the
+// "Download as .zip" archive already applies (projects.ts collectArchiveEntries),
+// keeping the member mirror to the visible project tree (index.html etc.).
+const MEMBER_MIRROR_EXCLUDED_DIRS: ReadonlySet<string> = new Set([
+  '.file-versions',
+  '.live-artifacts',
+  '.od-skills',
+]);
+
+function isMemberMirrorExcluded(name: string): boolean {
+  return MEMBER_MIRROR_EXCLUDED_DIRS.has(name);
+}
+
 export function createResourceHubPublishAdapter(
   options: ResourceHubPublishAdapterOptions,
 ): ResourcePublishAdapter {
@@ -77,7 +96,9 @@ export function createResourceHubPublishAdapter(
     async publish({ projectId }) {
       const principal = await getPrincipal();
       if (!principal) return null; // no team identity → nothing to publish
-      const packed = await packTree(await resolveProjectDir(projectId));
+      const packed = await packTree(await resolveProjectDir(projectId), {
+        exclude: (name) => isMemberMirrorExcluded(name),
+      });
       const resourceId = await ensureResourceId(principal, projectId);
       // pushTree uploads only missing blobs, publishes a version, and moves the
       // `published` ref atomically (content-first, pointer-last).
