@@ -2340,7 +2340,7 @@ export const th: Dict = {
   'workspace.showChat': 'เปิดแชท',
   'workspace.closeTab': 'ปิดแท็บ',
   'workspace.deleteFileConfirm': 'ลบ "{name}" ทิ้งไปเลยหรือไม่?',
-  'workspace.readonlyNotice': 'Shared project (read-only): you can view and comment, but not edit files or change artifacts through chat.',
+  'workspace.readonlyNotice': 'นี่คือโปรเจกต์ที่แชร์ — คุณสามารถดูและแสดงความคิดเห็นได้ แต่ไม่สามารถแก้ไขอาร์ติแฟกต์ผ่าน Chat หรือเครื่องมือแก้ไข',
   'workspace.deleteSelectedFilesConfirm': 'ลบไฟล์ {n} รายการที่เลือกออกจากโปรเจกต์?',
   'workspace.deleteSelectedFilesPartial': 'ลบ {n} รายการไม่ผ่าน',
   'workspace.openFromDesignFiles': 'เปิดไฟล์จาก',

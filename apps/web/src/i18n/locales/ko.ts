@@ -2340,7 +2340,7 @@ export const ko: Dict = {
   'workspace.showChat': '채팅 표시',
   'workspace.closeTab': '탭 닫기',
   'workspace.deleteFileConfirm': '프로젝트 폴더에서 "{name}" 파일을 삭제하시겠습니까?',
-  'workspace.readonlyNotice': '공유 프로젝트(읽기 전용): 보기와 댓글은 가능하지만 파일 편집이나 채팅을 통한 아티팩트 변경은 할 수 없습니다.',
+  'workspace.readonlyNotice': '공유 프로젝트입니다. 보기와 댓글은 가능하지만 Chat이나 편집 도구로 Artifact를 수정할 수 없습니다.',
   'workspace.deleteSelectedFilesConfirm': '프로젝트 폴더에서 선택한 {n}개 파일을 삭제하시겠습니까?',
   'workspace.deleteSelectedFilesPartial': '{n}개 파일을 삭제하지 못했습니다.',
   'workspace.openFromDesignFiles': '디자인 파일 열기',

@@ -2566,7 +2566,7 @@ export const zhTW: Dict = {
   "workspace.showChat": "顯示聊天",
   "workspace.closeTab": "關閉分頁",
   "workspace.deleteFileConfirm": "從專案資料夾中刪除「{name}」？",
-  "workspace.readonlyNotice": "共享專案唯讀：你可以檢視和評論，但不能編輯專案檔案或透過 Chat 修改 Artifact。",
+  "workspace.readonlyNotice": "這是共享專案，你可以檢視和評論，但不能透過 Chat 或編輯工具修改 Artifact。",
   "workspace.deleteSelectedFilesConfirm":
     "從專案資料夾中刪除選中的 {n} 個檔案？",
   "workspace.deleteSelectedFilesPartial": "有 {n} 個檔案刪除失敗。",

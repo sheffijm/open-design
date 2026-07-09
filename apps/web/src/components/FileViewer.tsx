@@ -9197,7 +9197,6 @@ function HtmlViewer({
   // Read-only viewer of a team-shared project: comment-only copy for the
   // disabled edit/export controls and the comment composer's send-to-chat path.
   const viewerOnlyDisabledTitle = '共享项目只读：可以评论，不能编辑或导出';
-  const viewerOnlySendDisabledTitle = '共享项目只读：可以保存评论，不能发送到 Chat 修改 Artifact';
 
   // If viewerOnly flips on while an edit surface / export menu is open, close it
   // so the read-only viewer never lands in an editing mode it can't act on.
@@ -10004,8 +10003,7 @@ function HtmlViewer({
       } : undefined}
       sending={sendingBoardBatch}
       queueOnSend={commentQueueOnSend}
-      sendDisabled={commentSendDisabled || viewerOnly}
-      sendDisabledReason={viewerOnly ? viewerOnlySendDisabledTitle : undefined}
+      sendDisabled={commentSendDisabled}
       t={t}
       scale={overlayPreviewScale}
       offset={{ x: overlayPreviewTransform.offsetX, y: overlayPreviewTransform.offsetY }}
@@ -10120,8 +10118,7 @@ function HtmlViewer({
       onCreateComment={savePanelComment}
       sending={sendingBoardBatch}
       queueOnSend={commentQueueOnSend}
-      sendDisabled={commentSendDisabled || viewerOnly}
-      sendDisabledReason={viewerOnly ? viewerOnlySendDisabledTitle : undefined}
+      sendDisabled={commentSendDisabled}
       renderCreateForm={!commentPortalHost}
       t={t}
       composer={null}

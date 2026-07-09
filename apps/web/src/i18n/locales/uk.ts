@@ -2340,7 +2340,7 @@ export const uk: Dict = {
   'workspace.showChat': 'Показати чат',
   'workspace.closeTab': 'Закрити вкладку',
   'workspace.deleteFileConfirm': 'Видалити "{name}" з папки проекту?',
-  'workspace.readonlyNotice': 'Shared project (read-only): you can view and comment, but not edit files or change artifacts through chat.',
+  'workspace.readonlyNotice': 'Це спільний проєкт — ви можете переглядати й коментувати, але не можете змінювати артефакти через Чат або інструменти редагування.',
   'workspace.deleteSelectedFilesConfirm': 'Видалити {n} вибраних файлів з папки проекту?',
   'workspace.deleteSelectedFilesPartial': 'Не вдалося видалити {n} файл(ів).',
   'workspace.openFromDesignFiles': 'Відкрити файл з',

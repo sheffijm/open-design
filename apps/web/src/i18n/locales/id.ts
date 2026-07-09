@@ -2340,7 +2340,7 @@ export const id: Dict = {
   'workspace.showChat': 'Tampilkan chat',
   'workspace.closeTab': 'Tutup tab',
   'workspace.deleteFileConfirm': 'Hapus "{name}" dari folder proyek?',
-  'workspace.readonlyNotice': 'Shared project (read-only): you can view and comment, but not edit files or change artifacts through chat.',
+  'workspace.readonlyNotice': 'Ini proyek bersama — Anda dapat melihat dan mengomentari, tetapi tidak dapat mengubah artefak melalui Chat atau alat pengeditan.',
   'workspace.deleteSelectedFilesConfirm': 'Hapus {n} file terpilih dari folder proyek?',
   'workspace.deleteSelectedFilesPartial': 'Gagal menghapus {n} file.',
   'workspace.openFromDesignFiles': 'Buka file dari',

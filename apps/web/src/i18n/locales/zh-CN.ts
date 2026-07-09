@@ -2556,7 +2556,7 @@ export const zhCN: Dict = {
   "workspace.showChat": "显示聊天",
   "workspace.closeTab": "关闭标签页",
   "workspace.deleteFileConfirm": "从项目文件夹中删除「{name}」？",
-  "workspace.readonlyNotice": "共享项目只读：你可以查看和评论，但不能编辑项目文件或通过 Chat 修改 Artifact。",
+  "workspace.readonlyNotice": "这是共享项目，你可以查看和评论，但不能通过 Chat 或编辑工具修改 Artifact。",
   "workspace.deleteSelectedFilesConfirm":
     "从项目文件夹中删除选中的 {n} 个文件？",
   "workspace.deleteSelectedFilesPartial": "有 {n} 个文件删除失败。",

@@ -2340,7 +2340,7 @@ export const it: Dict = {
   'workspace.showChat': 'Mostra chat',
   'workspace.closeTab': 'Chiudi scheda',
   'workspace.deleteFileConfirm': 'Eliminare « {name} » dalla cartella del progetto?',
-  'workspace.readonlyNotice': 'Shared project (read-only): you can view and comment, but not edit files or change artifacts through chat.',
+  'workspace.readonlyNotice': 'Questo è un progetto condiviso: puoi visualizzarlo e commentarlo, ma non modificare gli artefatti tramite Chat o gli strumenti di modifica.',
   'workspace.deleteSelectedFilesConfirm': 'Eliminare i {n} file selezionati dalla cartella del progetto?',
   'workspace.deleteSelectedFilesPartial': 'Impossibile eliminare {n} file.',
   'workspace.openFromDesignFiles': 'Apri un file da',

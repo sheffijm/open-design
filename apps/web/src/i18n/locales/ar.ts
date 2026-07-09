@@ -2340,7 +2340,7 @@ export const ar: Dict = {
   'workspace.showChat': 'إظهار المحادثة',
   'workspace.closeTab': 'إغلاق علامة التبويب',
   'workspace.deleteFileConfirm': 'حذف "{name}" من مجلد المشروع؟',
-  'workspace.readonlyNotice': 'Shared project (read-only): you can view and comment, but not edit files or change artifacts through chat.',
+  'workspace.readonlyNotice': 'هذا مشروع مشترك — يمكنك عرضه والتعليق عليه، لكن لا يمكنك تعديل العناصر عبر الدردشة أو أدوات التحرير.',
   'workspace.deleteSelectedFilesConfirm': 'حذف {n} ملف(ات) محددة من مجلد المشروع؟',
   'workspace.deleteSelectedFilesPartial': 'فشل حذف {n} ملف(ات).',
   'workspace.openFromDesignFiles': 'فتح ملف من',

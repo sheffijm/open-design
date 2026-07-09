@@ -2340,7 +2340,7 @@ export const hu: Dict = {
   'workspace.showChat': 'Csevegés megjelenítése',
   'workspace.closeTab': 'Lap bezárása',
   'workspace.deleteFileConfirm': 'Törlöd a(z) „{name}" fájlt a projektmappából?',
-  'workspace.readonlyNotice': 'Shared project (read-only): you can view and comment, but not edit files or change artifacts through chat.',
+  'workspace.readonlyNotice': 'Ez egy megosztott projekt — megtekintheted és kommentálhatod, de a műtermékeket nem módosíthatod Chaten vagy a szerkesztőeszközökön keresztül.',
   'workspace.deleteSelectedFilesConfirm': 'Törlöd a(z) {n} kijelölt fájlt a projektmappából?',
   'workspace.deleteSelectedFilesPartial': '{n} fájl törlése sikertelen.',
   'workspace.openFromDesignFiles': 'Nyiss meg egy fájlt innen:',
