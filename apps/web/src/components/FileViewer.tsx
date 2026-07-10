@@ -11094,6 +11094,9 @@ function HtmlViewer({
                           {shareLinkStatusHint || shareUnavailableHint}
                         </div>
                       ) : null}
+                      <div className="share-menu-section-label" role="presentation">
+                        {t('socialShare.projectSection')}
+                      </div>
                       <button
                         type="button"
                         className="share-menu-item"

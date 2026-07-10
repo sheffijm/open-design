@@ -567,6 +567,15 @@ export function EntryNavRail({
               <Icon name="folder" size={18} />
             </NavButton>
             <NavButton
+              active={view === 'tasks'}
+              ariaLabel={t('entry.navTasks')}
+              tooltip={t('entry.navTasks')}
+              onClick={() => selectView('tasks')}
+              testId="entry-nav-tasks"
+            >
+              <Icon name="kanban" size={18} />
+            </NavButton>
+            <NavButton
               active={view === 'design-systems'}
               ariaLabel={t('entry.navDesignSystems')}
               tooltip={t('entry.navDesignSystems')}
@@ -583,6 +592,15 @@ export function EntryNavRail({
               testId="entry-nav-plugins"
             >
               <Icon name="grid" size={18} />
+            </NavButton>
+            <NavButton
+              active={view === 'integrations'}
+              ariaLabel={t('entry.navIntegrations')}
+              tooltip={t('entry.navIntegrations')}
+              onClick={() => selectView('integrations')}
+              testId="entry-nav-integrations"
+            >
+              <Icon name="integrations-filled" size={18} />
             </NavButton>
           </>
         )}

@@ -721,7 +721,7 @@ export function ExtensionsMarketplace({
   }, [analytics.track]);
 
   const [mode, setMode] = useState<MarketMode>('plugins');
-  const [scope, setScope] = useState<MarketScope>('official');
+  const [scope, setScope] = useState<MarketScope>('personal');
   const [query, setQuery] = useState('');
   const [menuId, setMenuId] = useState<string | null>(null);
 
@@ -1051,7 +1051,7 @@ export function ExtensionsMarketplace({
       <header className="plugin-marketplace__hero">
         <div>
           <h1 id="plugin-marketplace-title" className="entry-section__title">
-            {t('entry.navExtensions')}
+            {t('entry.navPlugins')}
           </h1>
           <p>{t('pluginsView.marketplaceBody')}</p>
         </div>
@@ -1103,6 +1103,7 @@ export function ExtensionsMarketplace({
               key={item.id}
               type="button"
               className={scope === item.id ? 'is-active' : ''}
+              {...(item.id === 'personal' ? { 'data-testid': 'plugins-tab-installed' } : {})}
               onClick={() => {
                 setScope(item.id);
                 setMenuId(null);
